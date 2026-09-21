@@ -111,6 +111,23 @@ export async function updateAccount(formData: FormData) {
   return { ok: true };
 }
 
+// Eliminado suave: oculta la cuenta pero conserva el historial de movimientos.
+// Solo el dueño puede eliminarla.
+export async function deleteAccount(id: string) {
+  const session = await auth();
+  const userId = (session?.user as { id?: string } | undefined)?.id;
+  if (!userId) return { error: "No autenticado" };
+  if (!process.env.DATABASE_URL) return { error: "Configura DATABASE_URL para eliminar cuentas" };
+
+  const acc = await prisma.account.findFirst({ where: { id, userId }, select: { id: true } });
+  if (!acc) return { error: "Cuenta no encontrada" };
+
+  await prisma.account.update({ where: { id }, data: { isActive: false } });
+
+  revalidatePath("/cuentas");
+  return { ok: true };
+}
+
 const TxSchema = z.object({
   type: z.enum(["EXPENSE", "INCOME", "TRANSFER"]).default("EXPENSE"),
   amount: z.coerce.number().positive("Monto debe ser mayor a 0"),

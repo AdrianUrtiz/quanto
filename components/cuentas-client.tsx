@@ -2,7 +2,8 @@
 
 import { useMemo, useState } from "react";
 import { HandCoins, Plus } from "lucide-react";
-import { AccountCard, type AccountRow } from "@/components/account-card";
+import type { AccountRow } from "@/components/account-card";
+import { AccountSwipeRow } from "@/components/account-swipe-row";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { AccountForm } from "@/components/account-form";
@@ -30,8 +31,13 @@ export type PartnerDebt = {
 export function CuentasClient({ accounts, meId, debts }: { accounts: AccountRow[]; meId: string; debts: PartnerDebt[] }) {
   const [tab, setTab] = useState("todas");
   const [open, setOpen] = useState(false);
+  const [openRow, setOpenRow] = useState<string | null>(null);
 
   const mine = useMemo(() => accounts.filter((a) => a.ownerId === meId), [accounts, meId]);
+
+  const swipe = (a: AccountRow) => (
+    <AccountSwipeRow key={a.id} a={a} open={openRow === a.id} onOpenChange={(o) => setOpenRow(o ? a.id : null)} />
+  );
 
   // Saldo total: suma débitos + disponible de créditos
   const totalOf = (list: AccountRow[]) =>
@@ -40,7 +46,6 @@ export function CuentasClient({ accounts, meId, debts }: { accounts: AccountRow[
 
   const isPartner = tab === "pareja";
   const total = tab === "mias" ? totalOf(mine) : isPartner ? owed : totalOf(mine);
-  const shown = tab === "mias" ? mine : accounts;
 
   return (
     <div className="space-y-4 px-5 pt-4">
@@ -73,13 +78,13 @@ export function CuentasClient({ accounts, meId, debts }: { accounts: AccountRow[
           <TabsTrigger value="pareja">Mi pareja</TabsTrigger>
         </TabsList>
         <TabsContent value="todas" className="space-y-2">
-          {mine.map((a) => <AccountCard key={a.id} a={a} />)}
+          {mine.map(swipe)}
           {debts.map((d) => <DebtSummaryRow key={d.accountId} d={d} onOpen={() => setTab("pareja")} />)}
           {mine.length === 0 && debts.length === 0 && <Empty text="Sin cuentas aquí todavía." />}
         </TabsContent>
         <TabsContent value="mias" className="space-y-2">
-          {shown.length === 0 && <Empty text="Sin cuentas aquí todavía." />}
-          {shown.map((a) => <AccountCard key={a.id} a={a} />)}
+          {mine.length === 0 && <Empty text="Sin cuentas aquí todavía." />}
+          {mine.map(swipe)}
         </TabsContent>
         <TabsContent value="pareja" className="space-y-2">
           {debts.length === 0 && <Empty text="No le debes nada a tu pareja este mes. 🎉" />}

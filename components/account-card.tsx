@@ -1,6 +1,5 @@
 import { CreditCard, Landmark } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { AccountEditDialog } from "@/components/account-edit-dialog";
 import { formatMoney } from "@/lib/utils";
 
 export type AccountRow = {
@@ -40,11 +39,10 @@ export function AccountCard({ a }: { a: AccountRow }) {
           </div>
         )}
       </div>
-      <div className="shrink-0 text-right">
+      <div className="text-right">
         <p className="text-base font-extrabold">{formatMoney(credit ? a.balance : available)}</p>
         <p className="text-[11px] text-(--muted-foreground)">{credit ? `Disponible ${formatMoney(available)}` : "Saldo"}</p>
       </div>
-      <AccountEditDialog account={a} />
     </div>
   );
 }
