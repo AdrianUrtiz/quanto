@@ -1,0 +1,153 @@
+// Quanto — PWA control de gastos personales y en pareja
+// Prisma 6 + PostgreSQL (Vercel Postgres / Neon)
+// Despliegue: `npx prisma migrate deploy` en Vercel Build.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  // Si usas pooling (Neon/Vercel con PgBouncer), agrega:
+  // directUrl = env("DIRECT_URL")
+}
+
+enum AccountType {
+  DEBIT
+  CREDIT
+}
+
+enum TransactionType {
+  EXPENSE
+  INCOME
+  TRANSFER
+}
+
+enum DepositFrequency {
+  WEEKLY
+  BIWEEKLY
+  MONTHLY
+}
+
+enum Category {
+  COMIDA
+  TRANSPORTE
+  VIVIENDA
+  SERVICIOS
+  SALUD
+  OCIO
+  COMPRAS
+  EDUCACION
+  VIAJES
+  MASCOTAS
+  SUSCRIPCIONES
+  NOMINA
+  OTRO
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  password  String // hash bcrypt (Auth.js Credentials)
+  name      String
+  avatar    String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  accounts     Account[]
+  transactions Transaction[]      @relation("CreatedBy")
+  debts        TransactionShare[] @relation("Debtor")
+}
+
+model Account {
+  id     String      @id @default(cuid())
+  name   String // ej. "BBVA Débito", "Nu Crédito"
+  type   AccountType
+  userId String
+  user   User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  lastFour String?
+  color    String?  @default("#6366f1")
+  isActive Boolean @default(true)
+
+  // — Débito —
+  initialBalance   Decimal?          @db.Decimal(12, 2)
+  recurringDeposit Decimal?          @db.Decimal(12, 2) // nómina programada
+  depositFrequency DepositFrequency? @default(MONTHLY)
+
+  // — Crédito —
+  creditLimit  Decimal? @db.Decimal(12, 2)
+  statementDay Int? // día de corte 1-31
+  dueDay       Int? // día límite de pago 1-31
+
+  // Saldo almacenado (fuente de verdad simple):
+  //  - DEBIT  → saldo disponible.
+  //  - CREDIT → deuda dispuesta acumulada (disponible = limit - balance).
+  balance Decimal @default(0) @db.Decimal(12, 2)
+
+  transactions Transaction[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+}
+
+model Transaction {
+  id          String          @id @default(cuid())
+  type        TransactionType @default(EXPENSE)
+  amount      Decimal         @db.Decimal(12, 2) // monto TOTAL de la compra
+  concept     String
+  category    Category        @default(OTRO)
+  date        DateTime        @default(now())
+  notes       String?
+
+  accountId String
+  account   Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  createdById String
+  createdBy   User   @relation("CreatedBy", fields: [createdById], references: [id], onDelete: Cascade)
+
+  // Meses sin intereses: 1 = contado, 3/6/12 = parcialidades.
+  // Cuota mensual total = amount / installments.
+  installments Int @default(1)
+
+  // Gasto compartido en pareja (por defecto 50/50 vía TransactionShare).
+  isShared Boolean @default(false)
+  shares   TransactionShare[]
+
+  // Solo para TRANSFER: cuenta destino.
+  transferToAccountId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([date])
+  @@index([accountId])
+  @@index([createdById])
+}
+
+model TransactionShare {
+  id            String @id @default(cuid())
+  transactionId String
+  transaction   Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+
+  // Quién DEBE aportar (normalmente la pareja del creador).
+  debtorId String
+  debtor   User   @relation("Debtor", fields: [debtorId], references: [id], onDelete: Cascade)
+
+  // Porcentaje del total que le toca al deudor (50 = mitad).
+  sharePct Float @default(50)
+
+  // Aportación MENSUAL del deudor = amount * sharePct/100 / installments.
+  // Ej: $3,000 a 3 MSI 50/50 → $500/mes durante 3 meses.
+  monthlyAmount Decimal @db.Decimal(12, 2)
+
+  settled Boolean @default(false)
+
+  createdAt DateTime @default(now())
+
+  @@index([transactionId])
+  @@index([debtorId])
+}
