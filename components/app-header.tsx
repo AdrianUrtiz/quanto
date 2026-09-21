@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useTheme } from "next-themes";
+import { useTheme } from "@/components/theme-provider";
 import { Moon, Settings, Sun, LogOut, ChevronDown } from "lucide-react";
 import { signOut, useSession } from "next-auth/react";
 
