@@ -1,6 +1,7 @@
 import { AppHeader } from "@/components/app-header";
 import { ActivityClient } from "@/components/activity-client";
 import type { TxRow } from "@/components/transaction-list";
+import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { DEMO_TXS } from "@/lib/demo-data";
 import { monthKey, monthLabelEs } from "@/lib/utils";
@@ -13,16 +14,22 @@ function daysInMonth(y: number, m: number) {
 }
 
 export default async function ActividadPage() {
+  const session = await auth();
+  const meId = (session?.user as { id?: string } | undefined)?.id ?? "u-adrian";
   const now = new Date();
   const key = monthKey(now);
   const start = new Date(now.getFullYear(), now.getMonth(), 1);
   const end = new Date(now.getFullYear(), now.getMonth() + 1, 1);
 
+  // Privacidad: solo MIS movimientos. Lo que gasta mi pareja no aparece aquí;
+  // lo que le debo vive en Cuentas > Mi pareja y en el Resumen.
+  const mine = (list: typeof DEMO_TXS) => list.filter((t) => t.createdById === meId);
+
   let txs: TxRow[];
   if (process.env.DATABASE_URL) {
     try {
       const rows = await prisma.transaction.findMany({
-        where: { date: { gte: start, lt: end } },
+        where: { date: { gte: start, lt: end }, createdById: meId },
         include: { account: true, createdBy: true },
         orderBy: { date: "desc" },
       });
@@ -39,10 +46,10 @@ export default async function ActividadPage() {
         isShared: t.isShared,
       }));
     } catch {
-      txs = DEMO_TXS as unknown as TxRow[];
+      txs = mine(DEMO_TXS) as unknown as TxRow[];
     }
   } else {
-    txs = DEMO_TXS.map((t) => ({ ...t }));
+    txs = mine(DEMO_TXS).map((t) => ({ ...t }));
   }
 
   const dim = daysInMonth(now.getFullYear(), now.getMonth());

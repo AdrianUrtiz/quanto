@@ -1,5 +1,6 @@
 import { CreditCard, Landmark } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { AccountEditDialog } from "@/components/account-edit-dialog";
 import { formatMoney } from "@/lib/utils";
 
 export type AccountRow = {
@@ -7,11 +8,13 @@ export type AccountRow = {
   name: string;
   type: "DEBIT" | "CREDIT";
   owner: string;
+  ownerId: string;
   balance: number;
   creditLimit?: number;
   statementDay?: number;
   dueDay?: number;
   lastFour?: string;
+  expiry?: string;
   color: string;
 };
 
@@ -26,7 +29,8 @@ export function AccountCard({ a }: { a: AccountRow }) {
       </span>
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-semibold">
-          {a.name} {a.lastFour && <span className="text-(--muted-foreground)">· ·{a.lastFour}</span>}
+          {a.name} {a.lastFour && <span className="text-(--muted-foreground)">· ·{a.lastFour}</span>}{" "}
+          {a.expiry && <span className="text-(--muted-foreground)">· {a.expiry}</span>}
         </p>
         <p className="text-xs text-(--muted-foreground)">{a.owner} · {credit ? "Crédito" : "Débito"}</p>
         {credit && a.statementDay && a.dueDay && (
@@ -36,10 +40,11 @@ export function AccountCard({ a }: { a: AccountRow }) {
           </div>
         )}
       </div>
-      <div className="text-right">
+      <div className="shrink-0 text-right">
         <p className="text-base font-extrabold">{formatMoney(credit ? a.balance : available)}</p>
         <p className="text-[11px] text-(--muted-foreground)">{credit ? `Disponible ${formatMoney(available)}` : "Saldo"}</p>
       </div>
+      <AccountEditDialog account={a} />
     </div>
   );
 }

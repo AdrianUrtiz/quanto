@@ -24,12 +24,6 @@ enum TransactionType {
   TRANSFER
 }
 
-enum DepositFrequency {
-  WEEKLY
-  BIWEEKLY
-  MONTHLY
-}
-
 enum Category {
   COMIDA
   TRANSPORTE
@@ -68,13 +62,12 @@ model Account {
   user   User        @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   lastFour String?
+  expiry   String? // vencimiento MM/AA
   color    String?  @default("#6366f1")
   isActive Boolean @default(true)
 
-  // — Débito —
-  initialBalance   Decimal?          @db.Decimal(12, 2)
-  recurringDeposit Decimal?          @db.Decimal(12, 2) // nómina programada
-  depositFrequency DepositFrequency? @default(MONTHLY)
+  // — Débito: solo saldo inicial; los ingresos se registran manual —
+  initialBalance Decimal? @db.Decimal(12, 2)
 
   // — Crédito —
   creditLimit  Decimal? @db.Decimal(12, 2)

@@ -42,8 +42,6 @@ async function main() {
       lastFour: "1234",
       color: "#6366f1",
       initialBalance: 15000,
-      recurringDeposit: 20000,
-      depositFrequency: "MONTHLY",
       balance: 15000,
     },
   });
