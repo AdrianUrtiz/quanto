@@ -3,9 +3,9 @@
 import { useState } from "react";
 import { Plus } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { TransactionForm } from "@/components/transaction-form";
+import { TransactionForm, type AccountOpt } from "@/components/transaction-form";
 
-export function Fab({ accountOptions }: { accountOptions: { id: string; name: string }[] }) {
+export function Fab({ accountOptions }: { accountOptions: AccountOpt[] }) {
   const [open, setOpen] = useState(false);
   return (
     <Dialog open={open} onOpenChange={setOpen}>

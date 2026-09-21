@@ -1,80 +1,104 @@
 import { AppHeader } from "@/components/app-header";
-import { ActivityClient } from "@/components/activity-client";
+import { ActivityClient, type MonthOpt } from "@/components/activity-client";
 import type { TxRow } from "@/components/transaction-list";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
-import { DEMO_TXS } from "@/lib/demo-data";
+import { DEMO_ACCOUNTS, DEMO_TXS } from "@/lib/demo-data";
 import { monthKey, monthLabelEs } from "@/lib/utils";
 
 export const metadata = { title: "Actividad" };
 export const dynamic = "force-dynamic"; // el mes y los datos cambian por request
 
-function daysInMonth(y: number, m: number) {
-  return new Date(y, m + 1, 0).getDate();
-}
-
 export default async function ActividadPage() {
   const session = await auth();
   const meId = (session?.user as { id?: string } | undefined)?.id ?? "u-adrian";
-  const now = new Date();
-  const key = monthKey(now);
-  const start = new Date(now.getFullYear(), now.getMonth(), 1);
-  const end = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+
+  // Sin cota inferior: "Todo el tiempo" debe ser literal (escala personal).
 
   // Privacidad: solo MIS movimientos. Lo que gasta mi pareja no aparece aquí;
   // lo que le debo vive en Cuentas > Mi pareja y en el Resumen.
-  const mine = (list: typeof DEMO_TXS) => list.filter((t) => t.createdById === meId);
+  type Raw = {
+    id: string; concept: string; category: string; amount: number; date: Date;
+    type: string; accountId: string; accountName: string; accountType: string;
+    transferToAccountId?: string | null; transferToAccountName?: string | null;
+    creatorName: string;
+    installments: number; isShared: boolean; createdById: string;
+  };
 
-  let txs: TxRow[];
+  let raw: Raw[];
   if (process.env.DATABASE_URL) {
     try {
-      const rows = await prisma.transaction.findMany({
-        where: { date: { gte: start, lt: end }, createdById: meId },
-        include: { account: true, createdBy: true },
-        orderBy: { date: "desc" },
-      });
-      txs = rows.map((t) => ({
+      const [rows, accRows] = await Promise.all([
+        prisma.transaction.findMany({
+          where: { createdById: meId },
+          include: { account: true, createdBy: true },
+          orderBy: { date: "desc" },
+        }),
+        prisma.account.findMany({ where: { userId: meId }, select: { id: true, name: true } }),
+      ]);
+      const accById = new Map(accRows.map((a) => [a.id, a.name]));
+      raw = rows.map((t) => ({
         id: t.id,
         concept: t.concept,
         category: t.category,
         amount: Number(t.amount),
-        date: t.date.toISOString(),
+        date: t.date,
         type: t.type,
+        accountId: t.accountId,
         accountName: t.account.name,
+        accountType: t.account.type,
+        transferToAccountId: t.transferToAccountId ?? null,
+        transferToAccountName: t.transferToAccountId ? (accById.get(t.transferToAccountId) ?? null) : null,
         creatorName: t.createdBy.name,
         installments: t.installments,
         isShared: t.isShared,
+        createdById: t.createdById,
       }));
     } catch {
-      txs = mine(DEMO_TXS) as unknown as TxRow[];
+      raw = DEMO_TXS.filter((t) => t.createdById === meId).map((t) => ({
+        ...t,
+        date: new Date(t.date),
+        accountName: t.accountName,
+        accountType: DEMO_ACCOUNTS.find((a) => a.id === t.accountId)?.type ?? "DEBIT",
+        transferToAccountId: null,
+        transferToAccountName: null,
+        creatorName: t.creatorName,
+      }));
     }
   } else {
-    txs = mine(DEMO_TXS).map((t) => ({ ...t }));
+    raw = DEMO_TXS.filter((t) => t.createdById === meId).map((t) => ({
+      ...t,
+      date: new Date(t.date),
+      accountName: t.accountName,
+      accountType: DEMO_ACCOUNTS.find((a) => a.id === t.accountId)?.type ?? "DEBIT",
+      transferToAccountId: null,
+      transferToAccountName: null,
+      creatorName: t.creatorName,
+    }));
   }
 
-  const dim = daysInMonth(now.getFullYear(), now.getMonth());
-  const daily = Array.from({ length: dim }, (_, i) => ({ day: i + 1, total: 0 }));
-  let total = 0;
-  for (const t of txs) {
+  const txs: TxRow[] = raw.map((t) => ({ ...t, date: t.date.toISOString() }));
+
+  // Meses con registro (solo gastos suman al total del selector).
+  const totals = new Map<string, number>();
+  for (const t of raw) {
     if (t.type !== "EXPENSE") continue;
-    total += t.amount;
-    const d = new Date(t.date).getDate();
-    if (d >= 1 && d <= dim) daily[d - 1].total += t.amount;
+    const k = monthKey(new Date(t.date));
+    totals.set(k, (totals.get(k) ?? 0) + t.amount);
   }
-
-  const accountNames = [...new Set(txs.map((t) => t.accountName))];
+  const current = monthKey(new Date());
+  if (!totals.has(current)) totals.set(current, 0);
+  const months: MonthOpt[] = [...totals.entries()]
+    .sort((a, b) => (a[0] < b[0] ? 1 : -1))
+    .map(([key, total]) => {
+      const [y, m] = key.split("-").map(Number);
+      return { key, label: monthLabelEs(new Date(y, m - 1, 1)), total };
+    });
 
   return (
     <>
       <AppHeader title="Actividad" />
-      <ActivityClient
-        txs={txs}
-        daily={daily}
-        total={total}
-        monthLabel={monthLabelEs(now)}
-        accountNames={accountNames}
-      />
-      <p className="sr-only">{key}</p>
+      <ActivityClient txs={txs} months={months} />
     </>
   );
 }

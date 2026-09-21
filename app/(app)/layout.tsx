@@ -12,15 +12,16 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   let accounts = DEMO_ACCOUNTS.filter((a) => a.ownerId === meId).map((a) => ({
     id: a.id,
     name: a.name,
+    type: a.type as "DEBIT" | "CREDIT",
   }));
   if (process.env.DATABASE_URL) {
     try {
       const rows = await prisma.account.findMany({
         where: { isActive: true, userId: meId },
-        select: { id: true, name: true },
+        select: { id: true, name: true, type: true },
         orderBy: { createdAt: "asc" },
       });
-      if (rows.length) accounts = rows;
+      if (rows.length) accounts = rows.map((r) => ({ id: r.id, name: r.name, type: r.type as "DEBIT" | "CREDIT" }));
     } catch {
       // fallback demo
     }
