@@ -8,7 +8,7 @@ import { SubscriptionTab, type SubRow } from "@/components/subscription-tab";
 import { SubscriptionSummaryRow } from "@/components/subscription-swipe-row";
 import type { DueCharge } from "@/lib/subscriptions";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { BottomSheet } from "@/components/bottom-sheet";
 import { AccountForm } from "@/components/account-form";
 import { SubscriptionForm } from "@/components/subscription-form";
 import { Button } from "@/components/ui/button";
@@ -80,34 +80,24 @@ export function CuentasClient({ accounts, meId, debts, owed, subs, dues }: { acc
           <p className="text-4xl font-extrabold tracking-tight">{formatMoney(header.value)}</p>
         </div>
         {header.action === "account" && (
-          <Dialog open={open} onOpenChange={setOpen}>
-            <DialogTrigger asChild>
-              <Button size="icon" aria-label="Agregar cuenta" className="rounded-full">
-                <Plus className="size-5" />
-              </Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Nueva cuenta</DialogTitle>
-              </DialogHeader>
+          <>
+            <Button size="icon" aria-label="Agregar cuenta" className="rounded-full" onClick={() => setOpen(true)}>
+              <Plus className="size-5" />
+            </Button>
+            <BottomSheet open={open} onOpenChange={setOpen}>
               <AccountForm onDone={() => setOpen(false)} />
-            </DialogContent>
-          </Dialog>
+            </BottomSheet>
+          </>
         )}
         {header.action === "sub" && (
-          <Dialog open={subOpen} onOpenChange={setSubOpen}>
-            <DialogTrigger asChild>
-              <Button size="icon" aria-label="Agregar suscripción" className="rounded-full">
-                <Plus className="size-5" />
-              </Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Nueva suscripción</DialogTitle>
-              </DialogHeader>
+          <>
+            <Button size="icon" aria-label="Agregar suscripción" className="rounded-full" onClick={() => setSubOpen(true)}>
+              <Plus className="size-5" />
+            </Button>
+            <BottomSheet open={subOpen} onOpenChange={setSubOpen}>
               <SubscriptionForm accountOptions={accountOpts} onDone={() => setSubOpen(false)} />
-            </DialogContent>
-          </Dialog>
+            </BottomSheet>
+          </>
         )}
       </div>
 

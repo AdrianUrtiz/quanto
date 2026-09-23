@@ -4,6 +4,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { BottomSheet } from "@/components/bottom-sheet";
 import { SubscriptionForm, type SubEditData } from "@/components/subscription-form";
 import { DueSubscriptions } from "@/components/due-subscriptions";
 import { SubscriptionSwipeRow } from "@/components/subscription-swipe-row";
@@ -78,20 +79,15 @@ export function SubscriptionTab({
         {formatMoney(monthly)}/mes en {subs.filter((s) => s.isActive).length} activas
       </p>
 
-      <Dialog open={editing !== null} onOpenChange={(o) => !o && setEditing(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Editar suscripción</DialogTitle>
-          </DialogHeader>
-          {editing && (
-            <SubscriptionForm
-              subscription={editing}
-              accountOptions={accountOptions}
-              onDone={() => setEditing(null)}
-            />
-          )}
-        </DialogContent>
-      </Dialog>
+      <BottomSheet open={editing !== null} onOpenChange={(o) => !o && setEditing(null)}>
+        {editing && (
+          <SubscriptionForm
+            subscription={editing}
+            accountOptions={accountOptions}
+            onDone={() => setEditing(null)}
+          />
+        )}
+      </BottomSheet>
 
       <Dialog open={deleting !== null} onOpenChange={(o) => !o && setDeleting(null)}>
         <DialogContent>

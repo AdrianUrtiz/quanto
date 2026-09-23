@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Pencil, Trash2 } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { BottomSheet } from "@/components/bottom-sheet";
 import { Button } from "@/components/ui/button";
 import { AccountForm } from "@/components/account-form";
 import { AccountCard, type AccountRow } from "@/components/account-card";
@@ -71,14 +72,9 @@ export function AccountSwipeRow({
         <AccountCard a={a} />
       </SwipeRow>
 
-      <Dialog open={editOpen} onOpenChange={setEditOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Editar cuenta</DialogTitle>
-          </DialogHeader>
-          <AccountForm account={a} onDone={() => setEditOpen(false)} />
-        </DialogContent>
-      </Dialog>
+      <BottomSheet open={editOpen} onOpenChange={setEditOpen}>
+        <AccountForm account={a} onDone={() => setEditOpen(false)} />
+      </BottomSheet>
 
       <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
         <DialogContent>
