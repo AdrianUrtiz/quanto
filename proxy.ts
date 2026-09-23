@@ -1,7 +1,17 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 
-const PUBLIC = ["/login", "/manifest.webmanifest", "/icon.svg", "/sw.js"];
+const PUBLIC = [
+  "/login",
+  "/manifest.webmanifest",
+  "/icon.svg",
+  "/icon-192.png",
+  "/icon-512.png",
+  "/maskable-512.png",
+  "/apple-touch-icon.png",
+  "/favicon.svg",
+  "/sw.js",
+];
 
 export default auth((req) => {
   const { pathname } = req.nextUrl;
