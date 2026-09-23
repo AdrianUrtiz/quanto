@@ -25,10 +25,14 @@ export function TransactionRow({ t }: { t: TxRow }) {
   const income = t.type === "INCOME";
   const transfer = t.type === "TRANSFER";
   const d = new Date(t.date);
+  const catColor = parseCat(t.category).color;
   const CatIcon = parseCat(t.category).icon;
   return (
     <li className="flex items-center gap-3 rounded-3xl border border-(--border) bg-(--card) p-3.5">
-      <span className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-(--muted) text-xl">
+      <span
+        className={`flex size-11 shrink-0 items-center justify-center rounded-2xl ${transfer ? "bg-(--muted)" : ""}`}
+        style={transfer ? undefined : { backgroundColor: `${catColor}22`, color: catColor }}
+      >
         {transfer ? <ArrowLeftRight className="size-5 text-(--primary)" /> : <CatIcon className="size-5" />}
       </span>
       <div className="min-w-0 flex-1">

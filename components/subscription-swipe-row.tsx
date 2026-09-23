@@ -8,15 +8,18 @@ import { parseCat } from "@/lib/categories";
 import type { SubRow } from "@/components/subscription-tab";
 
 function SubFront({ s }: { s: SubRow }) {
-  const CatIcon = parseCat(s.category).icon;
+  const cat = parseCat(s.category);
   return (
     <div
       className={`flex items-center gap-3 rounded-3xl border p-3.5 ${
         s.isActive ? "border-(--border) bg-(--card)" : "border-dashed border-(--border) bg-(--muted)/40 opacity-70"
       }`}
     >
-      <span className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-(--muted)">
-        <CatIcon className="size-5" />
+      <span
+        className="flex size-11 shrink-0 items-center justify-center rounded-2xl"
+        style={{ backgroundColor: `${cat.color}22`, color: cat.color }}
+      >
+        <cat.icon className="size-5" />
       </span>
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-semibold">
@@ -36,7 +39,7 @@ function SubFront({ s }: { s: SubRow }) {
 }
 
 const actionCls =
-  "flex h-full flex-1 flex-col items-center justify-center gap-1.5 rounded-2xl border border-(--border) bg-(--card) text-xs font-semibold text-foreground shadow-xs transition-all hover:bg-(--muted) active:scale-95";
+  "flex h-full flex-1 flex-col items-center justify-center gap-1.5 rounded-2xl border border-(--border) bg-(--card) text-xs font-semibold text-(--foreground) shadow-xs transition-all hover:bg-(--muted) active:scale-95";
 
 export function SubscriptionSwipeRow({
   s, open, onOpenChange, onToggle, onEdit, onDelete,
@@ -56,11 +59,11 @@ export function SubscriptionSwipeRow({
       actions={
         <>
           <button type="button" onClick={() => { onOpenChange(false); onToggle(); }} className={actionCls}>
-            {s.isActive ? <Pause className="size-4 text-foreground" /> : <Play className="size-4 text-foreground" />}
+            {s.isActive ? <Pause className="size-4 text-(--foreground)" /> : <Play className="size-4 text-(--foreground)" />}
             <span>{s.isActive ? "Pausar" : "Seguir"}</span>
           </button>
           <button type="button" onClick={() => { onOpenChange(false); onEdit(); }} className={actionCls}>
-            <Pencil className="size-4 text-foreground" />
+            <Pencil className="size-4 text-(--foreground)" />
             <span>Editar</span>
           </button>
           <button

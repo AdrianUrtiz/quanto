@@ -28,6 +28,7 @@ import {
 import { createTransaction, updateTransaction } from "@/lib/actions";
 import {
   DEFAULT_CATS,
+  COLOR_PRESETS,
   ICONS,
   ICON_PRESETS,
   makeCustomCat,
@@ -61,7 +62,15 @@ const MODE_TYPE: Record<Mode, string> = {
 const MSI_OPTS = [1, 3, 6, 9, 12, 15, 24];
 const msiLabel = (m: number) => (m === 1 ? "Contado" : `${m} MSI`);
 
-type Panel = null | "cats" | "account" | "dest" | "date" | "addcat" | "msi" | "share";
+type Panel =
+  | null
+  | "cats"
+  | "account"
+  | "dest"
+  | "date"
+  | "addcat"
+  | "msi"
+  | "share";
 
 function toYMD(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -113,7 +122,9 @@ export function TransactionForm({
     entry?.accountId ?? accountOptions[0]?.id ?? "",
   );
   const [destId, setDestId] = useState(entry?.transferToAccountId ?? "");
-  const [category, setCategory] = useState(entry?.category ?? (initialMode === "abono" ? "NOMINA" : "COMIDA"));
+  const [category, setCategory] = useState(
+    entry?.category ?? (initialMode === "abono" ? "NOMINA" : "COMIDA"),
+  );
   const [msi, setMsi] = useState(1);
   const [shared, setShared] = useState(false);
   const [shareMode, setShareMode] = useState<"pct" | "amount">("pct");
@@ -123,6 +134,7 @@ export function TransactionForm({
   const [localCustoms, setLocalCustoms] = useState<CustomCat[]>([]);
   const [newCatName, setNewCatName] = useState("");
   const [newCatIcon, setNewCatIcon] = useState<string>(ICON_PRESETS[0]);
+  const [newCatColor, setNewCatColor] = useState<string>("#fb923c");
   const [msg, setMsg] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
 
@@ -134,7 +146,9 @@ export function TransactionForm({
       ...customs.map((c) => c.code),
       ...localCustoms.map((c) => c.code),
     ];
-    return codes.map(parseCat).filter((c) => c.kind === want || c.kind === "both");
+    return codes
+      .map(parseCat)
+      .filter((c) => c.kind === want || c.kind === "both");
   }, [customs, localCustoms, mode]);
 
   function switchMode(m: Mode) {
@@ -156,7 +170,9 @@ export function TransactionForm({
   const destOpts = accountOptions.filter((a) => a.id !== accountId);
   const destFallback = destOpts[0]?.id ?? "";
   const shownDest = destId || destFallback;
-  const destIsDebit = (accountOptions.find((a) => a.id === shownDest)?.type ?? "CREDIT") !== "CREDIT";
+  const destIsDebit =
+    (accountOptions.find((a) => a.id === shownDest)?.type ?? "CREDIT") !==
+    "CREDIT";
 
   const todayYMD = toYMD(new Date());
   const yesterdayYMD = toYMD(new Date(Date.now() - 86400000));
@@ -267,12 +283,26 @@ export function TransactionForm({
       setMsg("La categoría necesita al menos 2 letras");
       return;
     }
-    const code = makeCustomCat(newCatIcon, newCatName, mode === "abono" ? "income" : "expense");
+    const code = makeCustomCat(
+      newCatIcon,
+      newCatName,
+      mode === "abono" ? "income" : "expense",
+      newCatColor,
+    );
     const info = parseCat(code);
     setLocalCustoms((prev) =>
       prev.some((c) => c.code === code)
         ? prev
-        : [...prev, { code: info.code, iconName: info.iconName, label: info.label, kind: info.kind }],
+        : [
+            ...prev,
+            {
+              code: info.code,
+              iconName: info.iconName,
+              label: info.label,
+              color: info.color,
+              kind: info.kind,
+            },
+          ],
     );
     setCategory(code);
     setNewCatName("");
@@ -286,7 +316,7 @@ export function TransactionForm({
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-5 pt-1 pb-6">
       {/* Monto + keypad */}
-      <div className="flex items-center justify-center gap-2 py-3">
+      <div className="flex items-center justify-center gap-2 py-20">
         <span className="text-2xl font-bold text-(--muted-foreground)">$</span>
         <span className="text-5xl font-extrabold tracking-tight tabular-nums">
           {fmtAmount(amount)}
@@ -431,7 +461,7 @@ export function TransactionForm({
                     : "border-(--border) bg-(--muted)/60",
                 )}
               >
-                <c.icon className="size-4 shrink-0" /> {c.label}
+                <c.icon className="size-4 shrink-0" style={{ color: c.color }} /> {c.label}
               </button>
             ))}
           </div>
@@ -538,7 +568,7 @@ export function TransactionForm({
                       : "border-transparent bg-(--muted)/60",
                   )}
                 >
-                  <c.icon className="size-7" />
+                  <c.icon className="size-7" style={{ color: c.color }} />
                   <span className="w-full truncate text-center text-[11px] font-medium">
                     {c.label}
                   </span>
@@ -583,10 +613,27 @@ export function TransactionForm({
                         : "border-(--border)",
                     )}
                   >
-                    <Icon className="size-5" />
+                    <Icon className="size-5" style={{ color: newCatColor }} />
                   </button>
                 );
               })}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {COLOR_PRESETS.map((hex) => (
+                <button
+                  key={hex}
+                  type="button"
+                  onClick={() => setNewCatColor(hex)}
+                  aria-label={`Color ${hex}`}
+                  className={cn(
+                    "flex size-9 items-center justify-center rounded-full border-2",
+                    newCatColor === hex ? "border-(--foreground)" : "border-transparent",
+                  )}
+                  style={{ backgroundColor: hex }}
+                >
+                  {newCatColor === hex && <Check className="size-4 text-white" />}
+                </button>
+              ))}
             </div>
             <Input
               value={newCatName}
@@ -674,7 +721,9 @@ export function TransactionForm({
                     msi === m && "bg-(--muted)",
                   )}
                 >
-                  <span className="flex-1 text-sm font-semibold">{msiLabel(m)}</span>
+                  <span className="flex-1 text-sm font-semibold">
+                    {msiLabel(m)}
+                  </span>
                   {msi === m && <Check className="size-4 text-(--primary)" />}
                 </button>
               </li>
@@ -684,7 +733,10 @@ export function TransactionForm({
       </Dialog>
 
       {/* Panel: compartir (porcentaje o cantidad fija) */}
-      <Dialog open={panel === "share"} onOpenChange={(o) => !o && setPanel(null)}>
+      <Dialog
+        open={panel === "share"}
+        onOpenChange={(o) => !o && setPanel(null)}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Compartir gasto</DialogTitle>
@@ -692,9 +744,15 @@ export function TransactionForm({
           <div className="flex items-center justify-between rounded-2xl border border-(--border) px-4 py-3">
             <div>
               <p className="text-sm font-semibold">Compartir con mi pareja</p>
-              <p className="text-xs text-(--muted-foreground)">Define su aportación</p>
+              <p className="text-xs text-(--muted-foreground)">
+                Define su aportación
+              </p>
             </div>
-            <Switch checked={shared} onCheckedChange={setShared} aria-label="Compartir gasto" />
+            <Switch
+              checked={shared}
+              onCheckedChange={setShared}
+              aria-label="Compartir gasto"
+            />
           </div>
 
           {shared && (
@@ -707,7 +765,9 @@ export function TransactionForm({
                     onClick={() => setShareMode(m)}
                     className={cn(
                       "rounded-full px-5 py-2 text-sm font-semibold",
-                      shareMode === m ? "bg-(--card) shadow" : "text-(--muted-foreground)",
+                      shareMode === m
+                        ? "bg-(--card) shadow"
+                        : "text-(--muted-foreground)",
                     )}
                   >
                     {m === "pct" ? "Porcentaje" : "Cantidad"}
@@ -717,7 +777,9 @@ export function TransactionForm({
 
               {shareMode === "pct" ? (
                 <div className="space-y-2 rounded-3xl border border-(--border) p-4">
-                  <p className="text-center text-4xl font-extrabold tabular-nums">{sharePct}%</p>
+                  <p className="text-center text-4xl font-extrabold tabular-nums">
+                    {sharePct}%
+                  </p>
                   <input
                     type="range"
                     min={1}
@@ -734,16 +796,21 @@ export function TransactionForm({
                   <p className="text-center text-sm">
                     Tu pareja aporta{" "}
                     <b>
-                      ${fmtAmount(pctMonthly.toFixed(2))}/mes{msi > 1 ? ` × ${msi}` : ""}
+                      ${fmtAmount(pctMonthly.toFixed(2))}/mes
+                      {msi > 1 ? ` × ${msi}` : ""}
                     </b>{" "}
                     de ${fmtAmount(amount || "0")}
                   </p>
                 </div>
               ) : (
                 <div className="space-y-2 rounded-3xl border border-(--border) p-4">
-                  <Label htmlFor="share-amt">¿Cuánto aporta tu pareja? (total)</Label>
+                  <Label htmlFor="share-amt">
+                    ¿Cuánto aporta tu pareja? (total)
+                  </Label>
                   <div className="flex items-center gap-2">
-                    <span className="text-xl font-bold text-(--muted-foreground)">$</span>
+                    <span className="text-xl font-bold text-(--muted-foreground)">
+                      $
+                    </span>
                     <Input
                       id="share-amt"
                       type="number"
@@ -759,7 +826,8 @@ export function TransactionForm({
                     <p className="text-center text-sm">
                       Equivale al <b>{amtPct.toFixed(1)}%</b> ·{" "}
                       <b>
-                        ${fmtAmount(amtMonthly.toFixed(2))}/mes{msi > 1 ? ` × ${msi}` : ""}
+                        ${fmtAmount(amtMonthly.toFixed(2))}/mes
+                        {msi > 1 ? ` × ${msi}` : ""}
                       </b>
                     </p>
                   )}
@@ -769,7 +837,11 @@ export function TransactionForm({
                 </div>
               )}
 
-              <Button type="button" className="w-full" onClick={() => setPanel(null)}>
+              <Button
+                type="button"
+                className="w-full"
+                onClick={() => setPanel(null)}
+              >
                 Listo
               </Button>
             </>

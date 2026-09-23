@@ -262,7 +262,7 @@ export function ActivityClient({
     for (const t of txs) {
       const c = parseCat(t.category);
       if (c.custom && !map.has(t.category)) {
-        map.set(t.category, { code: t.category, iconName: c.iconName, label: c.label, kind: c.kind });
+        map.set(t.category, { code: t.category, iconName: c.iconName, label: c.label, color: c.color, kind: c.kind });
       }
     }
     return [...map.values()];
@@ -478,10 +478,10 @@ function FilterPill({
   return (
     <button
       onClick={onClick}
-      className={`max-w-55 shrink-0 truncate rounded-full border border-(--muted-foreground) px-4 py-2 text-xs font-semibold transition ${
+      className={`max-w-55 shrink-0 truncate rounded-full border px-4 py-2 text-xs font-semibold transition ${
         active
-          ? "border-transparent bg-foreground text-background"
-          : "border-(--muted-foreground) bg-card text-muted-foreground"
+          ? "border-transparent bg-(--foreground) text-(--background)"
+          : "border-(--border) bg-(--card) text-(--muted-foreground)"
       }`}
     >
       {label}
