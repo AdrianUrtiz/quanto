@@ -4,8 +4,10 @@ import * as React from "react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useBackToClose } from "@/lib/use-back-to-close";
 
 export function Dialog(props: React.ComponentProps<typeof DialogPrimitive.Root>) {
+  useBackToClose(!!props.open, () => props.onOpenChange?.(false));
   return <DialogPrimitive.Root {...props} />;
 }
 export function DialogTrigger(props: React.ComponentProps<typeof DialogPrimitive.Trigger>) {

@@ -3,6 +3,7 @@
 import * as React from "react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { cn } from "@/lib/utils";
+import { useBackToClose } from "@/lib/use-back-to-close";
 
 /** Drawer inferior estilo app móvil: entra deslizando desde abajo. */
 export function BottomSheet({
@@ -13,6 +14,7 @@ export function BottomSheet({
   children: React.ReactNode;
   className?: string;
 }) {
+  useBackToClose(open, () => onOpenChange(false));
   return (
     <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
       <DialogPrimitive.Portal>
