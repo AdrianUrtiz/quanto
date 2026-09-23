@@ -67,3 +67,16 @@ body {
 .bar-anim {
   transition: height 0.4s ease;
 }
+
+/* Drawer inferior: entra deslizando desde abajo */
+@keyframes sheet-up {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+.animate-sheet-up {
+  animation: sheet-up 0.28s cubic-bezier(0.32, 0.72, 0, 1);
+}

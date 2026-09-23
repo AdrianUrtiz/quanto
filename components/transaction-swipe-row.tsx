@@ -3,8 +3,10 @@
 import { useEffect, useRef, useState } from "react";
 import { Pencil, Trash2 } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { BottomSheet } from "@/components/bottom-sheet";
 import { Button } from "@/components/ui/button";
 import { TransactionForm, type AccountOpt } from "@/components/transaction-form";
+import type { CustomCat } from "@/lib/categories";
 import { TransactionRow, type TxRow } from "@/components/transaction-list";
 import { deleteTransaction } from "@/lib/actions";
 import { formatMoney } from "@/lib/utils";
@@ -14,10 +16,11 @@ const REVEAL = 152; // dos acciones con espaciado
 const THRESHOLD = 48; // desplazamiento para fijar abierto
 
 export function TransactionSwipeRow({
-  t, accountOptions, open, onOpenChange,
+  t, accountOptions, customs, open, onOpenChange,
 }: {
   t: TxRow;
   accountOptions: AccountOpt[];
+  customs: CustomCat[];
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
@@ -146,14 +149,9 @@ export function TransactionSwipeRow({
         </div>
       </div>
 
-      <Dialog open={editOpen} onOpenChange={setEditOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Editar movimiento</DialogTitle>
-          </DialogHeader>
-          <TransactionForm accountOptions={accountOptions} entry={t} onDone={() => setEditOpen(false)} />
-        </DialogContent>
-      </Dialog>
+      <BottomSheet open={editOpen} onOpenChange={setEditOpen}>
+        <TransactionForm accountOptions={accountOptions} customs={customs} entry={t} onDone={() => setEditOpen(false)} />
+      </BottomSheet>
 
       <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
         <DialogContent>

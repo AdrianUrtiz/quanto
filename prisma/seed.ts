@@ -1,4 +1,4 @@
-import { PrismaClient, AccountType, TransactionType, Category } from "@prisma/client";
+import { PrismaClient, AccountType, TransactionType } from "@prisma/client";
 import bcrypt from "bcryptjs";
 
 const prisma = new PrismaClient();
@@ -91,7 +91,7 @@ async function main() {
         type: TransactionType.EXPENSE,
         amount: 3000,
         concept: "Super compartido (ejemplo MSI)",
-        category: Category.COMIDA,
+        category: "COMIDA",
         date: new Date(),
         accountId: creditoAdrian.id,
         createdById: adrian.id,
@@ -124,7 +124,7 @@ async function main() {
         type: TransactionType.INCOME,
         amount: 20000,
         concept: "Nómina",
-        category: Category.NOMINA,
+        category: "NOMINA",
         date: new Date(),
         accountId: debitoAdrian.id,
         createdById: adrian.id,

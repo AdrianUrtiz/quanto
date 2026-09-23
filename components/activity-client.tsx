@@ -12,6 +12,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { formatMoney } from "@/lib/utils";
+import { parseCat, prettyCat, type CustomCat } from "@/lib/categories";
 
 export type MonthOpt = { key: string; label: string; total: number };
 
@@ -46,10 +47,6 @@ const RANGE_DESC: Record<Range, string> = {
 function keyOf(iso: string) {
   const d = new Date(iso);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-}
-
-function prettyCat(c: string) {
-  return c.charAt(0) + c.slice(1).toLowerCase();
 }
 
 function dayKey(d: Date) {
@@ -259,6 +256,18 @@ export function ActivityClient({
     }));
   }, [txs]);
 
+  // Personalizadas del usuario (para el grid del formulario).
+  const customs = useMemo(() => {
+    const map = new Map<string, CustomCat>();
+    for (const t of txs) {
+      const c = parseCat(t.category);
+      if (c.custom && !map.has(t.category)) {
+        map.set(t.category, { code: t.category, emoji: c.emoji, label: c.label });
+      }
+    }
+    return [...map.values()];
+  }, [txs]);
+
   // Opciones con totales (respetan el tipo activo)
   const accountOpts = useMemo(() => {
     const map = new Map<string, number>();
@@ -362,6 +371,7 @@ export function ActivityClient({
               key={t.id}
               t={t}
               accountOptions={accountOptionsAll}
+              customs={customs}
               open={openRow === t.id}
               onOpenChange={(o) => setOpenRow(o ? t.id : null)}
             />

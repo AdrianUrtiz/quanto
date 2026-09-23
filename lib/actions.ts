@@ -5,6 +5,7 @@ import { z } from "zod";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { debtorMonthlyAmount } from "@/lib/calculations";
+import { isValidCategory } from "@/lib/categories";
 
 const AccountSchema = z.object({
   name: z.string().min(2, "Nombre muy corto"),
@@ -187,7 +188,7 @@ export async function updateTransaction(formData: FormData) {
   const parsed = UpdateTxSchema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Datos inválidos" };
   const v = parsed.data;
-  if (!CATEGORIES.includes(v.category as (typeof CATEGORIES)[number])) return { error: "Categoría inválida" };
+  if (!isValidCategory(v.category)) return { error: "Categoría inválida" };
 
   const tx = await prisma.transaction.findFirst({
     where: { id: v.id, createdById: userId },
@@ -236,7 +237,7 @@ export async function updateTransaction(formData: FormData) {
     data: {
       amount: v.amount,
       concept: v.concept,
-      category: v.category as (typeof CATEGORIES)[number],
+      category: v.category,
       date: new Date(v.date),
       accountId: v.accountId,
     },
@@ -299,8 +300,6 @@ const TxSchema = z.object({
   debtorId: z.string().optional(),
 });
 
-const CATEGORIES = ["COMIDA","TRANSPORTE","VIVIENDA","SERVICIOS","SALUD","OCIO","COMPRAS","EDUCACION","VIAJES","MASCOTAS","SUSCRIPCIONES","NOMINA","OTRO"] as const;
-
 export async function createTransaction(formData: FormData) {
   const session = await auth();
   const userId = (session?.user as { id?: string } | undefined)?.id;
@@ -311,7 +310,7 @@ export async function createTransaction(formData: FormData) {
   const parsed = TxSchema.safeParse({ ...raw, isShared: raw.isShared === "on" || raw.isShared === "true" });
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Datos inválidos" };
   const v = parsed.data;
-  if (!CATEGORIES.includes(v.category as (typeof CATEGORIES)[number])) return { error: "Categoría inválida" };
+  if (!isValidCategory(v.category)) return { error: "Categoría inválida" };
 
   // Solo cuentas propias: nadie opera ni ve cuentas de su pareja.
   const account = await prisma.account.findFirst({ where: { id: v.accountId, userId } });
@@ -329,11 +328,11 @@ export async function createTransaction(formData: FormData) {
     await prisma.transaction.create({
       data: {
         type: "TRANSFER",
-        amount: v.amount,
-        concept: v.concept,
-        category: "OTRO",
-        date: new Date(v.date),
-        accountId: v.accountId,
+      amount: v.amount,
+      concept: v.concept,
+      category: v.category,
+      date: new Date(v.date),
+      accountId: v.accountId,
         transferToAccountId: destId,
         createdById: userId,
         installments: 1,
@@ -365,7 +364,7 @@ export async function createTransaction(formData: FormData) {
       type: v.type as "EXPENSE" | "INCOME" | "TRANSFER",
       amount: v.amount,
       concept: v.concept,
-      category: v.category as (typeof CATEGORIES)[number],
+      category: v.category,
       date: new Date(v.date),
       accountId: v.accountId,
       createdById: userId,

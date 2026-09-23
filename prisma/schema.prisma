@@ -24,21 +24,8 @@ enum TransactionType {
   TRANSFER
 }
 
-enum Category {
-  COMIDA
-  TRANSPORTE
-  VIVIENDA
-  SERVICIOS
-  SALUD
-  OCIO
-  COMPRAS
-  EDUCACION
-  VIAJES
-  MASCOTAS
-  SUSCRIPCIONES
-  NOMINA
-  OTRO
-}
+// Categoría libre (String) para permitir personalizadas:
+// códigos del catálogo o `custom:{emoji}:{NOMBRE}`.
 
 model User {
   id        String   @id @default(cuid())
@@ -92,7 +79,7 @@ model Transaction {
   type        TransactionType @default(EXPENSE)
   amount      Decimal         @db.Decimal(12, 2) // monto TOTAL de la compra
   concept     String
-  category    Category        @default(OTRO)
+  category    String        @default("OTRO")
   date        DateTime        @default(now())
   notes       String?
 

@@ -1,6 +1,7 @@
 import { ArrowDownLeft, ArrowLeftRight, ArrowUpRight, Repeat } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { formatMoney } from "@/lib/utils";
+import { parseCat } from "@/lib/categories";
 
 export type TxRow = {
   id: string;
@@ -19,12 +20,6 @@ export type TxRow = {
   isShared: boolean;
 };
 
-const CATEGORY_EMOJI: Record<string, string> = {
-  COMIDA: "🍔", TRANSPORTE: "🚗", VIVIENDA: "🏠", SERVICIOS: "💡",
-  SALUD: "💊", OCIO: "🎬", COMPRAS: "🛍️", EDUCACION: "📚",
-  VIAJES: "✈️", MASCOTAS: "🐾", SUSCRIPCIONES: "🔁", NOMINA: "💼", OTRO: "📦",
-};
-
 export function TransactionRow({ t }: { t: TxRow }) {
   const income = t.type === "INCOME";
   const transfer = t.type === "TRANSFER";
@@ -32,7 +27,7 @@ export function TransactionRow({ t }: { t: TxRow }) {
   return (
     <li className="flex items-center gap-3 rounded-3xl border border-(--border) bg-(--card) p-3.5">
       <span className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-(--muted) text-xl">
-        {transfer ? <ArrowLeftRight className="size-5 text-(--primary)" /> : (CATEGORY_EMOJI[t.category] ?? "📦")}
+        {transfer ? <ArrowLeftRight className="size-5 text-(--primary)" /> : parseCat(t.category).emoji}
       </span>
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-semibold">{t.concept}</p>

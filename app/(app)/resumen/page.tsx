@@ -4,6 +4,7 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { DEMO_TXS } from "@/lib/demo-data";
 import { monthKey, monthLabelEs } from "@/lib/utils";
+import { prettyCat } from "@/lib/categories";
 import { settleMonth } from "@/lib/calculations";
 
 export const metadata = { title: "Resumen" };
@@ -85,7 +86,7 @@ export default async function ResumenPage() {
   const byCat = new Map<string, number>();
   for (const t of mine) byCat.set(t.category, (byCat.get(t.category) ?? 0) + t.amount);
   const byCategory = [...byCat.entries()]
-    .map(([label, value]) => ({ label: label.charAt(0) + label.slice(1).toLowerCase(), value }))
+    .map(([code, value]) => ({ label: prettyCat(code), value }))
     .sort((a, b) => b.value - a.value);
 
   const settlement = settleMonth(involved, key);
