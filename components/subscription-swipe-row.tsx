@@ -1,6 +1,6 @@
 "use client";
 
-import { Pause, Pencil, Play, Trash2 } from "lucide-react";
+import { Pause, Pencil, Play, Repeat, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { SwipeRow } from "@/components/swipe-row";
 import { formatMoney } from "@/lib/utils";
@@ -8,15 +8,15 @@ import { parseCat } from "@/lib/categories";
 import type { SubRow } from "@/components/subscription-tab";
 
 function SubFront({ s }: { s: SubRow }) {
-  const cat = parseCat(s.category);
+  const CatIcon = parseCat(s.category).icon;
   return (
     <div
       className={`flex items-center gap-3 rounded-3xl border p-3.5 ${
         s.isActive ? "border-(--border) bg-(--card)" : "border-dashed border-(--border) bg-(--muted)/40 opacity-70"
       }`}
     >
-      <span className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-(--muted) text-xl">
-        {cat.emoji}
+      <span className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-(--muted)">
+        <CatIcon className="size-5" />
       </span>
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-semibold">
@@ -87,7 +87,7 @@ export function SubscriptionSummaryRow({ s, onOpen }: { s: SubRow; onOpen: () =>
       className="flex w-full items-center gap-3 rounded-3xl border border-(--border) bg-(--card) p-4 text-left transition active:scale-[.99]"
     >
       <span className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-(--primary) text-white">
-        <span className="text-xl">🔁</span>
+        <Repeat className="size-5" />
       </span>
       <span className="min-w-0 flex-1">
         <span className="block truncate text-sm font-semibold">{s.name}</span>

@@ -28,7 +28,8 @@ import {
 import { createTransaction, updateTransaction } from "@/lib/actions";
 import {
   DEFAULT_CATS,
-  EMOJI_PRESETS,
+  ICONS,
+  ICON_PRESETS,
   makeCustomCat,
   parseCat,
   prettyCat,
@@ -121,19 +122,19 @@ export function TransactionForm({
   const [panel, setPanel] = useState<Panel>(null);
   const [localCustoms, setLocalCustoms] = useState<CustomCat[]>([]);
   const [newCatName, setNewCatName] = useState("");
-  const [newCatEmoji, setNewCatEmoji] = useState(EMOJI_PRESETS[0]);
+  const [newCatIcon, setNewCatIcon] = useState<string>(ICON_PRESETS[0]);
   const [msg, setMsg] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
 
-  // Solo las categorías del modo activo (gasto o ingreso).
+  // Solo las categorías del modo activo (gasto o ingreso), resueltas a icono.
   const visibleCats = useMemo(() => {
     const want = mode === "abono" ? "income" : "expense";
-    const all = [
-      ...DEFAULT_CATS.map((c) => ({ ...c, custom: false })),
-      ...customs,
-      ...localCustoms,
+    const codes = [
+      ...DEFAULT_CATS.map((c) => c.code),
+      ...customs.map((c) => c.code),
+      ...localCustoms.map((c) => c.code),
     ];
-    return all.filter((c) => c.kind === want || c.kind === "both");
+    return codes.map(parseCat).filter((c) => c.kind === want || c.kind === "both");
   }, [customs, localCustoms, mode]);
 
   function switchMode(m: Mode) {
@@ -266,10 +267,12 @@ export function TransactionForm({
       setMsg("La categoría necesita al menos 2 letras");
       return;
     }
-    const code = makeCustomCat(newCatEmoji, newCatName, mode === "abono" ? "income" : "expense");
+    const code = makeCustomCat(newCatIcon, newCatName, mode === "abono" ? "income" : "expense");
     const info = parseCat(code);
     setLocalCustoms((prev) =>
-      prev.some((c) => c.code === code) ? prev : [...prev, info],
+      prev.some((c) => c.code === code)
+        ? prev
+        : [...prev, { code: info.code, iconName: info.iconName, label: info.label, kind: info.kind }],
     );
     setCategory(code);
     setNewCatName("");
@@ -428,7 +431,7 @@ export function TransactionForm({
                     : "border-(--border) bg-(--muted)/60",
                 )}
               >
-                <span className="text-sm">{c.emoji}</span> {c.label}
+                <c.icon className="size-4 shrink-0" /> {c.label}
               </button>
             ))}
           </div>
@@ -535,7 +538,7 @@ export function TransactionForm({
                       : "border-transparent bg-(--muted)/60",
                   )}
                 >
-                  <span className="text-3xl">{c.emoji}</span>
+                  <c.icon className="size-7" />
                   <span className="w-full truncate text-center text-[11px] font-medium">
                     {c.label}
                   </span>
@@ -565,21 +568,25 @@ export function TransactionForm({
           </DialogHeader>
           <div className="space-y-3">
             <div className="flex flex-wrap gap-2">
-              {EMOJI_PRESETS.map((e) => (
-                <button
-                  key={e}
-                  type="button"
-                  onClick={() => setNewCatEmoji(e)}
-                  className={cn(
-                    "flex size-11 items-center justify-center rounded-2xl border text-xl",
-                    newCatEmoji === e
-                      ? "border-(--primary) bg-(--primary)/10"
-                      : "border-(--border)",
-                  )}
-                >
-                  {e}
-                </button>
-              ))}
+              {ICON_PRESETS.map((name) => {
+                const Icon = ICONS[name] ?? ICONS.Shapes;
+                return (
+                  <button
+                    key={name}
+                    type="button"
+                    onClick={() => setNewCatIcon(name)}
+                    aria-label={name}
+                    className={cn(
+                      "flex size-11 items-center justify-center rounded-2xl border",
+                      newCatIcon === name
+                        ? "border-(--primary) bg-(--primary)/10"
+                        : "border-(--border)",
+                    )}
+                  >
+                    <Icon className="size-5" />
+                  </button>
+                );
+              })}
             </div>
             <Input
               value={newCatName}

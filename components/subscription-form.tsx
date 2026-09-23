@@ -115,7 +115,7 @@ export function SubscriptionForm({
           >
             {EXPENSE_CATS.map((c) => (
               <option key={c.code} value={c.code}>
-                {c.emoji} {c.label}
+                {c.label}
               </option>
             ))}
           </select>
@@ -139,7 +139,7 @@ export function SubscriptionForm({
       </div>
       {subscription && (
         <p className="text-xs text-(--muted-foreground)">
-          Categoría actual: {parseCat(subscription.category).emoji} {parseCat(subscription.category).label}
+          Categoría actual: {parseCat(subscription.category).label}
         </p>
       )}
 

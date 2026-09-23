@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { BellRing, Check } from "lucide-react";
+import { BellRing, Check, Repeat } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { confirmSubscriptionCharge } from "@/lib/subscription-actions";
@@ -37,8 +37,8 @@ export function DueSubscriptions({ dues, compact }: { dues: DueCharge[]; compact
             key={key}
             className="flex items-center gap-3 rounded-3xl border border-amber-500/30 bg-amber-500/[0.07] p-3.5"
           >
-            <span className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-amber-500/15 text-xl">
-              🔁
+            <span className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-amber-500/15">
+              <Repeat className="size-5 text-amber-500" />
             </span>
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm font-semibold">

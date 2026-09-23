@@ -47,7 +47,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       customs = catRows
         .map((r) => parseCat(r.category))
         .filter((c) => c.custom)
-        .map((c) => ({ code: c.code, emoji: c.emoji, label: c.label, kind: c.kind }));
+        .map((c) => ({ code: c.code, iconName: c.iconName, label: c.label, kind: c.kind }));
     } catch {
       // fallback demo
     }
