@@ -1,13 +1,34 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowRight, Check, Delete, LayoutGrid, Plus, Repeat, Wallet } from "lucide-react";
+import {
+  ArrowRight,
+  Check,
+  Delete,
+  LayoutGrid,
+  Plus,
+  Repeat,
+  Wallet,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { createSubscription, updateSubscription } from "@/lib/subscription-actions";
-import { CATEGORY_COLORS, ICONS, ICON_PRESETS, lookupCategory } from "@/lib/categories";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  createSubscription,
+  updateSubscription,
+} from "@/lib/subscription-actions";
+import {
+  CATEGORY_COLORS,
+  ICONS,
+  ICON_PRESETS,
+  lookupCategory,
+} from "@/lib/categories";
 import { createCategory } from "@/lib/category-actions";
 import type { CatalogRow } from "@/lib/catalog";
 import type { AccountOpt } from "@/components/transaction-form";
@@ -29,7 +50,10 @@ export type SubEditData = {
 const EXPENSE_KINDS = ["expense", "both"];
 
 export function SubscriptionForm({
-  subscription, accountOptions, cats = [], onDone,
+  subscription,
+  accountOptions,
+  cats = [],
+  onDone,
 }: {
   subscription?: SubEditData;
   accountOptions: AccountOpt[];
@@ -38,10 +62,18 @@ export function SubscriptionForm({
 }) {
   const editing = Boolean(subscription);
   const [name, setName] = useState(subscription?.name ?? "");
-  const [amount, setAmount] = useState(subscription ? String(subscription.amount) : "");
-  const [day, setDay] = useState(subscription?.chargeDay ?? new Date().getDate());
-  const [accountId, setAccountId] = useState(subscription?.accountId ?? accountOptions[0]?.id ?? "");
-  const [category, setCategory] = useState(subscription?.category ?? "SUSCRIPCIONES");
+  const [amount, setAmount] = useState(
+    subscription ? String(subscription.amount) : "",
+  );
+  const [day, setDay] = useState(
+    subscription?.chargeDay ?? new Date().getDate(),
+  );
+  const [accountId, setAccountId] = useState(
+    subscription?.accountId ?? accountOptions[0]?.id ?? "",
+  );
+  const [category, setCategory] = useState(
+    subscription?.category ?? "SUSCRIPCIONES",
+  );
   const [shared, setShared] = useState(subscription?.isShared ?? false);
   const [shareMode, setShareMode] = useState<"pct" | "amount">(
     subscription?.shareAmount != null ? "amount" : "pct",
@@ -60,21 +92,31 @@ export function SubscriptionForm({
   const [savingCat, setSavingCat] = useState(false);
 
   const totalNum = Number(amount) || 0;
-  const preview = shareMode === "pct" ? (totalNum * sharePct) / 100 : Number(shareAmt) || 0;
+  const preview =
+    shareMode === "pct" ? (totalNum * sharePct) / 100 : Number(shareAmt) || 0;
 
   // Catálogo de gasto (tabla + creadas en sesión); la elegida va primera.
   const expenseCats = useMemo(() => {
-    const all = [...cats, ...localRows].filter((c) => EXPENSE_KINDS.includes(c.kind));
-    const list = all.map((r) => lookupCategory(r.code, [...cats, ...localRows]));
+    const all = [...cats, ...localRows].filter((c) =>
+      EXPENSE_KINDS.includes(c.kind),
+    );
+    const list = all.map((r) =>
+      lookupCategory(r.code, [...cats, ...localRows]),
+    );
     if (category && !list.some((c) => c.code === category)) {
       list.unshift(lookupCategory(category, [...cats, ...localRows]));
     }
     return list;
   }, [cats, localRows, category]);
   const selIdx = expenseCats.findIndex((c) => c.code === category);
-  const sliderCats = selIdx > 0
-    ? [expenseCats[selIdx], ...expenseCats.slice(0, selIdx), ...expenseCats.slice(selIdx + 1)]
-    : expenseCats;
+  const sliderCats =
+    selIdx > 0
+      ? [
+          expenseCats[selIdx],
+          ...expenseCats.slice(0, selIdx),
+          ...expenseCats.slice(selIdx + 1),
+        ]
+      : expenseCats;
 
   async function saveCustomCat() {
     if (newCatName.trim().length < 2) {
@@ -98,7 +140,19 @@ export function SubscriptionForm({
       setLocalRows((prev) =>
         prev.some((x) => x.code === c.code)
           ? prev
-          : [...prev, { id: c.id, code: c.code, name: c.name, iconName: c.iconName, color: c.color, kind: c.kind as "expense" | "income" | "both", isDefault: false, mine: true }],
+          : [
+              ...prev,
+              {
+                id: c.id,
+                code: c.code,
+                name: c.name,
+                iconName: c.iconName,
+                color: c.color,
+                kind: c.kind as "expense" | "income" | "both",
+                isDefault: false,
+                mine: true,
+              },
+            ],
       );
       setCategory(c.code);
     }
@@ -112,7 +166,8 @@ export function SubscriptionForm({
   }, [category]);
   const [accOpen, setAccOpen] = useState(false);
   const [gridOpen, setGridOpen] = useState(false);
-  const accountName = accountOptions.find((a) => a.id === accountId)?.name ?? "Cuenta";
+  const accountName =
+    accountOptions.find((a) => a.id === accountId)?.name ?? "Cuenta";
 
   function fmtDisplay(s: string) {
     if (!s) return "0";
@@ -125,7 +180,8 @@ export function SubscriptionForm({
     setMsg(null);
     setAmount((prev) => {
       if (k === "back") return prev.length <= 1 ? "" : prev.slice(0, -1);
-      if (k === ".") return prev.includes(".") ? prev : prev === "" ? "0." : prev + ".";
+      if (k === ".")
+        return prev.includes(".") ? prev : prev === "" ? "0." : prev + ".";
       let next = prev + k;
       if (next.includes(".")) {
         const [, dec] = next.split(".");
@@ -172,7 +228,9 @@ export function SubscriptionForm({
       if (shareMode === "pct") fd.set("sharePct", String(sharePct));
       else fd.set("shareAmount", shareAmt);
     }
-    const res = editing ? await updateSubscription(fd) : await createSubscription(fd);
+    const res = editing
+      ? await updateSubscription(fd)
+      : await createSubscription(fd);
     setPending(false);
     if ("error" in res && res.error) setMsg(res.error);
     else onDone?.();
@@ -181,7 +239,7 @@ export function SubscriptionForm({
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-5 pb-6">
       {/* Monto mensual */}
-      <div className="flex items-center justify-center gap-1.5 pt-1">
+      <div className="flex items-center justify-center gap-1.5 py-12">
         <span className="text-2xl font-bold text-(--muted-foreground)">$</span>
         <span className="min-w-24 text-center text-5xl font-extrabold tabular-nums">
           {fmtDisplay(amount)}
@@ -195,7 +253,9 @@ export function SubscriptionForm({
           <Delete className="size-4" />
         </button>
       </div>
-      <p className="-mt-3 text-center text-xs font-medium text-(--muted-foreground)">al mes</p>
+      <p className="-mt-12 text-center text-xs font-medium text-(--muted-foreground)">
+        al mes
+      </p>
 
       <Input
         value={name}
@@ -239,7 +299,9 @@ export function SubscriptionForm({
                   )}
                 >
                   <span className="flex-1 text-sm font-semibold">{a.name}</span>
-                  {accountId === a.id && <Check className="size-4 text-(--primary)" />}
+                  {accountId === a.id && (
+                    <Check className="size-4 text-(--primary)" />
+                  )}
                 </button>
               </li>
             ))}
@@ -249,7 +311,10 @@ export function SubscriptionForm({
 
       {/* Categorías: slider ~85% + botón fijo al grid */}
       <div className="mt-2 flex items-center gap-2">
-        <div ref={sliderRef} className="no-scrollbar flex min-w-0 flex-1 gap-2 overflow-x-auto items-center pb-1">
+        <div
+          ref={sliderRef}
+          className="no-scrollbar flex min-w-0 flex-1 gap-2 overflow-x-auto items-center pb-1"
+        >
           {sliderCats.map((c) => (
             <button
               key={c.code}
@@ -262,7 +327,8 @@ export function SubscriptionForm({
                   : "border-(--border) bg-(--muted)/60",
               )}
             >
-              <c.icon className="size-4 shrink-0" style={{ color: c.color }} /> {c.label}
+              <c.icon className="size-4 shrink-0" style={{ color: c.color }} />{" "}
+              {c.label}
             </button>
           ))}
         </div>
@@ -344,7 +410,9 @@ export function SubscriptionForm({
                     aria-label={`Color ${hex}`}
                     className={cn(
                       "flex size-8 items-center justify-center rounded-full border-2 ring-1 ring-inset ring-black/10",
-                      newCatColor === hex ? "border-(--foreground)" : "border-transparent",
+                      newCatColor === hex
+                        ? "border-(--foreground)"
+                        : "border-transparent",
                     )}
                     style={{ backgroundColor: hex }}
                   />
@@ -358,7 +426,11 @@ export function SubscriptionForm({
                   maxLength={30}
                   className="h-11"
                 />
-                <Button type="button" onClick={saveCustomCat} disabled={savingCat}>
+                <Button
+                  type="button"
+                  onClick={saveCustomCat}
+                  disabled={savingCat}
+                >
                   {savingCat ? "Creando…" : "Crear"}
                 </Button>
               </div>
@@ -371,9 +443,15 @@ export function SubscriptionForm({
       <div className="flex items-center justify-between rounded-2xl border border-(--border) px-4 py-2.5">
         <div>
           <p className="text-xs font-semibold">Compartir con mi pareja</p>
-          <p className="text-[11px] text-(--muted-foreground)">Cada cargo genera su split</p>
+          <p className="text-[11px] text-(--muted-foreground)">
+            Cada cargo genera su split
+          </p>
         </div>
-        <Switch checked={shared} onCheckedChange={setShared} aria-label="Compartir suscripción" />
+        <Switch
+          checked={shared}
+          onCheckedChange={setShared}
+          aria-label="Compartir suscripción"
+        />
       </div>
 
       {shared && (
@@ -386,7 +464,9 @@ export function SubscriptionForm({
                 onClick={() => setShareMode(m)}
                 className={cn(
                   "rounded-full px-5 py-1.5 text-xs font-semibold",
-                  shareMode === m ? "bg-(--card) shadow" : "text-(--muted-foreground)",
+                  shareMode === m
+                    ? "bg-(--card) shadow"
+                    : "text-(--muted-foreground)",
                 )}
               >
                 {m === "pct" ? "Porcentaje" : "Cantidad"}
@@ -395,7 +475,9 @@ export function SubscriptionForm({
           </div>
           {shareMode === "pct" ? (
             <>
-              <p className="text-center text-3xl font-extrabold tabular-nums">{sharePct}%</p>
+              <p className="text-center text-3xl font-extrabold tabular-nums">
+                {sharePct}%
+              </p>
               <input
                 type="range"
                 min={1}
@@ -423,39 +505,48 @@ export function SubscriptionForm({
         </div>
       )}
 
-      {msg && <p className="text-center text-sm font-medium text-red-500">{msg}</p>}
+      {msg && (
+        <p className="text-center text-sm font-medium text-red-500">{msg}</p>
+      )}
 
       {/* Keypad */}
       <div className="mt-1 grid grid-cols-3 gap-2">
-        {["1", "2", "3", "4", "5", "6", "7", "8", "9", ".", "0", "go"].map((k) =>
-          k === "go" ? (
-            <button
-              key={k}
-              type="button"
-              onClick={submit}
-              disabled={pending}
-              aria-label="Guardar"
-              className="flex h-14 items-center justify-center rounded-2xl bg-(--primary) text-xl font-bold text-(--primary-foreground) transition active:scale-95 disabled:opacity-50"
-            >
-              <ArrowRight className="size-6" />
-            </button>
-          ) : (
-            <button
-              key={k}
-              type="button"
-              onClick={() => press(k)}
-              className="h-14 rounded-2xl bg-(--muted)/70 text-xl font-semibold transition active:scale-95 active:bg-(--muted)"
-            >
-              {k}
-            </button>
-          ),
+        {["1", "2", "3", "4", "5", "6", "7", "8", "9", ".", "0", "go"].map(
+          (k) =>
+            k === "go" ? (
+              <button
+                key={k}
+                type="button"
+                onClick={submit}
+                disabled={pending}
+                aria-label="Guardar"
+                className="flex h-14 items-center justify-center rounded-2xl bg-(--primary) text-xl font-bold text-(--primary-foreground) transition active:scale-95 disabled:opacity-50"
+              >
+                <ArrowRight className="size-6" />
+              </button>
+            ) : (
+              <button
+                key={k}
+                type="button"
+                onClick={() => press(k)}
+                className="h-14 rounded-2xl bg-(--muted)/70 text-xl font-semibold transition active:scale-95 active:bg-(--muted)"
+              >
+                {k}
+              </button>
+            ),
         )}
       </div>
     </div>
   );
 }
 
-function DayPill({ day, onPick }: { day: number; onPick: (d: number) => void }) {
+function DayPill({
+  day,
+  onPick,
+}: {
+  day: number;
+  onPick: (d: number) => void;
+}) {
   const [open, setOpen] = useState(false);
   return (
     <>
@@ -499,4 +590,3 @@ function DayPill({ day, onPick }: { day: number; onPick: (d: number) => void }) 
     </>
   );
 }
-
