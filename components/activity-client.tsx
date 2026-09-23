@@ -5,7 +5,12 @@ import { Check, Search } from "lucide-react";
 import { ActivityChart } from "@/components/activity-chart";
 import { TransactionSwipeRow } from "@/components/transaction-swipe-row";
 import type { TxRow } from "@/components/transaction-list";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { formatMoney } from "@/lib/utils";
 
 export type MonthOpt = { key: string; label: string; total: number };
@@ -53,7 +58,9 @@ function dayKey(d: Date) {
 
 function shortMonth(d: Date) {
   const s = d.toLocaleDateString("es-MX", { month: "short" }).replace(".", "");
-  return d.getFullYear() === new Date().getFullYear() ? s : `${s} ${String(d.getFullYear()).slice(2)}`;
+  return d.getFullYear() === new Date().getFullYear()
+    ? s
+    : `${s} ${String(d.getFullYear()).slice(2)}`;
 }
 
 /** Inicio del rango (el fin siempre es hoy). Null = mes seleccionado. */
@@ -76,10 +83,18 @@ function rangeStart(range: Range): Date | null {
   }
 }
 
-export function ActivityClient({ txs, months }: { txs: TxRow[]; months: MonthOpt[] }) {
+export function ActivityClient({
+  txs,
+  months,
+}: {
+  txs: TxRow[];
+  months: MonthOpt[];
+}) {
   const [sheet, setSheet] = useState<Sheet>(null);
   const [openRow, setOpenRow] = useState<string | null>(null);
-  const [month, setMonth] = useState(months[0]?.key ?? keyOf(new Date().toISOString()));
+  const [month, setMonth] = useState(
+    months[0]?.key ?? keyOf(new Date().toISOString()),
+  );
   const [kind, setKind] = useState<Kind>("gastos");
   const [range, setRange] = useState<Range>("mensual");
   const [account, setAccount] = useState("todas");
@@ -100,7 +115,8 @@ export function ActivityClient({ txs, months }: { txs: TxRow[]; months: MonthOpt
   }, [txs, range, month, start]);
 
   // Suma según el tipo activo (para totales de cuentas/categorías).
-  const inKind = (t: TxRow) => (kind === "ingresos" ? t.type === "INCOME" : t.type === "EXPENSE");
+  const inKind = (t: TxRow) =>
+    kind === "ingresos" ? t.type === "INCOME" : t.type === "EXPENSE";
 
   // 2) Filtros restantes
   const filtered = useMemo(() => {
@@ -108,7 +124,11 @@ export function ActivityClient({ txs, months }: { txs: TxRow[]; months: MonthOpt
       if (kind !== "todos" && !inKind(t)) return false;
       if (account !== "todas" && t.accountName !== account) return false;
       if (category !== "todas" && t.category !== category) return false;
-      if (q && !`${t.concept} ${t.category}`.toLowerCase().includes(q.toLowerCase())) return false;
+      if (
+        q &&
+        !`${t.concept} ${t.category}`.toLowerCase().includes(q.toLowerCase())
+      )
+        return false;
       return true;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -117,7 +137,7 @@ export function ActivityClient({ txs, months }: { txs: TxRow[]; months: MonthOpt
   const shownTotal = useMemo(
     () => filtered.filter(inKind).reduce((a, t) => a + t.amount, 0),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [filtered, kind]
+    [filtered, kind],
   );
 
   // 3) Buckets del gráfico según la granularidad del periodo:
@@ -130,13 +150,19 @@ export function ActivityClient({ txs, months }: { txs: TxRow[]; months: MonthOpt
     if (range === "mensual") {
       const [y, m] = month.split("-").map(Number);
       const dim = new Date(y, m, 0).getDate();
-      const arr = Array.from({ length: dim }, (_, i) => ({ label: `${i + 1}`, total: 0 }));
+      const arr = Array.from({ length: dim }, (_, i) => ({
+        label: `${i + 1}`,
+        total: 0,
+      }));
       for (const t of onlyExpenses) {
         const d = new Date(t.date).getDate();
         if (d >= 1 && d <= dim) arr[d - 1].total += t.amount;
       }
       const isCur = keyOf(new Date().toISOString()) === month;
-      return { buckets: arr, todayIndex: isCur ? new Date().getDate() - 1 : null };
+      return {
+        buckets: arr,
+        todayIndex: isCur ? new Date().getDate() - 1 : null,
+      };
     }
 
     if (range === "semanal") {
@@ -159,7 +185,10 @@ export function ActivityClient({ txs, months }: { txs: TxRow[]; months: MonthOpt
 
     if (range === "trimestral") {
       const y = now.getFullYear();
-      const arr = ["T1", "T2", "T3", "T4"].map((label) => ({ label, total: 0 }));
+      const arr = ["T1", "T2", "T3", "T4"].map((label) => ({
+        label,
+        total: 0,
+      }));
       for (const t of onlyExpenses) {
         const d = new Date(t.date);
         if (d.getFullYear() !== y || d > now) continue;
@@ -172,11 +201,18 @@ export function ActivityClient({ txs, months }: { txs: TxRow[]; months: MonthOpt
       const arr: { label: string; total: number; y: number; m: number }[] = [];
       for (let i = 5; i >= 0; i--) {
         const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-        arr.push({ label: shortMonth(d), total: 0, y: d.getFullYear(), m: d.getMonth() });
+        arr.push({
+          label: shortMonth(d),
+          total: 0,
+          y: d.getFullYear(),
+          m: d.getMonth(),
+        });
       }
       for (const t of onlyExpenses) {
         const d = new Date(t.date);
-        const b = arr.find((b) => b.y === d.getFullYear() && b.m === d.getMonth());
+        const b = arr.find(
+          (b) => b.y === d.getFullYear() && b.m === d.getMonth(),
+        );
         if (b) b.total += t.amount;
       }
       return { buckets: arr, todayIndex: arr.length - 1 };
@@ -184,7 +220,10 @@ export function ActivityClient({ txs, months }: { txs: TxRow[]; months: MonthOpt
 
     if (range === "anio") {
       const y = now.getFullYear();
-      const arr = Array.from({ length: 12 }, (_, m) => ({ label: shortMonth(new Date(y, m, 1)), total: 0 }));
+      const arr = Array.from({ length: 12 }, (_, m) => ({
+        label: shortMonth(new Date(y, m, 1)),
+        total: 0,
+      }));
       for (const t of onlyExpenses) {
         const d = new Date(t.date);
         if (d.getFullYear() !== y || d > now) continue;
@@ -202,7 +241,8 @@ export function ActivityClient({ txs, months }: { txs: TxRow[]; months: MonthOpt
     const keys = [...years.keys()].sort((a, b) => a - b);
     const minY = keys.length ? keys[0] : now.getFullYear();
     const arr: { label: string; total: number }[] = [];
-    for (let y = minY; y <= now.getFullYear(); y++) arr.push({ label: `${y}`, total: years.get(y) ?? 0 });
+    for (let y = minY; y <= now.getFullYear(); y++)
+      arr.push({ label: `${y}`, total: years.get(y) ?? 0 });
     return { buckets: arr, todayIndex: arr.length - 1 };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rangeTxs, range, month]);
@@ -210,8 +250,13 @@ export function ActivityClient({ txs, months }: { txs: TxRow[]; months: MonthOpt
   // Opciones de cuenta para el diálogo de edición (solo las mías, ya filtradas).
   const accountOptionsAll = useMemo(() => {
     const map = new Map<string, { name: string; type: string }>();
-    for (const t of txs) map.set(t.accountId, { name: t.accountName, type: t.accountType });
-    return [...map.entries()].map(([id, v]) => ({ id, name: v.name, type: v.type }));
+    for (const t of txs)
+      map.set(t.accountId, { name: t.accountName, type: t.accountType });
+    return [...map.entries()].map(([id, v]) => ({
+      id,
+      name: v.name,
+      type: v.type,
+    }));
   }, [txs]);
 
   // Opciones con totales (respetan el tipo activo)
@@ -254,11 +299,19 @@ export function ActivityClient({ txs, months }: { txs: TxRow[]; months: MonthOpt
           </button>
         </div>
       ) : (
-        <p className="text-center text-xs font-semibold text-(--muted-foreground)">{RANGE_DESC[range]}</p>
+        <p className="text-center text-xs font-semibold text-(--muted-foreground)">
+          {RANGE_DESC[range]}
+        </p>
       )}
-      <p className="text-center text-5xl font-extrabold tracking-tight">{formatMoney(shownTotal)}</p>
+      <p className="text-center text-5xl font-extrabold tracking-tight">
+        {formatMoney(shownTotal)}
+      </p>
 
-      <ActivityChart key={`${range}-${month}`} buckets={buckets} todayIndex={todayIndex} />
+      <ActivityChart
+        key={`${range}-${month}`}
+        buckets={buckets}
+        todayIndex={todayIndex}
+      />
 
       <div className="space-y-2">
         <div className="flex items-center gap-2 rounded-full border border-(--border) bg-(--card) px-4 py-2.5">
@@ -271,15 +324,27 @@ export function ActivityClient({ txs, months }: { txs: TxRow[]; months: MonthOpt
           />
         </div>
         <div className="no-scrollbar -mx-5 flex gap-2 overflow-x-auto px-5 pb-1">
-          <FilterPill label={kindLabel} active={kind !== "gastos"} onClick={() => setSheet("kind")} />
-          <FilterPill label={rangeLabel} active={range !== "mensual"} onClick={() => setSheet("range")} />
+          <FilterPill
+            label={kindLabel}
+            active={kind !== "gastos"}
+            onClick={() => setSheet("kind")}
+          />
+          <FilterPill
+            label={rangeLabel}
+            active={range !== "mensual"}
+            onClick={() => setSheet("range")}
+          />
           <FilterPill
             label={account === "todas" ? "Todas las cuentas" : account}
             active={account !== "todas"}
             onClick={() => setSheet("account")}
           />
           <FilterPill
-            label={category === "todas" ? "Todas las categorías" : prettyCat(category)}
+            label={
+              category === "todas"
+                ? "Todas las categorías"
+                : prettyCat(category)
+            }
             active={category !== "todas"}
             onClick={() => setSheet("category")}
           />
@@ -338,7 +403,12 @@ export function ActivityClient({ txs, months }: { txs: TxRow[]; months: MonthOpt
           )}
           {sheet === "month" && (
             <Options
-              items={months.map((m) => ({ value: m.key, label: m.label, total: m.total, cap: true }))}
+              items={months.map((m) => ({
+                value: m.key,
+                label: m.label,
+                total: m.total,
+                cap: true,
+              }))}
               value={month}
               onPick={(v) => {
                 setMonth(v);
@@ -350,7 +420,11 @@ export function ActivityClient({ txs, months }: { txs: TxRow[]; months: MonthOpt
             <Options
               items={[
                 { value: "todas", label: "Todas las cuentas" },
-                ...accountOpts.map(([name, total]) => ({ value: name, label: name, total })),
+                ...accountOpts.map(([name, total]) => ({
+                  value: name,
+                  label: name,
+                  total,
+                })),
               ]}
               value={account}
               onPick={(v) => {
@@ -363,7 +437,11 @@ export function ActivityClient({ txs, months }: { txs: TxRow[]; months: MonthOpt
             <Options
               items={[
                 { value: "todas", label: "Todas las categorías" },
-                ...categoryOpts.map(([cat, total]) => ({ value: cat, label: prettyCat(cat), total })),
+                ...categoryOpts.map(([cat, total]) => ({
+                  value: cat,
+                  label: prettyCat(cat),
+                  total,
+                })),
               ]}
               value={category}
               onPick={(v) => {
@@ -378,23 +456,33 @@ export function ActivityClient({ txs, months }: { txs: TxRow[]; months: MonthOpt
   );
 }
 
-function FilterPill({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
+function FilterPill({
+  label,
+  active,
+  onClick,
+}: {
+  label: string;
+  active: boolean;
+  onClick: () => void;
+}) {
   return (
     <button
       onClick={onClick}
-      className={`max-w-[220px] shrink-0 truncate rounded-full border px-4 py-2 text-xs font-semibold transition ${
+      className={`max-w-55 shrink-0 truncate rounded-full border border-(--muted-foreground) px-4 py-2 text-xs font-semibold transition ${
         active
-          ? "border-transparent bg-(--foreground) text-(--background)"
-          : "border-(--border) bg-(--card) text-(--muted-foreground)"
+          ? "border-transparent bg-foreground text-background"
+          : "border-(--muted-foreground) bg-card text-muted-foreground"
       }`}
     >
-      {label} ▾
+      {label}
     </button>
   );
 }
 
 function Options({
-  items, value, onPick,
+  items,
+  value,
+  onPick,
 }: {
   items: { value: string; label: string; total?: number; cap?: boolean }[];
   value: string;
@@ -410,9 +498,17 @@ function Options({
               it.value === value ? "bg-(--muted)" : ""
             }`}
           >
-            <span className={`flex-1 text-sm font-semibold ${it.cap ? "capitalize" : ""}`}>{it.label}</span>
-            {it.total !== undefined && <span className="text-sm font-bold">{formatMoney(it.total)}</span>}
-            {it.value === value && <Check className="size-4 text-(--primary)" />}
+            <span
+              className={`flex-1 text-sm font-semibold ${it.cap ? "capitalize" : ""}`}
+            >
+              {it.label}
+            </span>
+            {it.total !== undefined && (
+              <span className="text-sm font-bold">{formatMoney(it.total)}</span>
+            )}
+            {it.value === value && (
+              <Check className="size-4 text-(--primary)" />
+            )}
           </button>
         </li>
       ))}

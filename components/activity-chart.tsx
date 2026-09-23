@@ -6,12 +6,18 @@ import { formatMoney } from "@/lib/utils";
 export type Bucket = { label: string; total: number };
 
 /** Barras diarias genéricas: sirve para un mes o para un rango (7/90/180/365 días). */
-export function ActivityChart({ buckets, todayIndex }: { buckets: Bucket[]; todayIndex?: number | null }) {
+export function ActivityChart({
+  buckets,
+  todayIndex,
+}: {
+  buckets: Bucket[];
+  todayIndex?: number | null;
+}) {
   const [sel, setSel] = useState<number | null>(null);
   const n = buckets.length;
   const max = Math.max(0, ...buckets.map((b) => b.total));
   const peakIdx = buckets.findIndex((b) => max > 0 && b.total === max);
-  const selTotal = sel != null ? buckets[sel]?.total ?? 0 : null;
+  const selTotal = sel != null ? (buckets[sel]?.total ?? 0) : null;
 
   const ticks = useMemo(() => {
     if (n <= 1) return [0];
@@ -28,8 +34,13 @@ export function ActivityChart({ buckets, todayIndex }: { buckets: Bucket[]; toda
       <div className="flex h-5 items-center justify-center text-xs font-semibold text-(--muted-foreground)">
         {sel != null && buckets[sel] ? (
           <span>
-            {buckets[sel].label} · <span className="text-(--foreground)">{formatMoney(selTotal ?? 0)}</span>
-            {peakIdx === sel && <span className="text-(--primary)"> · pico</span>}
+            {buckets[sel].label} ·{" "}
+            <span className="text-foreground">
+              {formatMoney(selTotal ?? 0)}
+            </span>
+            {peakIdx === sel && (
+              <span className="text-(--primary)"> · pico</span>
+            )}
           </span>
         ) : (
           <span>
@@ -40,7 +51,11 @@ export function ActivityChart({ buckets, todayIndex }: { buckets: Bucket[]; toda
         )}
       </div>
 
-      <div className={`flex h-28 items-stretch ${gap}`} role="img" aria-label="Gastos por día">
+      <div
+        className={`flex h-28 items-stretch ${gap}`}
+        role="img"
+        aria-label="Gastos por día"
+      >
         {buckets.map((b, i) => {
           const active = sel === i;
           const isPeak = peakIdx === i;
@@ -53,14 +68,22 @@ export function ActivityChart({ buckets, todayIndex }: { buckets: Bucket[]; toda
             >
               <div
                 className={`bar-anim ${barW} rounded-full ${
-                  active ? "bg-(--foreground)" : isPeak ? "bg-(--primary)" : "bg-(--primary)/50"
+                  active
+                    ? "bg-foreground"
+                    : isPeak
+                      ? "bg-primary"
+                      : "bg-primary/50"
                 }`}
                 style={{
                   height: `${b.total > 0 ? Math.max(4, (b.total / Math.max(1, max)) * 100) : 2}%`,
                   opacity: b.total > 0 ? 1 : 0.35,
                 }}
               />
-              {todayIndex === i ? <span className="size-1 rounded-full bg-(--foreground)" /> : <span className="size-1" />}
+              {todayIndex === i ? (
+                <span className="size-1 rounded-full bg-foreground" />
+              ) : (
+                <span className="size-1" />
+              )}
             </button>
           );
         })}
@@ -70,8 +93,8 @@ export function ActivityChart({ buckets, todayIndex }: { buckets: Bucket[]; toda
         {ticks.map((i) => (
           <span
             key={i}
-            className="absolute max-w-[72px] -translate-x-1/2 truncate"
-            style={{ left: `${(((i + 0.5)) / Math.max(1, n)) * 100}%` }}
+            className="absolute max-w-18 -translate-x-1/2 truncate"
+            style={{ left: `${((i + 0.5) / Math.max(1, n)) * 100}%` }}
           >
             {buckets[i]?.label}
           </span>
