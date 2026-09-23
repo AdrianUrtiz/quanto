@@ -6,6 +6,8 @@ import { prisma } from "@/lib/prisma";
 import { DEMO_ACCOUNTS, DEMO_TXS } from "@/lib/demo-data";
 import { installmentMonths } from "@/lib/calculations";
 import { monthKey } from "@/lib/utils";
+import { computeDues, type DueCharge } from "@/lib/subscriptions";
+import type { SubRow } from "@/components/subscription-tab";
 
 export const metadata = { title: "Cuentas" };
 
@@ -98,9 +100,11 @@ export default async function CuentasPage() {
 
   let accounts: AccountRow[];
   let debts: PartnerDebt[];
+  let subs: SubRow[] = [];
+  let dues: DueCharge[] = [];
   if (process.env.DATABASE_URL) {
     try {
-      const [accRows, sharedRows] = await Promise.all([
+      const [accRows, sharedRows, subRows, confirmedRows] = await Promise.all([
         // Privacidad: ni siquiera se consultan las cuentas de la pareja.
         prisma.account.findMany({
           where: { isActive: true, userId: meId },
@@ -120,6 +124,15 @@ export default async function CuentasPage() {
             shares: { where: { debtorId: meId } },
           },
           orderBy: { date: "asc" },
+        }),
+        prisma.subscription.findMany({
+          where: { userId: meId },
+          include: { account: true },
+          orderBy: { createdAt: "asc" },
+        }),
+        prisma.transaction.findMany({
+          where: { createdById: meId, subscriptionId: { not: null } },
+          select: { subscriptionId: true, date: true },
         }),
       ]);
       accounts = accRows.map((a) => ({
@@ -149,6 +162,31 @@ export default async function CuentasPage() {
           date: t.date,
         })),
         key
+      );
+      subs = subRows.map((s) => ({
+        id: s.id,
+        name: s.name,
+        amount: Number(s.amount),
+        category: s.category,
+        accountId: s.accountId,
+        accountName: s.account.name,
+        chargeDay: s.chargeDay,
+        isShared: s.isShared,
+        sharePct: s.sharePct,
+        shareAmount: s.shareAmount ? Number(s.shareAmount) : null,
+        isActive: s.isActive,
+      }));
+      const confirmed = new Set(
+        confirmedRows
+          .filter((t) => t.subscriptionId)
+          .map((t) => `${t.subscriptionId}:${monthKey(new Date(t.date))}`),
+      );
+      dues = computeDues(
+        subs.map((s) => ({
+          ...s,
+          startMonth: subRows.find((r) => r.id === s.id)?.startMonth ?? key,
+        })),
+        confirmed,
       );
     } catch {
       accounts = demoAccounts();
