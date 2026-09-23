@@ -39,6 +39,7 @@ model User {
   accounts     Account[]
   transactions Transaction[]      @relation("CreatedBy")
   debts        TransactionShare[] @relation("Debtor")
+  subscriptions Subscription[]
 }
 
 model Account {
@@ -67,6 +68,7 @@ model Account {
   balance Decimal @default(0) @db.Decimal(12, 2)
 
   transactions Transaction[]
+  subscriptions Subscription[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -100,12 +102,50 @@ model Transaction {
   // Solo para TRANSFER: cuenta destino.
   transferToAccountId String?
 
+  // Solo para cargos confirmados de suscripción.
+  subscriptionId String?
+  subscription   Subscription? @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([date])
   @@index([accountId])
   @@index([createdById])
+  @@index([subscriptionId])
+}
+
+// Plantilla de cargo recurrente mes a mes (ej. Spotify, Netflix).
+// Los cargos se confirman manualmente y nacen como Transaction vinculadas.
+model Subscription {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  name     String
+  amount   Decimal @db.Decimal(12, 2)
+  category String  @default("SUSCRIPCIONES")
+
+  accountId String
+  account   Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  chargeDay Int // día de cobro 1-31 (se ajusta al último día del mes si no existe)
+
+  isShared Boolean @default(false)
+  // Reparto: porcentaje del deudor o cantidad fija total (igual que el formulario).
+  sharePct    Float    @default(50)
+  shareAmount Decimal? @db.Decimal(12, 2)
+
+  isActive Boolean @default(true) // false = pausada
+  // Primer mes a generar, "YYYY-MM" (por defecto el mes de creación).
+  startMonth String
+
+  transactions Transaction[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
 }
 
 model TransactionShare {
@@ -123,6 +163,9 @@ model TransactionShare {
   // Aportación MENSUAL del deudor = amount * sharePct/100 / installments.
   // Ej: $3,000 a 3 MSI 50/50 → $500/mes durante 3 meses.
   monthlyAmount Decimal @db.Decimal(12, 2)
+
+  // true: monto fijo pactado (ej. $125 de $400) — editar el total NO lo recalcula.
+  isFixedAmount Boolean @default(false)
 
   settled Boolean @default(false)
 
