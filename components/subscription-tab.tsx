@@ -1,16 +1,15 @@
 "use client";
 
 import { useState } from "react";
-import { Pause, Pencil, Play, Plus, Trash2 } from "lucide-react";
+import { Plus } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { SubscriptionForm, type SubEditData } from "@/components/subscription-form";
 import { DueSubscriptions } from "@/components/due-subscriptions";
+import { SubscriptionSwipeRow } from "@/components/subscription-swipe-row";
 import { deleteSubscription, toggleSubscription } from "@/lib/subscription-actions";
 import { formatMoney } from "@/lib/utils";
-import { parseCat } from "@/lib/categories";
 import type { AccountOpt } from "@/components/transaction-form";
 import type { DueCharge } from "@/lib/subscriptions";
 
@@ -29,6 +28,7 @@ export function SubscriptionTab({
   const [addOpen, setAddOpen] = useState(false);
   const [editing, setEditing] = useState<SubRow | null>(null);
   const [deleting, setDeleting] = useState<SubRow | null>(null);
+  const [openRow, setOpenRow] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const monthly = subs.filter((s) => s.isActive).reduce((a, s) => a + s.amount, 0);
@@ -73,59 +73,17 @@ export function SubscriptionTab({
             Sin suscripciones. Agrega Netflix, Spotify, gimnasio…
           </p>
         )}
-        {subs.map((s) => {
-          const cat = parseCat(s.category);
-          return (
-            <div
-              key={s.id}
-              className={`flex items-center gap-3 rounded-3xl border p-3.5 ${
-                s.isActive ? "border-(--border) bg-(--card)" : "border-dashed border-(--border) bg-(--muted)/40 opacity-70"
-              }`}
-            >
-              <span className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-(--muted) text-xl">
-                {cat.emoji}
-              </span>
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-semibold">
-                  {s.name}{" "}
-                  {!s.isActive && (
-                    <Badge variant="secondary">Pausada</Badge>
-                  )}
-                </p>
-                <p className="truncate text-xs text-(--muted-foreground)">
-                  Día {s.chargeDay} · {s.accountName}
-                  {s.isShared && (
-                    <> · comparte {s.shareAmount ?? `${s.sharePct}%`}</>
-                  )}
-                </p>
-              </div>
-              <div className="flex shrink-0 items-center gap-0.5">
-                <button
-                  aria-label={s.isActive ? "Pausar" : "Reanudar"}
-                  disabled={busy}
-                  onClick={() => toggle(s)}
-                  className="rounded-full p-2 text-(--muted-foreground) hover:bg-(--muted) hover:text-(--foreground)"
-                >
-                  {s.isActive ? <Pause className="size-4" /> : <Play className="size-4" />}
-                </button>
-                <button
-                  aria-label="Editar"
-                  onClick={() => setEditing(s)}
-                  className="rounded-full p-2 text-(--muted-foreground) hover:bg-(--muted) hover:text-(--foreground)"
-                >
-                  <Pencil className="size-4" />
-                </button>
-                <button
-                  aria-label="Eliminar"
-                  onClick={() => setDeleting(s)}
-                  className="rounded-full p-2 text-(--muted-foreground) hover:bg-(--muted) hover:text-red-500"
-                >
-                  <Trash2 className="size-4" />
-                </button>
-              </div>
-            </div>
-          );
-        })}
+        {subs.map((s) => (
+          <SubscriptionSwipeRow
+            key={s.id}
+            s={s}
+            open={openRow === s.id}
+            onOpenChange={(o) => setOpenRow(o ? s.id : null)}
+            onToggle={() => !busy && toggle(s)}
+            onEdit={() => setEditing(s)}
+            onDelete={() => setDeleting(s)}
+          />
+        ))}
       </div>
 
       <p className="text-center text-[11px] text-(--muted-foreground)">
