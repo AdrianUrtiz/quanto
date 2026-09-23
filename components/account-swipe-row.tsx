@@ -48,9 +48,9 @@ export function AccountSwipeRow({
                 close();
                 setEditOpen(true);
               }}
-              className="flex h-full flex-1 flex-col items-center justify-center gap-1.5 rounded-2xl border border-(--border) bg-(--card) text-xs font-semibold text-foreground shadow-xs transition-all hover:bg-(--muted) active:scale-95"
+              className="flex h-full flex-1 flex-col items-center justify-center gap-1.5 rounded-2xl border border-(--border) bg-(--card) text-xs font-semibold text-(--foreground) shadow-xs transition-all hover:bg-(--muted) active:scale-95"
             >
-              <Pencil className="size-4 text-foreground" />
+              <Pencil className="size-4 text-(--foreground)" />
               <span>Editar</span>
             </button>
             <button

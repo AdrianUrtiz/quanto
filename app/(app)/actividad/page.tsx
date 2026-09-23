@@ -20,12 +20,22 @@ export default async function ActividadPage() {
   // Privacidad: solo MIS movimientos. Lo que gasta mi pareja no aparece aquí;
   // lo que le debo vive en Cuentas > Mi pareja y en el Resumen.
   type Raw = {
-    id: string; concept: string; category: string; amount: number; date: Date;
-    type: string; accountId: string; accountName: string; accountType: string;
-    transferToAccountId?: string | null; transferToAccountName?: string | null;
+    id: string;
+    concept: string;
+    category: string;
+    amount: number;
+    date: Date;
+    type: string;
+    accountId: string;
+    accountName: string;
+    accountType: string;
+    transferToAccountId?: string | null;
+    transferToAccountName?: string | null;
     transferToAccountType?: string | null;
     creatorName: string;
-    installments: number; isShared: boolean; createdById: string;
+    installments: number;
+    isShared: boolean;
+    createdById: string;
   };
 
   let raw: Raw[];
@@ -37,7 +47,10 @@ export default async function ActividadPage() {
           include: { account: true, createdBy: true },
           orderBy: { date: "desc" },
         }),
-        prisma.account.findMany({ where: { userId: meId }, select: { id: true, name: true, type: true } }),
+        prisma.account.findMany({
+          where: { userId: meId },
+          select: { id: true, name: true, type: true },
+        }),
       ]);
       const accById = new Map(accRows.map((a) => [a.id, a]));
       raw = rows.map((t) => ({
@@ -51,8 +64,12 @@ export default async function ActividadPage() {
         accountName: t.account.name,
         accountType: t.account.type,
         transferToAccountId: t.transferToAccountId ?? null,
-        transferToAccountName: t.transferToAccountId ? (accById.get(t.transferToAccountId)?.name ?? null) : null,
-        transferToAccountType: t.transferToAccountId ? (accById.get(t.transferToAccountId)?.type ?? null) : null,
+        transferToAccountName: t.transferToAccountId
+          ? (accById.get(t.transferToAccountId)?.name ?? null)
+          : null,
+        transferToAccountType: t.transferToAccountId
+          ? (accById.get(t.transferToAccountId)?.type ?? null)
+          : null,
         creatorName: t.createdBy.name,
         installments: t.installments,
         isShared: t.isShared,
@@ -63,7 +80,8 @@ export default async function ActividadPage() {
         ...t,
         date: new Date(t.date),
         accountName: t.accountName,
-        accountType: DEMO_ACCOUNTS.find((a) => a.id === t.accountId)?.type ?? "DEBIT",
+        accountType:
+          DEMO_ACCOUNTS.find((a) => a.id === t.accountId)?.type ?? "DEBIT",
         transferToAccountId: null,
         transferToAccountName: null,
         transferToAccountType: null,
@@ -75,7 +93,8 @@ export default async function ActividadPage() {
       ...t,
       date: new Date(t.date),
       accountName: t.accountName,
-      accountType: DEMO_ACCOUNTS.find((a) => a.id === t.accountId)?.type ?? "DEBIT",
+      accountType:
+        DEMO_ACCOUNTS.find((a) => a.id === t.accountId)?.type ?? "DEBIT",
       transferToAccountId: null,
       transferToAccountName: null,
       transferToAccountType: null,
@@ -106,7 +125,10 @@ export default async function ActividadPage() {
   if (process.env.DATABASE_URL) {
     try {
       const [subRows, confirmedRows] = await Promise.all([
-        prisma.subscription.findMany({ where: { userId: meId }, include: { account: true } }),
+        prisma.subscription.findMany({
+          where: { userId: meId },
+          include: { account: true },
+        }),
         prisma.transaction.findMany({
           where: { createdById: meId, subscriptionId: { not: null } },
           select: { subscriptionId: true, date: true },

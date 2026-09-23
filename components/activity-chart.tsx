@@ -35,7 +35,7 @@ export function ActivityChart({
         {sel != null && buckets[sel] ? (
           <span>
             {buckets[sel].label} ·{" "}
-            <span className="text-foreground">
+            <span className="text-(--foreground)">
               {formatMoney(selTotal ?? 0)}
             </span>
             {peakIdx === sel && (
@@ -69,10 +69,10 @@ export function ActivityChart({
               <div
                 className={`bar-anim ${barW} rounded-full ${
                   active
-                    ? "bg-foreground"
+                    ? "bg-(--foreground)"
                     : isPeak
-                      ? "bg-primary"
-                      : "bg-primary/50"
+                      ? "bg-(--primary)"
+                      : "bg-(--primary)/50"
                 }`}
                 style={{
                   height: `${b.total > 0 ? Math.max(4, (b.total / Math.max(1, max)) * 100) : 2}%`,
@@ -80,7 +80,7 @@ export function ActivityChart({
                 }}
               />
               {todayIndex === i ? (
-                <span className="size-1 rounded-full bg-foreground" />
+                <span className="size-1 rounded-full bg-(--foreground)" />
               ) : (
                 <span className="size-1" />
               )}

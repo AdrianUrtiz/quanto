@@ -20,8 +20,8 @@ export function Pills({
           className={cn(
             "shrink-0 rounded-full border px-4 py-2 text-xs font-semibold transition",
             value === o.value
-              ? "border-transparent bg-foreground text-background"
-              : "border-border bg-card text-muted-foreground",
+              ? "border-transparent bg-(--foreground) text-(--background)"
+              : "border-(--border) bg-(--card) text-(--muted-foreground)",
           )}
         >
           {o.label}
