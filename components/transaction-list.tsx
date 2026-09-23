@@ -15,6 +15,7 @@ export type TxRow = {
   accountType: string;
   transferToAccountId?: string | null;
   transferToAccountName?: string | null;
+  transferToAccountType?: string | null;
   creatorName: string;
   installments: number;
   isShared: boolean;
@@ -42,7 +43,11 @@ export function TransactionRow({ t }: { t: TxRow }) {
             <Badge variant="warning"><Repeat className="size-3" /> {t.installments} MSI</Badge>
           )}
           {t.isShared && <Badge>Compartido</Badge>}
-          {transfer && <Badge variant="secondary">Pago tarjeta</Badge>}
+          {transfer && (
+            <Badge variant="secondary">
+              {t.transferToAccountType === "CREDIT" ? "Pago tarjeta" : "Transferencia"}
+            </Badge>
+          )}
         </div>
       </div>
       <span className={`flex items-center gap-0.5 text-sm font-extrabold ${income ? "text-emerald-500" : ""}`}>

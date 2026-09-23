@@ -21,6 +21,7 @@ export default async function ActividadPage() {
     id: string; concept: string; category: string; amount: number; date: Date;
     type: string; accountId: string; accountName: string; accountType: string;
     transferToAccountId?: string | null; transferToAccountName?: string | null;
+    transferToAccountType?: string | null;
     creatorName: string;
     installments: number; isShared: boolean; createdById: string;
   };
@@ -34,9 +35,9 @@ export default async function ActividadPage() {
           include: { account: true, createdBy: true },
           orderBy: { date: "desc" },
         }),
-        prisma.account.findMany({ where: { userId: meId }, select: { id: true, name: true } }),
+        prisma.account.findMany({ where: { userId: meId }, select: { id: true, name: true, type: true } }),
       ]);
-      const accById = new Map(accRows.map((a) => [a.id, a.name]));
+      const accById = new Map(accRows.map((a) => [a.id, a]));
       raw = rows.map((t) => ({
         id: t.id,
         concept: t.concept,
@@ -48,7 +49,8 @@ export default async function ActividadPage() {
         accountName: t.account.name,
         accountType: t.account.type,
         transferToAccountId: t.transferToAccountId ?? null,
-        transferToAccountName: t.transferToAccountId ? (accById.get(t.transferToAccountId) ?? null) : null,
+        transferToAccountName: t.transferToAccountId ? (accById.get(t.transferToAccountId)?.name ?? null) : null,
+        transferToAccountType: t.transferToAccountId ? (accById.get(t.transferToAccountId)?.type ?? null) : null,
         creatorName: t.createdBy.name,
         installments: t.installments,
         isShared: t.isShared,
@@ -62,6 +64,7 @@ export default async function ActividadPage() {
         accountType: DEMO_ACCOUNTS.find((a) => a.id === t.accountId)?.type ?? "DEBIT",
         transferToAccountId: null,
         transferToAccountName: null,
+        transferToAccountType: null,
         creatorName: t.creatorName,
       }));
     }
@@ -73,6 +76,7 @@ export default async function ActividadPage() {
       accountType: DEMO_ACCOUNTS.find((a) => a.id === t.accountId)?.type ?? "DEBIT",
       transferToAccountId: null,
       transferToAccountName: null,
+      transferToAccountType: null,
       creatorName: t.creatorName,
     }));
   }

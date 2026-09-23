@@ -2,15 +2,18 @@
 
 import { useMemo, useState } from "react";
 import {
+  ArrowDownLeft,
   ArrowRight,
+  ArrowUpRight,
+  CalendarClock,
   CalendarDays,
   Check,
-  CreditCard,
+  Delete,
   LayoutGrid,
   NotebookPen,
   Plus,
+  Users,
   Wallet,
-  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -54,9 +57,10 @@ const MODE_TYPE: Record<Mode, string> = {
   abono: "INCOME",
   pago: "TRANSFER",
 };
-const MSI_OPTS = [1, 3, 6, 12];
+const MSI_OPTS = [1, 3, 6, 9, 12, 15, 24];
+const msiLabel = (m: number) => (m === 1 ? "Contado" : `${m} MSI`);
 
-type Panel = null | "cats" | "account" | "dest" | "date" | "addcat";
+type Panel = null | "cats" | "account" | "dest" | "date" | "addcat" | "msi" | "share";
 
 function toYMD(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -102,14 +106,18 @@ export function TransactionForm({
     entry ? toYMD(new Date(entry.date)) : toYMD(new Date()),
   );
   const [desc, setDesc] = useState(entry?.concept ?? "");
+  const [descTouched, setDescTouched] = useState(Boolean(entry?.concept));
   const [editingDesc, setEditingDesc] = useState(false);
   const [accountId, setAccountId] = useState(
     entry?.accountId ?? accountOptions[0]?.id ?? "",
   );
   const [destId, setDestId] = useState(entry?.transferToAccountId ?? "");
-  const [category, setCategory] = useState(entry?.category ?? "COMIDA");
+  const [category, setCategory] = useState(entry?.category ?? (initialMode === "abono" ? "NOMINA" : "COMIDA"));
   const [msi, setMsi] = useState(1);
   const [shared, setShared] = useState(false);
+  const [shareMode, setShareMode] = useState<"pct" | "amount">("pct");
+  const [sharePct, setSharePct] = useState(50);
+  const [shareAmt, setShareAmt] = useState("");
   const [panel, setPanel] = useState<Panel>(null);
   const [localCustoms, setLocalCustoms] = useState<CustomCat[]>([]);
   const [newCatName, setNewCatName] = useState("");
@@ -117,19 +125,37 @@ export function TransactionForm({
   const [msg, setMsg] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
 
-  const allCats = useMemo(
-    () => [
+  // Solo las categorías del modo activo (gasto o ingreso).
+  const visibleCats = useMemo(() => {
+    const want = mode === "abono" ? "income" : "expense";
+    const all = [
       ...DEFAULT_CATS.map((c) => ({ ...c, custom: false })),
       ...customs,
       ...localCustoms,
-    ],
-    [customs, localCustoms],
-  );
+    ];
+    return all.filter((c) => c.kind === want || c.kind === "both");
+  }, [customs, localCustoms, mode]);
+
+  function switchMode(m: Mode) {
+    setMode(m);
+    if (m === "pago") {
+      setPanel(null);
+      return;
+    }
+    const want = m === "abono" ? "income" : "expense";
+    const ok = [...DEFAULT_CATS, ...customs, ...localCustoms].some(
+      (c) => c.code === category && (c.kind === want || c.kind === "both"),
+    );
+    if (!ok) setCategory(m === "abono" ? "NOMINA" : "COMIDA");
+  }
   const debits = accountOptions.filter((a) => a.type !== "CREDIT");
-  const credits = accountOptions.filter((a) => a.type === "CREDIT");
   const hasTypes = accountOptions.some((a) => a.type);
   const originOpts = hasTypes ? debits : accountOptions;
-  const destOpts = hasTypes ? credits : accountOptions;
+  // Destino: cualquier cuenta propia distinta del origen (crédito o débito).
+  const destOpts = accountOptions.filter((a) => a.id !== accountId);
+  const destFallback = destOpts[0]?.id ?? "";
+  const shownDest = destId || destFallback;
+  const destIsDebit = (accountOptions.find((a) => a.id === shownDest)?.type ?? "CREDIT") !== "CREDIT";
 
   const todayYMD = toYMD(new Date());
   const yesterdayYMD = toYMD(new Date(Date.now() - 86400000));
@@ -142,13 +168,28 @@ export function TransactionForm({
   const accountLabel =
     accountOptions.find((a) => a.id === accountId)?.name ?? "Cuenta";
   const destLabel =
-    accountOptions.find((a) => a.id === destId)?.name ?? "Tarjeta";
+    accountOptions.find((a) => a.id === shownDest)?.name ?? "Cuenta";
+
+  // Vista previa del reparto (total y mensual según MSI).
+  // sharePct = MI porcentaje; a mi pareja le toca el resto.
+  const totalNum = Number(amount) || 0;
+  const per = Math.max(1, msi);
+  const pctMonthly = (totalNum * (100 - sharePct)) / 100 / per;
+  const amtNum = Number(shareAmt) || 0;
+  const amtMonthly = amtNum / per;
+  const amtPct = totalNum > 0 ? (amtNum / totalNum) * 100 : 0;
+  const shareLabel = !shared
+    ? "Compartir"
+    : shareMode === "pct"
+      ? `${100 - sharePct}%`
+      : shareAmt
+        ? `$${fmtAmount(shareAmt)}`
+        : "Monto";
   const catInfo = parseCat(category);
 
   function press(k: string) {
     setMsg(null);
     setAmount((prev) => {
-      if (k === "clear") return "0";
       if (k === "back") return prev.length <= 1 ? "0" : prev.slice(0, -1);
       if (k === ".")
         return prev.includes(".") ? prev : prev === "" ? "0." : prev + ".";
@@ -174,8 +215,8 @@ export function TransactionForm({
       setMsg("Elige una cuenta");
       return;
     }
-    if (mode === "pago" && (!destId || destId === accountId)) {
-      setMsg("Elige una tarjeta destino distinta");
+    if (mode === "pago" && (!shownDest || shownDest === accountId)) {
+      setMsg("Elige una cuenta destino distinta");
       return;
     }
     setMsg(null);
@@ -184,14 +225,33 @@ export function TransactionForm({
     if (editing) fd.set("id", entry!.id);
     fd.set("type", MODE_TYPE[mode]);
     fd.set("amount", String(value));
-    fd.set("concept", desc.trim() || prettyCat(category));
+    const autoConcept =
+      mode === "pago"
+        ? destIsDebit
+          ? "Transferencia entre cuentas"
+          : "Pago de tarjeta"
+        : prettyCat(category);
+    fd.set("concept", descTouched ? desc.trim() || autoConcept : autoConcept);
     fd.set("category", mode === "pago" ? "OTRO" : category);
     fd.set("date", `${dateYMD}T12:00:00`); // mediodía: inmune a desfases de zona horaria
     fd.set("accountId", accountId);
-    if (mode === "pago") fd.set("transferToAccountId", destId);
+    if (mode === "pago") fd.set("transferToAccountId", shownDest);
     if (mode === "cargo" && !editing) {
       fd.set("installments", String(msi));
-      if (shared) fd.set("isShared", "true");
+      if (shared) {
+        fd.set("isShared", "true");
+        if (shareMode === "pct") {
+          fd.set("sharePct", String(100 - sharePct)); // al servidor va el % del deudor
+        } else {
+          const amt = Number(shareAmt);
+          if (!shareAmt || Number.isNaN(amt) || amt <= 0 || amt >= value) {
+            setMsg("La aportación debe ser mayor a 0 y menor al total");
+            setPending(false);
+            return;
+          }
+          fd.set("shareAmount", String(amt));
+        }
+      }
     }
     const res = editing
       ? await updateTransaction(fd)
@@ -206,7 +266,7 @@ export function TransactionForm({
       setMsg("La categoría necesita al menos 2 letras");
       return;
     }
-    const code = makeCustomCat(newCatEmoji, newCatName);
+    const code = makeCustomCat(newCatEmoji, newCatName, mode === "abono" ? "income" : "expense");
     const info = parseCat(code);
     setLocalCustoms((prev) =>
       prev.some((c) => c.code === code) ? prev : [...prev, info],
@@ -218,9 +278,7 @@ export function TransactionForm({
   }
 
   const pagoBlocked =
-    mode === "pago" &&
-    hasTypes &&
-    (debits.length === 0 || credits.length === 0);
+    mode === "pago" && (debits.length === 0 || accountOptions.length < 2);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-5 pt-1 pb-6">
@@ -232,11 +290,11 @@ export function TransactionForm({
         </span>
         <button
           type="button"
-          aria-label="Borrar"
-          onClick={() => press("clear")}
+          aria-label="Borrar último dígito"
+          onClick={() => press("back")}
           className="flex size-8 items-center justify-center rounded-full bg-(--muted) text-(--muted-foreground)"
         >
-          <X className="size-4" />
+          <Delete className="size-4" />
         </button>
       </div>
 
@@ -245,7 +303,10 @@ export function TransactionForm({
         <div className="flex items-center gap-2">
           <Input
             value={desc}
-            onChange={(e) => setDesc(e.target.value)}
+            onChange={(e) => {
+              setDesc(e.target.value);
+              setDescTouched(true);
+            }}
             placeholder="Descripción"
             maxLength={60}
             autoFocus
@@ -287,26 +348,66 @@ export function TransactionForm({
               <button
                 type="button"
                 onClick={() => setPanel("account")}
-                className="flex shrink-0 items-center gap-1.5 rounded-full border border-(--border) bg-(--muted)/60 px-4 py-2 text-xs font-semibold"
+                className="flex max-w-[200px] shrink-0 items-center gap-1.5 rounded-full border border-(--border) bg-(--muted)/60 px-4 py-2 text-xs font-semibold"
               >
-                <Wallet className="size-3.5" /> {accountLabel}
+                <ArrowUpRight className="size-3.5 shrink-0 text-red-400" />
+                <span className="truncate">De {accountLabel}</span>
               </button>
               <button
                 type="button"
                 onClick={() => setPanel("dest")}
-                className="flex shrink-0 items-center gap-1.5 rounded-full border border-(--border) bg-(--muted)/60 px-4 py-2 text-xs font-semibold"
+                className="flex max-w-[200px] shrink-0 items-center gap-1.5 rounded-full border border-(--border) bg-(--muted)/60 px-4 py-2 text-xs font-semibold"
               >
-                <CreditCard className="size-3.5" /> {destLabel}
+                <ArrowDownLeft className="size-3.5 shrink-0 text-emerald-400" />
+                <span className="truncate">A {destLabel}</span>
+              </button>
+              <button
+                type="button"
+                aria-label="Cambiar modo"
+                onClick={() => setPanel("cats")}
+                className="flex size-9 shrink-0 items-center justify-center rounded-full border border-(--border) bg-(--muted)/60"
+              >
+                <LayoutGrid className="size-4" />
               </button>
             </>
           ) : (
-            <button
-              type="button"
-              onClick={() => setPanel("account")}
-              className="flex shrink-0 items-center gap-1.5 rounded-full border border-(--border) bg-(--muted)/60 px-4 py-2 text-xs font-semibold"
-            >
-              <Wallet className="size-3.5" /> {accountLabel}
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={() => setPanel("account")}
+                className="flex shrink-0 items-center gap-1.5 rounded-full border border-(--border) bg-(--muted)/60 px-4 py-2 text-xs font-semibold"
+              >
+                <Wallet className="size-3.5" /> {accountLabel}
+              </button>
+              {mode === "cargo" && !editing && (
+                <button
+                  type="button"
+                  onClick={() => setPanel("msi")}
+                  className={cn(
+                    "flex shrink-0 items-center gap-1.5 rounded-full border px-4 py-2 text-xs font-semibold",
+                    msi !== 1
+                      ? "border-transparent bg-(--foreground) text-(--background)"
+                      : "border-(--border) bg-(--muted)/60",
+                  )}
+                >
+                  <CalendarClock className="size-3.5" /> {msiLabel(msi)}
+                </button>
+              )}
+              {mode === "cargo" && !editing && (
+                <button
+                  type="button"
+                  onClick={() => setPanel("share")}
+                  className={cn(
+                    "flex shrink-0 items-center gap-1.5 rounded-full border px-4 py-2 text-xs font-semibold",
+                    shared
+                      ? "border-transparent bg-(--foreground) text-(--background)"
+                      : "border-(--border) bg-(--muted)/60",
+                  )}
+                >
+                  <Users className="size-3.5" /> {shareLabel}
+                </button>
+              )}
+            </>
           )}
         </div>
       )}
@@ -315,7 +416,7 @@ export function TransactionForm({
       {mode !== "pago" && (
         <div className="mt-2 flex items-center gap-2">
           <div className="no-scrollbar flex min-w-0 flex-1 gap-2 overflow-x-auto items-center">
-            {allCats.map((c) => (
+            {visibleCats.map((c) => (
               <button
                 key={c.code}
                 type="button"
@@ -342,38 +443,6 @@ export function TransactionForm({
         </div>
       )}
 
-      {/* MSI + compartido (solo cargo nuevo) */}
-      {mode === "cargo" && !editing && (
-        <div className="mt-3 space-y-2">
-          <div className="grid grid-cols-4 gap-2">
-            {MSI_OPTS.map((m) => (
-              <button
-                key={m}
-                type="button"
-                onClick={() => setMsi(m)}
-                className={cn(
-                  "rounded-2xl border py-2 text-xs font-semibold",
-                  msi === m
-                    ? "border-transparent bg-(--foreground) text-(--background)"
-                    : "border-(--border) text-(--muted-foreground)",
-                )}
-              >
-                {m === 1 ? "Contado" : `${m} MSI`}
-              </button>
-            ))}
-          </div>
-          <div className="flex items-center justify-between rounded-2xl border border-(--border) px-4 py-2.5">
-            <p className="text-xs font-semibold">
-              Compartir 50/50 con mi pareja
-            </p>
-            <Switch
-              checked={shared}
-              onCheckedChange={setShared}
-              aria-label="Compartir gasto"
-            />
-          </div>
-        </div>
-      )}
       {editing &&
         mode === "cargo" &&
         (entry!.installments > 1 || entry!.isShared) && (
@@ -436,12 +505,7 @@ export function TransactionForm({
                 <button
                   key={m}
                   type="button"
-                  onClick={() => {
-                    setMode(m);
-                    if (m === "pago") setPanel(null);
-                    if (m === "abono" && category === "COMIDA")
-                      setCategory("NOMINA");
-                  }}
+                  onClick={() => switchMode(m)}
                   className={cn(
                     "rounded-full px-5 py-2 text-sm font-semibold",
                     mode === m
@@ -456,7 +520,7 @@ export function TransactionForm({
           )}
           {mode !== "pago" && (
             <div className="grid grid-cols-4 gap-2 pb-2">
-              {allCats.map((c) => (
+              {visibleCats.map((c) => (
                 <button
                   key={c.code}
                   type="button"
@@ -538,7 +602,11 @@ export function TransactionForm({
         <DialogContent>
           <DialogHeader>
             <DialogTitle>
-              {panel === "dest" ? "Tarjeta destino" : "Cuenta"}
+              {panel === "dest"
+                ? "¿A qué cuenta llega?"
+                : mode === "pago"
+                  ? "¿De qué cuenta sale?"
+                  : "Cuenta"}
             </DialogTitle>
           </DialogHeader>
           <ul className="max-h-[50dvh] space-y-1 overflow-y-auto">
@@ -549,14 +617,17 @@ export function TransactionForm({
                 : accountOptions
             ).map((a) => {
               const selected =
-                panel === "dest" ? destId === a.id : accountId === a.id;
+                panel === "dest" ? shownDest === a.id : accountId === a.id;
               return (
                 <li key={a.id}>
                   <button
                     type="button"
                     onClick={() => {
                       if (panel === "dest") setDestId(a.id);
-                      else setAccountId(a.id);
+                      else {
+                        setAccountId(a.id);
+                        if (destId === a.id) setDestId("");
+                      }
                       setPanel(null);
                     }}
                     className={cn(
@@ -573,6 +644,129 @@ export function TransactionForm({
               );
             })}
           </ul>
+        </DialogContent>
+      </Dialog>
+
+      {/* Panel: meses sin intereses */}
+      <Dialog open={panel === "msi"} onOpenChange={(o) => !o && setPanel(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Meses sin intereses</DialogTitle>
+          </DialogHeader>
+          <ul className="max-h-[50dvh] space-y-1 overflow-y-auto">
+            {MSI_OPTS.map((m) => (
+              <li key={m}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMsi(m);
+                    setPanel(null);
+                  }}
+                  className={cn(
+                    "flex w-full items-center gap-2 rounded-2xl px-4 py-3 text-left transition hover:bg-(--muted)",
+                    msi === m && "bg-(--muted)",
+                  )}
+                >
+                  <span className="flex-1 text-sm font-semibold">{msiLabel(m)}</span>
+                  {msi === m && <Check className="size-4 text-(--primary)" />}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </DialogContent>
+      </Dialog>
+
+      {/* Panel: compartir (porcentaje o cantidad fija) */}
+      <Dialog open={panel === "share"} onOpenChange={(o) => !o && setPanel(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Compartir gasto</DialogTitle>
+          </DialogHeader>
+          <div className="flex items-center justify-between rounded-2xl border border-(--border) px-4 py-3">
+            <div>
+              <p className="text-sm font-semibold">Compartir con mi pareja</p>
+              <p className="text-xs text-(--muted-foreground)">Define su aportación</p>
+            </div>
+            <Switch checked={shared} onCheckedChange={setShared} aria-label="Compartir gasto" />
+          </div>
+
+          {shared && (
+            <>
+              <div className="mx-auto grid w-fit grid-cols-2 gap-2 rounded-full bg-(--muted) p-1">
+                {(["pct", "amount"] as const).map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => setShareMode(m)}
+                    className={cn(
+                      "rounded-full px-5 py-2 text-sm font-semibold",
+                      shareMode === m ? "bg-(--card) shadow" : "text-(--muted-foreground)",
+                    )}
+                  >
+                    {m === "pct" ? "Porcentaje" : "Cantidad"}
+                  </button>
+                ))}
+              </div>
+
+              {shareMode === "pct" ? (
+                <div className="space-y-2 rounded-3xl border border-(--border) p-4">
+                  <p className="text-center text-4xl font-extrabold tabular-nums">{sharePct}%</p>
+                  <input
+                    type="range"
+                    min={1}
+                    max={99}
+                    value={sharePct}
+                    onChange={(e) => setSharePct(Number(e.target.value))}
+                    aria-label="Mi porcentaje del gasto"
+                    className="w-full accent-(--primary)"
+                  />
+                  <div className="flex justify-between text-[11px] text-(--muted-foreground)">
+                    <span>Tú {sharePct}%</span>
+                    <span>Pareja {100 - sharePct}%</span>
+                  </div>
+                  <p className="text-center text-sm">
+                    Tu pareja aporta{" "}
+                    <b>
+                      ${fmtAmount(pctMonthly.toFixed(2))}/mes{msi > 1 ? ` × ${msi}` : ""}
+                    </b>{" "}
+                    de ${fmtAmount(amount || "0")}
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-2 rounded-3xl border border-(--border) p-4">
+                  <Label htmlFor="share-amt">¿Cuánto aporta tu pareja? (total)</Label>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xl font-bold text-(--muted-foreground)">$</span>
+                    <Input
+                      id="share-amt"
+                      type="number"
+                      min={0.01}
+                      step={0.01}
+                      value={shareAmt}
+                      onChange={(e) => setShareAmt(e.target.value)}
+                      placeholder="125"
+                      inputMode="decimal"
+                    />
+                  </div>
+                  {amtNum > 0 && (
+                    <p className="text-center text-sm">
+                      Equivale al <b>{amtPct.toFixed(1)}%</b> ·{" "}
+                      <b>
+                        ${fmtAmount(amtMonthly.toFixed(2))}/mes{msi > 1 ? ` × ${msi}` : ""}
+                      </b>
+                    </p>
+                  )}
+                  <p className="text-center text-[11px] text-(--muted-foreground)">
+                    Monto fijo pactado: no cambiará aunque edites el total
+                  </p>
+                </div>
+              )}
+
+              <Button type="button" className="w-full" onClick={() => setPanel(null)}>
+                Listo
+              </Button>
+            </>
+          )}
         </DialogContent>
       </Dialog>
 

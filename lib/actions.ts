@@ -131,7 +131,7 @@ export async function deleteAccount(id: string) {
 
 // Mueve el saldo en la dirección indicada. dir=1 aplica el efecto,
 // dir=-1 lo revierte. Réplica exacta de la lógica de createTransaction.
-async function moveBalance(accountId: string, accType: string, txType: string, amount: number, dir: 1 | -1) {
+export async function moveBalance(accountId: string, accType: string, txType: string, amount: number, dir: 1 | -1) {
   if (txType === "EXPENSE" && accType === "CREDIT") {
     await prisma.account.update({
       where: { id: accountId },
@@ -156,15 +156,30 @@ async function moveBalance(accountId: string, accType: string, txType: string, a
   }
 }
 
-// Pago de tarjeta (débito → crédito). dir=1 aplica, dir=-1 revierte.
-async function moveTransfer(originId: string, destId: string, amount: number, dir: 1 | -1) {
-  if (dir === 1) {
-    await prisma.account.update({ where: { id: originId }, data: { balance: { decrement: amount } } });
-    await prisma.account.update({ where: { id: destId }, data: { balance: { decrement: amount } } });
-  } else {
-    await prisma.account.update({ where: { id: originId }, data: { balance: { increment: amount } } });
-    await prisma.account.update({ where: { id: destId }, data: { balance: { increment: amount } } });
-  }
+// Traspaso entre cuentas propias. dir=1 aplica, dir=-1 revierte.
+// Destino débito: suma saldo · destino crédito: reduce deuda (libera línea).
+async function moveTransfer(
+  origin: { id: string; type: string },
+  dest: { id: string; type: string },
+  amount: number,
+  dir: 1 | -1,
+) {
+  const out = dir === 1;
+  await prisma.account.update({
+    where: { id: origin.id },
+    data: out ? { balance: { decrement: amount } } : { balance: { increment: amount } },
+  });
+  await prisma.account.update({
+    where: { id: dest.id },
+    data:
+      dest.type === "CREDIT"
+        ? out
+          ? { balance: { decrement: amount } }
+          : { balance: { increment: amount } }
+        : out
+          ? { balance: { increment: amount } }
+          : { balance: { decrement: amount } },
+  });
 }
 
 const UpdateTxSchema = z.object({
@@ -199,18 +214,31 @@ export async function updateTransaction(formData: FormData) {
   const newAcc = await prisma.account.findFirst({ where: { id: v.accountId, userId } });
   if (!newAcc) return { error: "Cuenta no encontrada" };
 
-  // Pago de tarjeta: revierte origen/destino anteriores y aplica los nuevos.
+  // Traspaso: revierte origen/destino anteriores y aplica los nuevos.
   if (tx.type === "TRANSFER") {
     const newDestId = v.transferToAccountId;
-    if (!newDestId || newDestId === v.accountId) return { error: "Elige una tarjeta destino distinta" };
+    if (!newDestId || newDestId === v.accountId) return { error: "Elige una cuenta destino distinta" };
     const newDest = await prisma.account.findFirst({ where: { id: newDestId, userId } });
-    if (!newDest) return { error: "Tarjeta no encontrada" };
-    if (newAcc.type !== "DEBIT") return { error: "El pago debe salir de una cuenta de débito" };
-    if (newDest.type !== "CREDIT") return { error: "El destino debe ser una tarjeta de crédito" };
-    if (!tx.transferToAccountId) return { error: "Este pago no tiene destino registrado" };
+    if (!newDest) return { error: "Cuenta destino no encontrada" };
+    if (newAcc.type !== "DEBIT") return { error: "El traspaso debe salir de una cuenta de débito" };
+    if (!tx.transferToAccountId) return { error: "Este movimiento no tiene destino registrado" };
+    const oldDest = await prisma.account.findFirst({
+      where: { id: tx.transferToAccountId, userId },
+      select: { id: true, type: true },
+    });
 
-    await moveTransfer(tx.accountId, tx.transferToAccountId, Number(tx.amount), -1);
-    await moveTransfer(v.accountId, newDestId, v.amount, 1);
+    await moveTransfer(
+      { id: tx.accountId, type: tx.account.type },
+      { id: tx.transferToAccountId, type: oldDest?.type ?? "CREDIT" },
+      Number(tx.amount),
+      -1,
+    );
+    await moveTransfer(
+      { id: v.accountId, type: newAcc.type },
+      { id: newDestId, type: newDest.type },
+      v.amount,
+      1,
+    );
     await prisma.transaction.update({
       where: { id: v.id },
       data: {
@@ -244,8 +272,9 @@ export async function updateTransaction(formData: FormData) {
   });
 
   // Si era compartido, recalcula la cuota mensual con el nuevo monto
-  // (mismo porcentaje y parcialidades).
+  // (mismo porcentaje y parcialidades). Los montos fijos pactados no se tocan.
   for (const s of tx.shares) {
+    if (s.isFixedAmount) continue;
     await prisma.transactionShare.update({
       where: { id: s.id },
       data: { monthlyAmount: debtorMonthlyAmount(v.amount, tx.installments, s.sharePct) },
@@ -273,8 +302,17 @@ export async function deleteTransaction(id: string) {
   if (!tx) return { error: "Movimiento no encontrado" };
 
   if (tx.type === "TRANSFER") {
-    if (!tx.transferToAccountId) return { error: "Este pago no tiene destino registrado" };
-    await moveTransfer(tx.accountId, tx.transferToAccountId, Number(tx.amount), -1);
+    if (!tx.transferToAccountId) return { error: "Este movimiento no tiene destino registrado" };
+    const dest = await prisma.account.findFirst({
+      where: { id: tx.transferToAccountId, userId },
+      select: { id: true, type: true },
+    });
+    await moveTransfer(
+      { id: tx.accountId, type: tx.account.type },
+      { id: tx.transferToAccountId, type: dest?.type ?? "CREDIT" },
+      Number(tx.amount),
+      -1,
+    );
   } else {
     await moveBalance(tx.accountId, tx.account.type, tx.type, Number(tx.amount), -1);
   }
@@ -296,7 +334,8 @@ const TxSchema = z.object({
   transferToAccountId: z.string().optional(),
   installments: z.coerce.number().min(1).max(24).default(1),
   isShared: z.coerce.boolean().default(false),
-  sharePct: z.coerce.number().min(1).max(100).default(50),
+  sharePct: z.coerce.number().min(1).max(99).default(50),
+  shareAmount: z.coerce.number().positive().optional(),
   debtorId: z.string().optional(),
 });
 
@@ -316,14 +355,13 @@ export async function createTransaction(formData: FormData) {
   const account = await prisma.account.findFirst({ where: { id: v.accountId, userId } });
   if (!account) return { error: "Cuenta no encontrada" };
 
-  // Pago de tarjeta: sale de un débito propio y abona a un crédito propio.
+  // Traspaso entre cuentas propias: sale de un débito y llega a débito o crédito.
   if (v.type === "TRANSFER") {
     const destId = v.transferToAccountId;
-    if (!destId || destId === v.accountId) return { error: "Elige una tarjeta destino distinta" };
+    if (!destId || destId === v.accountId) return { error: "Elige una cuenta destino distinta" };
     const dest = await prisma.account.findFirst({ where: { id: destId, userId } });
-    if (!dest) return { error: "Tarjeta no encontrada" };
-    if (account.type !== "DEBIT") return { error: "El pago debe salir de una cuenta de débito" };
-    if (dest.type !== "CREDIT") return { error: "El destino debe ser una tarjeta de crédito" };
+    if (!dest) return { error: "Cuenta destino no encontrada" };
+    if (account.type !== "DEBIT") return { error: "El traspaso debe salir de una cuenta de débito" };
 
     await prisma.transaction.create({
       data: {
@@ -339,7 +377,7 @@ export async function createTransaction(formData: FormData) {
         isShared: false,
       },
     });
-    await moveTransfer(v.accountId, destId, v.amount, 1);
+    await moveTransfer({ id: v.accountId, type: account.type }, { id: destId, type: dest.type }, v.amount, 1);
 
     revalidatePath("/actividad");
     revalidatePath("/resumen");
@@ -359,6 +397,10 @@ export async function createTransaction(formData: FormData) {
     if (!debtorId || debtorId === userId) return { error: "No se pudo determinar quién debe aportar" };
   }
 
+  if (v.type === "EXPENSE" && v.isShared && v.shareAmount && v.shareAmount >= v.amount) {
+    return { error: "La aportación debe ser menor al total" };
+  }
+
   const tx = await prisma.transaction.create({
     data: {
       type: v.type as "EXPENSE" | "INCOME" | "TRANSFER",
@@ -374,12 +416,15 @@ export async function createTransaction(formData: FormData) {
   });
 
   if (v.type === "EXPENSE" && v.isShared && debtorId) {
+    // Cantidad fija pactada (ej. $125 de $400) o porcentaje (50/50 por defecto).
+    const n = Math.max(1, Math.round(v.installments));
     await prisma.transactionShare.create({
       data: {
         transactionId: tx.id,
         debtorId,
-        sharePct: v.sharePct,
-        monthlyAmount: debtorMonthlyAmount(v.amount, v.installments, v.sharePct),
+        sharePct: v.shareAmount ? (v.shareAmount / v.amount) * 100 : v.sharePct,
+        monthlyAmount: v.shareAmount ? v.shareAmount / n : debtorMonthlyAmount(v.amount, v.installments, v.sharePct),
+        isFixedAmount: Boolean(v.shareAmount),
       },
     });
   }
