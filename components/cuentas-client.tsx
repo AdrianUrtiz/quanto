@@ -10,6 +10,7 @@ import type { DueCharge } from "@/lib/subscriptions";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { AccountForm } from "@/components/account-form";
+import { SubscriptionForm } from "@/components/subscription-form";
 import { Button } from "@/components/ui/button";
 import { formatMoney } from "@/lib/utils";
 
@@ -20,20 +21,24 @@ export type DebtLine = {
   installments: number; // total de parcialidades
 };
 
-/** Lo que YO le debo a mi pareja este mes, agrupado por cuenta destino. */
+/** Deuda entre pareja este mes, agrupada por cuenta. Si debtorId soy yo, la debo;
+ * si no, me la deben. */
 export type PartnerDebt = {
   accountId: string;
   accountName: string;
   accountType: "DEBIT" | "CREDIT";
   dueDay?: number;
+  debtorId: string;
+  debtorName: string;
   creditorName: string;
   total: number;
   lines: DebtLine[];
 };
 
-export function CuentasClient({ accounts, meId, debts, subs, dues }: { accounts: AccountRow[]; meId: string; debts: PartnerDebt[]; subs: SubRow[]; dues: DueCharge[] }) {
+export function CuentasClient({ accounts, meId, debts, owed, subs, dues }: { accounts: AccountRow[]; meId: string; debts: PartnerDebt[]; owed: PartnerDebt[]; subs: SubRow[]; dues: DueCharge[] }) {
   const [tab, setTab] = useState("todas");
   const [open, setOpen] = useState(false);
+  const [subOpen, setSubOpen] = useState(false);
   const [openRow, setOpenRow] = useState<string | null>(null);
 
   const mine = useMemo(() => accounts.filter((a) => a.ownerId === meId), [accounts, meId]);
@@ -45,28 +50,36 @@ export function CuentasClient({ accounts, meId, debts, subs, dues }: { accounts:
   // Saldo total: suma débitos + disponible de créditos
   const totalOf = (list: AccountRow[]) =>
     list.reduce((a, c) => a + (c.type === "CREDIT" ? (c.creditLimit ?? 0) - c.balance : c.balance), 0);
-  const owed = useMemo(() => debts.reduce((a, d) => a + d.total, 0), [debts]);
+  const oweTotal = useMemo(() => debts.reduce((a, d) => a + d.total, 0), [debts]);
 
-  const isPartner = tab === "pareja";
-  const isSubs = tab === "subs";
+  const owedTotal = useMemo(() => owed.reduce((a, d) => a + d.total, 0), [owed]);
+
   const monthly = useMemo(() => subs.filter((s) => s.isActive).reduce((a, s) => a + s.amount, 0), [subs]);
-  const total = tab === "mias" ? totalOf(mine) : isPartner ? owed : isSubs ? monthly : totalOf(mine);
 
   const accountOpts = useMemo(
     () => mine.map((a) => ({ id: a.id, name: a.name, type: a.type })),
     [mine]
   );
 
+  // Header homologado: texto pequeño → monto grande → botón a la derecha.
+  // Botón por tab: todas/pareja ninguno · cuentas: + cuenta · subs: + suscripción.
+  const header =
+    tab === "mias"
+      ? { label: "Saldo total", value: totalOf(mine), action: "account" as const }
+      : tab === "subs"
+        ? { label: "Comprometido/mes", value: monthly, action: "sub" as const }
+        : tab === "pareja"
+          ? { label: "Le debes este mes", value: oweTotal, action: null }
+          : { label: "Saldo total", value: totalOf(mine), action: null };
+
   return (
     <div className="space-y-4 px-5 pt-4">
-      {!isSubs && (
-        <div className="flex items-start justify-between">
-          <div>
-            <p className="text-xs font-medium text-(--muted-foreground)">
-              {isPartner ? "Le debes este mes" : "Saldo total"}
-            </p>
-            <p className="text-4xl font-extrabold tracking-tight">{formatMoney(total)}</p>
-          </div>
+      <div className="flex items-start justify-between">
+        <div>
+          <p className="text-xs font-medium text-(--muted-foreground)">{header.label}</p>
+          <p className="text-4xl font-extrabold tracking-tight">{formatMoney(header.value)}</p>
+        </div>
+        {header.action === "account" && (
           <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild>
               <Button size="icon" aria-label="Agregar cuenta" className="rounded-full">
@@ -80,8 +93,23 @@ export function CuentasClient({ accounts, meId, debts, subs, dues }: { accounts:
               <AccountForm onDone={() => setOpen(false)} />
             </DialogContent>
           </Dialog>
-        </div>
-      )}
+        )}
+        {header.action === "sub" && (
+          <Dialog open={subOpen} onOpenChange={setSubOpen}>
+            <DialogTrigger asChild>
+              <Button size="icon" aria-label="Agregar suscripción" className="rounded-full">
+                <Plus className="size-5" />
+              </Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Nueva suscripción</DialogTitle>
+              </DialogHeader>
+              <SubscriptionForm accountOptions={accountOpts} onDone={() => setSubOpen(false)} />
+            </DialogContent>
+          </Dialog>
+        )}
+      </div>
 
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList>
@@ -92,11 +120,12 @@ export function CuentasClient({ accounts, meId, debts, subs, dues }: { accounts:
         </TabsList>
         <TabsContent value="todas" className="space-y-2">
           {mine.map(swipe)}
-          {debts.map((d) => <DebtSummaryRow key={d.accountId} d={d} onOpen={() => setTab("pareja")} />)}
+          {debts.map((d) => <DebtSummaryRow key={`${d.accountId}:${d.debtorId}`} d={d} meId={meId} onOpen={() => setTab("pareja")} />)}
+          {owed.map((d) => <DebtSummaryRow key={`${d.accountId}:${d.debtorId}`} d={d} meId={meId} onOpen={() => setTab("pareja")} />)}
           {subs.filter((s) => s.isActive).map((s) => (
             <SubscriptionSummaryRow key={s.id} s={s} onOpen={() => setTab("subs")} />
           ))}
-          {mine.length === 0 && debts.length === 0 && subs.filter((s) => s.isActive).length === 0 && (
+          {mine.length === 0 && debts.length === 0 && owed.length === 0 && subs.filter((s) => s.isActive).length === 0 && (
             <Empty text="Sin cuentas aquí todavía." />
           )}
         </TabsContent>
@@ -104,9 +133,26 @@ export function CuentasClient({ accounts, meId, debts, subs, dues }: { accounts:
           {mine.length === 0 && <Empty text="Sin cuentas aquí todavía." />}
           {mine.map(swipe)}
         </TabsContent>
-        <TabsContent value="pareja" className="space-y-2">
-          {debts.length === 0 && <Empty text="No le debes nada a tu pareja este mes. 🎉" />}
-          {debts.map((d) => <DebtCard key={d.accountId} d={d} />)}
+        <TabsContent value="pareja" className="space-y-4">
+          {debts.length === 0 && owed.length === 0 && (
+            <Empty text="No hay cuentas pendientes con tu pareja este mes. 🎉" />
+          )}
+          {debts.length > 0 && (
+            <section className="space-y-2">
+              <p className="text-xs font-semibold text-(--muted-foreground)">
+                Le debes · {formatMoney(oweTotal)}
+              </p>
+              {debts.map((d) => <DebtCard key={`${d.accountId}:${d.debtorId}`} d={d} meId={meId} />)}
+            </section>
+          )}
+          {owed.length > 0 && (
+            <section className="space-y-2">
+              <p className="text-xs font-semibold text-(--muted-foreground)">
+                Te deben · {formatMoney(owedTotal)}
+              </p>
+              {owed.map((d) => <DebtCard key={`${d.accountId}:${d.debtorId}`} d={d} meId={meId} />)}
+            </section>
+          )}
         </TabsContent>
         <TabsContent value="subs" className="space-y-2">
           <SubscriptionTab subs={subs} dues={dues} accountOptions={accountOpts} />
@@ -116,37 +162,44 @@ export function CuentasClient({ accounts, meId, debts, subs, dues }: { accounts:
   );
 }
 
-function DebtSummaryRow({ d, onOpen }: { d: PartnerDebt; onOpen: () => void }) {
+function DebtSummaryRow({ d, meId, onOpen }: { d: PartnerDebt; meId: string; onOpen: () => void }) {
   const n = d.lines.length;
+  const owe = d.debtorId === meId;
   return (
     <button
       onClick={onOpen}
-      className="flex w-full items-center gap-3 rounded-3xl border border-amber-500/30 bg-amber-500/[0.07] p-4 text-left transition active:scale-[.99]"
+      className={`flex w-full items-center gap-3 rounded-3xl border p-4 text-left transition active:scale-[.99] ${owe ? "debt-owe" : "debt-owed"}`}
     >
-      <span className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-amber-500 text-white">
+      <span className={`flex size-11 shrink-0 items-center justify-center rounded-2xl ${owe ? "debt-owe-solid" : "debt-owed-solid"}`}>
         <HandCoins className="size-5" />
       </span>
       <span className="min-w-0 flex-1">
         <span className="block truncate text-sm font-semibold">{d.accountName}</span>
         <span className="block truncate text-xs text-(--muted-foreground)">
-          Le debes a {d.creditorName} · {n} {n === 1 ? "movimiento" : "movimientos"}
+          {owe ? `Le debes a ${d.creditorName}` : `${d.debtorName} te debe`} · {n} {n === 1 ? "movimiento" : "movimientos"}
         </span>
       </span>
       <span className="shrink-0 text-right">
         <span className="block text-base font-extrabold">{formatMoney(d.total)}</span>
-        <span className="block text-[11px] font-semibold text-amber-500">Ver detalle ›</span>
+        <span className={`block text-[11px] font-semibold ${owe ? "debt-owe-text" : "debt-owed-text"}`}>Ver detalle ›</span>
       </span>
     </button>
   );
 }
 
-function DebtCard({ d }: { d: PartnerDebt }) {
+function DebtCard({ d, meId }: { d: PartnerDebt; meId: string }) {
+  const owe = d.debtorId === meId;
   // Crédito → día límite de pago de la tarjeta; débito → antes de fin de mes.
   const due = d.accountType === "CREDIT" && d.dueDay ? `para el día ${d.dueDay}` : "antes de fin de mes";
   return (
-    <div className="space-y-1 rounded-3xl border border-amber-500/30 bg-amber-500/[0.07] p-4">
+    <div className={`space-y-1 rounded-3xl border p-4 ${owe ? "debt-owe" : "debt-owed"}`}>
       <p className="flex items-center gap-1.5 text-sm text-(--muted-foreground)">
-        <HandCoins className="size-4 text-amber-500" /> Le debes a <b className="text-(--foreground)">{d.creditorName}</b>
+        <HandCoins className={`size-4 ${owe ? "debt-owe-text" : "debt-owed-text"}`} />{" "}
+        {owe ? (
+          <>Le debes a <b className="text-(--foreground)">{d.creditorName}</b></>
+        ) : (
+          <><b className="text-(--foreground)">{d.debtorName}</b> te debe</>
+        )}
       </p>
       <p className="text-2xl font-extrabold tracking-tight">{formatMoney(d.total)}</p>
       <p className="text-xs font-medium text-(--muted-foreground)">

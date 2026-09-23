@@ -68,6 +68,30 @@ body {
   transition: height 0.4s ease;
 }
 
+/* Deudas en pareja: deber (ámbar) vs a favor (verde) */
+.debt-owe {
+  border-color: rgb(245 158 11 / 0.3);
+  background: rgb(245 158 11 / 0.07);
+}
+.debt-owed {
+  border-color: rgb(16 185 129 / 0.3);
+  background: rgb(16 185 129 / 0.07);
+}
+.debt-owe-solid {
+  background: #f59e0b;
+  color: #fff;
+}
+.debt-owed-solid {
+  background: #10b981;
+  color: #fff;
+}
+.debt-owe-text {
+  color: #f59e0b;
+}
+.debt-owed-text {
+  color: #10b981;
+}
+
 /* Drawer inferior: entra deslizando desde abajo */
 @keyframes sheet-up {
   from {

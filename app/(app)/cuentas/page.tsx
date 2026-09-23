@@ -16,6 +16,8 @@ type DebtItem = {
   accountName: string;
   accountType: "DEBIT" | "CREDIT";
   dueDay?: number;
+  debtorId: string;
+  debtorName: string;
   creditorName: string;
   concept: string;
   monthly: number;
@@ -24,7 +26,7 @@ type DebtItem = {
 };
 
 /**
- * Agrupa por cuenta solo lo exigible en el mes `key`.
+ * Agrupa por cuenta+deudor solo lo exigible en el mes `key`.
  * Si la compra fue a MSI, únicamente cae la parcialidad del periodo actual.
  */
 function buildDebts(items: DebtItem[], key: string): PartnerDebt[] {
@@ -33,11 +35,14 @@ function buildDebts(items: DebtItem[], key: string): PartnerDebt[] {
     const months = installmentMonths(new Date(it.date), it.installments);
     const idx = months.indexOf(key);
     if (idx === -1) continue; // fuera del periodo actual
-    const g = byAcc.get(it.accountId) ?? {
+    const gk = `${it.accountId}:${it.debtorId}`;
+    const g = byAcc.get(gk) ?? {
       accountId: it.accountId,
       accountName: it.accountName,
       accountType: it.accountType,
       dueDay: it.dueDay,
+      debtorId: it.debtorId,
+      debtorName: it.debtorName,
       creditorName: it.creditorName,
       total: 0,
       lines: [],
@@ -49,12 +54,12 @@ function buildDebts(items: DebtItem[], key: string): PartnerDebt[] {
       installment: idx + 1,
       installments: it.installments,
     });
-    byAcc.set(it.accountId, g);
+    byAcc.set(gk, g);
   }
   return [...byAcc.values()].sort((a, b) => b.total - a.total);
 }
 
-function demoDebts(meId: string, key: string): PartnerDebt[] {
+function demoDebts(me: string, meId: string, key: string): PartnerDebt[] {
   const items: DebtItem[] = [];
   for (const t of DEMO_TXS) {
     if (!t.isShared || t.createdById === meId) continue;
@@ -67,12 +72,40 @@ function demoDebts(meId: string, key: string): PartnerDebt[] {
       accountName: acc.name,
       accountType: acc.type,
       dueDay: acc.dueDay,
+      debtorId: meId,
+      debtorName: me,
       creditorName: t.creatorName,
       concept: t.concept,
       monthly: share.monthlyAmount,
       installments: t.installments,
       date: new Date(t.date),
     });
+  }
+  return buildDebts(items, key);
+}
+
+function demoOwed(meId: string, key: string): PartnerDebt[] {
+  const items: DebtItem[] = [];
+  for (const t of DEMO_TXS) {
+    if (!t.isShared || t.createdById !== meId) continue;
+    const acc = DEMO_ACCOUNTS.find((a) => a.id === t.accountId);
+    if (!acc) continue;
+    for (const share of t.shares) {
+      if (share.debtorId === meId) continue;
+      items.push({
+        accountId: acc.id,
+        accountName: acc.name,
+        accountType: acc.type,
+        dueDay: acc.dueDay,
+        debtorId: share.debtorId,
+        debtorName: share.debtorName,
+        creditorName: t.creatorName,
+        concept: t.concept,
+        monthly: share.monthlyAmount,
+        installments: t.installments,
+        date: new Date(t.date),
+      });
+    }
   }
   return buildDebts(items, key);
 }
@@ -95,16 +128,18 @@ function demoAccounts(): AccountRow[] {
 
 export default async function CuentasPage() {
   const session = await auth();
+  const me = session?.user?.name ?? "Tú";
   const meId = (session?.user as { id?: string } | undefined)?.id ?? "u-adrian";
   const key = monthKey(new Date());
 
   let accounts: AccountRow[];
   let debts: PartnerDebt[];
+  let owed: PartnerDebt[];
   let subs: SubRow[] = [];
   let dues: DueCharge[] = [];
   if (process.env.DATABASE_URL) {
     try {
-      const [accRows, sharedRows, subRows, confirmedRows] = await Promise.all([
+      const [accRows, sharedRows, sharedOwedRows, subRows, confirmedRows] = await Promise.all([
         // Privacidad: ni siquiera se consultan las cuentas de la pareja.
         prisma.account.findMany({
           where: { isActive: true, userId: meId },
@@ -122,6 +157,20 @@ export default async function CuentasPage() {
             account: true,
             createdBy: true,
             shares: { where: { debtorId: meId } },
+          },
+          orderBy: { date: "asc" },
+        }),
+        // Compras MÍAS compartidas donde mi pareja es la deudora (me deben).
+        prisma.transaction.findMany({
+          where: {
+            isShared: true,
+            createdById: meId,
+            shares: { some: { debtorId: { not: meId } } },
+          },
+          include: {
+            account: true,
+            createdBy: true,
+            shares: { include: { debtor: true } },
           },
           orderBy: { date: "asc" },
         }),
@@ -155,12 +204,34 @@ export default async function CuentasPage() {
           accountName: t.account.name,
           accountType: t.account.type as "DEBIT" | "CREDIT",
           dueDay: t.account.dueDay ?? undefined,
+          debtorId: meId,
+          debtorName: me,
           creditorName: t.createdBy.name,
           concept: t.concept,
           monthly: Number(t.shares[0]?.monthlyAmount ?? 0),
           installments: t.installments,
           date: t.date,
         })),
+        key
+      );
+      owed = buildDebts(
+        sharedOwedRows.flatMap((t) =>
+          t.shares
+            .filter((s) => s.debtorId !== meId)
+            .map((s) => ({
+              accountId: t.account.id,
+              accountName: t.account.name,
+              accountType: t.account.type as "DEBIT" | "CREDIT",
+              dueDay: t.account.dueDay ?? undefined,
+              debtorId: s.debtorId,
+              debtorName: s.debtor.name,
+              creditorName: t.createdBy.name,
+              concept: t.concept,
+              monthly: Number(s.monthlyAmount ?? 0),
+              installments: t.installments,
+              date: t.date,
+            })),
+        ),
         key
       );
       subs = subRows.map((s) => ({
@@ -197,17 +268,19 @@ export default async function CuentasPage() {
       dues = computeDues(infos, confirmed);
     } catch {
       accounts = demoAccounts();
-      debts = demoDebts(meId, key);
+      debts = demoDebts(me, meId, key);
+      owed = demoOwed(meId, key);
     }
   } else {
     accounts = demoAccounts();
-    debts = demoDebts(meId, key);
+    debts = demoDebts(me, meId, key);
+    owed = demoOwed(meId, key);
   }
 
   return (
     <>
       <AppHeader title="Cuentas" />
-      <CuentasClient accounts={accounts} meId={meId} debts={debts} subs={subs} dues={dues} />
+      <CuentasClient accounts={accounts} meId={meId} debts={debts} owed={owed} subs={subs} dues={dues} />
     </>
   );
 }

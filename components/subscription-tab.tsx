@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { Plus } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -25,7 +24,6 @@ export function SubscriptionTab({
   dues: DueCharge[];
   accountOptions: AccountOpt[];
 }) {
-  const [addOpen, setAddOpen] = useState(false);
   const [editing, setEditing] = useState<SubRow | null>(null);
   const [deleting, setDeleting] = useState<SubRow | null>(null);
   const [openRow, setOpenRow] = useState<string | null>(null);
@@ -55,16 +53,6 @@ export function SubscriptionTab({
 
   return (
     <div className="space-y-4">
-      <div className="flex items-start justify-between">
-        <div>
-          <p className="text-xs font-medium text-(--muted-foreground)">Comprometido/mes</p>
-          <p className="text-4xl font-extrabold tracking-tight">{formatMoney(monthly)}</p>
-        </div>
-        <Button size="icon" aria-label="Agregar suscripción" className="rounded-full" onClick={() => setAddOpen(true)}>
-          <Plus className="size-5" />
-        </Button>
-      </div>
-
       <DueSubscriptions dues={dues} compact />
 
       <div className="space-y-2">
@@ -89,15 +77,6 @@ export function SubscriptionTab({
       <p className="text-center text-[11px] text-(--muted-foreground)">
         {formatMoney(monthly)}/mes en {subs.filter((s) => s.isActive).length} activas
       </p>
-
-      <Dialog open={addOpen} onOpenChange={setAddOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Nueva suscripción</DialogTitle>
-          </DialogHeader>
-          <SubscriptionForm accountOptions={accountOptions} onDone={() => setAddOpen(false)} />
-        </DialogContent>
-      </Dialog>
 
       <Dialog open={editing !== null} onOpenChange={(o) => !o && setEditing(null)}>
         <DialogContent>
