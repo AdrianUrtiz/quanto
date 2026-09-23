@@ -15,8 +15,8 @@ export function DueSubscriptions({ dues, compact }: { dues: DueCharge[]; compact
   if (!dues.length) return null;
 
   async function confirm(d: DueCharge) {
-    setBusy(`${d.subscriptionId}:${d.monthKey}`);
-    const res = await confirmSubscriptionCharge(d.subscriptionId, d.monthKey);
+    setBusy(`${d.id}:${d.monthKey}`);
+    const res = await confirmSubscriptionCharge(d.id, d.monthKey);
     setBusy(null);
     if ("error" in res && res.error) toast.error(res.error);
     else toast.success(`${d.name} confirmado`);
@@ -30,7 +30,7 @@ export function DueSubscriptions({ dues, compact }: { dues: DueCharge[]; compact
         </p>
       )}
       {dues.map((d) => {
-        const key = `${d.subscriptionId}:${d.monthKey}`;
+        const key = `${d.id}:${d.monthKey}`;
         const loading = busy === key;
         return (
           <div
@@ -77,3 +77,4 @@ export function DueSubscriptions({ dues, compact }: { dues: DueCharge[]; compact
     </div>
   );
 }
+

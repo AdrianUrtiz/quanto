@@ -4,6 +4,9 @@ import { useMemo, useState } from "react";
 import { HandCoins, Plus } from "lucide-react";
 import type { AccountRow } from "@/components/account-card";
 import { AccountSwipeRow } from "@/components/account-swipe-row";
+import { SubscriptionTab, type SubRow } from "@/components/subscription-tab";
+import { SubscriptionSummaryRow } from "@/components/subscription-swipe-row";
+import type { DueCharge } from "@/lib/subscriptions";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { AccountForm } from "@/components/account-form";
@@ -28,7 +31,7 @@ export type PartnerDebt = {
   lines: DebtLine[];
 };
 
-export function CuentasClient({ accounts, meId, debts }: { accounts: AccountRow[]; meId: string; debts: PartnerDebt[] }) {
+export function CuentasClient({ accounts, meId, debts, subs, dues }: { accounts: AccountRow[]; meId: string; debts: PartnerDebt[]; subs: SubRow[]; dues: DueCharge[] }) {
   const [tab, setTab] = useState("todas");
   const [open, setOpen] = useState(false);
   const [openRow, setOpenRow] = useState<string | null>(null);
@@ -45,42 +48,57 @@ export function CuentasClient({ accounts, meId, debts }: { accounts: AccountRow[
   const owed = useMemo(() => debts.reduce((a, d) => a + d.total, 0), [debts]);
 
   const isPartner = tab === "pareja";
-  const total = tab === "mias" ? totalOf(mine) : isPartner ? owed : totalOf(mine);
+  const isSubs = tab === "subs";
+  const monthly = useMemo(() => subs.filter((s) => s.isActive).reduce((a, s) => a + s.amount, 0), [subs]);
+  const total = tab === "mias" ? totalOf(mine) : isPartner ? owed : isSubs ? monthly : totalOf(mine);
+
+  const accountOpts = useMemo(
+    () => mine.map((a) => ({ id: a.id, name: a.name, type: a.type })),
+    [mine]
+  );
 
   return (
     <div className="space-y-4 px-5 pt-4">
-      <div className="flex items-start justify-between">
-        <div>
-          <p className="text-xs font-medium text-(--muted-foreground)">
-            {isPartner ? "Le debes este mes" : "Saldo total"}
-          </p>
-          <p className="text-4xl font-extrabold tracking-tight">{formatMoney(total)}</p>
+      {!isSubs && (
+        <div className="flex items-start justify-between">
+          <div>
+            <p className="text-xs font-medium text-(--muted-foreground)">
+              {isPartner ? "Le debes este mes" : "Saldo total"}
+            </p>
+            <p className="text-4xl font-extrabold tracking-tight">{formatMoney(total)}</p>
+          </div>
+          <Dialog open={open} onOpenChange={setOpen}>
+            <DialogTrigger asChild>
+              <Button size="icon" aria-label="Agregar cuenta" className="rounded-full">
+                <Plus className="size-5" />
+              </Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Nueva cuenta</DialogTitle>
+              </DialogHeader>
+              <AccountForm onDone={() => setOpen(false)} />
+            </DialogContent>
+          </Dialog>
         </div>
-        <Dialog open={open} onOpenChange={setOpen}>
-          <DialogTrigger asChild>
-            <Button size="icon" aria-label="Agregar cuenta" className="rounded-full">
-              <Plus className="size-5" />
-            </Button>
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Nueva cuenta</DialogTitle>
-            </DialogHeader>
-            <AccountForm onDone={() => setOpen(false)} />
-          </DialogContent>
-        </Dialog>
-      </div>
+      )}
 
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList>
           <TabsTrigger value="todas">Todas</TabsTrigger>
-          <TabsTrigger value="mias">Mis cuentas</TabsTrigger>
-          <TabsTrigger value="pareja">Mi pareja</TabsTrigger>
+          <TabsTrigger value="mias">Cuentas</TabsTrigger>
+          <TabsTrigger value="subs">Suscripciones</TabsTrigger>
+          <TabsTrigger value="pareja">Pareja</TabsTrigger>
         </TabsList>
         <TabsContent value="todas" className="space-y-2">
           {mine.map(swipe)}
           {debts.map((d) => <DebtSummaryRow key={d.accountId} d={d} onOpen={() => setTab("pareja")} />)}
-          {mine.length === 0 && debts.length === 0 && <Empty text="Sin cuentas aquí todavía." />}
+          {subs.filter((s) => s.isActive).map((s) => (
+            <SubscriptionSummaryRow key={s.id} s={s} onOpen={() => setTab("subs")} />
+          ))}
+          {mine.length === 0 && debts.length === 0 && subs.filter((s) => s.isActive).length === 0 && (
+            <Empty text="Sin cuentas aquí todavía." />
+          )}
         </TabsContent>
         <TabsContent value="mias" className="space-y-2">
           {mine.length === 0 && <Empty text="Sin cuentas aquí todavía." />}
@@ -89,6 +107,9 @@ export function CuentasClient({ accounts, meId, debts }: { accounts: AccountRow[
         <TabsContent value="pareja" className="space-y-2">
           {debts.length === 0 && <Empty text="No le debes nada a tu pareja este mes. 🎉" />}
           {debts.map((d) => <DebtCard key={d.accountId} d={d} />)}
+        </TabsContent>
+        <TabsContent value="subs" className="space-y-2">
+          <SubscriptionTab subs={subs} dues={dues} accountOptions={accountOpts} />
         </TabsContent>
       </Tabs>
     </div>

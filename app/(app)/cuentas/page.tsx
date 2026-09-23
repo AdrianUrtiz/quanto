@@ -176,18 +176,25 @@ export default async function CuentasPage() {
         shareAmount: s.shareAmount ? Number(s.shareAmount) : null,
         isActive: s.isActive,
       }));
+      const infos = subRows.map((s) => ({
+        id: s.id,
+        name: s.name,
+        amount: Number(s.amount),
+        accountId: s.accountId,
+        accountName: s.account.name,
+        chargeDay: s.chargeDay,
+        isShared: s.isShared,
+        sharePct: s.sharePct,
+        shareAmount: s.shareAmount ? Number(s.shareAmount) : null,
+        isActive: s.isActive,
+        startMonth: s.startMonth,
+      }));
       const confirmed = new Set(
         confirmedRows
           .filter((t) => t.subscriptionId)
           .map((t) => `${t.subscriptionId}:${monthKey(new Date(t.date))}`),
       );
-      dues = computeDues(
-        subs.map((s) => ({
-          ...s,
-          startMonth: subRows.find((r) => r.id === s.id)?.startMonth ?? key,
-        })),
-        confirmed,
-      );
+      dues = computeDues(infos, confirmed);
     } catch {
       accounts = demoAccounts();
       debts = demoDebts(meId, key);
@@ -200,7 +207,7 @@ export default async function CuentasPage() {
   return (
     <>
       <AppHeader title="Cuentas" />
-      <CuentasClient accounts={accounts} meId={meId} debts={debts} />
+      <CuentasClient accounts={accounts} meId={meId} debts={debts} subs={subs} dues={dues} />
     </>
   );
 }

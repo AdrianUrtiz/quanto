@@ -1,10 +1,12 @@
 import { AppHeader } from "@/components/app-header";
 import { ActivityClient, type MonthOpt } from "@/components/activity-client";
+import { DueSubscriptions } from "@/components/due-subscriptions";
 import type { TxRow } from "@/components/transaction-list";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { DEMO_ACCOUNTS, DEMO_TXS } from "@/lib/demo-data";
 import { monthKey, monthLabelEs } from "@/lib/utils";
+import { computeDues, type DueCharge } from "@/lib/subscriptions";
 
 export const metadata = { title: "Actividad" };
 export const dynamic = "force-dynamic"; // el mes y los datos cambian por request
@@ -99,9 +101,47 @@ export default async function ActividadPage() {
       return { key, label: monthLabelEs(new Date(y, m - 1, 1)), total };
     });
 
+  // Suscripciones: cargos pendientes por confirmar (solo mías).
+  let dues: DueCharge[] = [];
+  if (process.env.DATABASE_URL) {
+    try {
+      const [subRows, confirmedRows] = await Promise.all([
+        prisma.subscription.findMany({ where: { userId: meId }, include: { account: true } }),
+        prisma.transaction.findMany({
+          where: { createdById: meId, subscriptionId: { not: null } },
+          select: { subscriptionId: true, date: true },
+        }),
+      ]);
+      const confirmed = new Set(
+        confirmedRows
+          .filter((t) => t.subscriptionId)
+          .map((t) => `${t.subscriptionId}:${monthKey(new Date(t.date))}`),
+      );
+      dues = computeDues(
+        subRows.map((s) => ({
+          id: s.id,
+          name: s.name,
+          amount: Number(s.amount),
+          accountId: s.accountId,
+          accountName: s.account.name,
+          chargeDay: s.chargeDay,
+          isShared: s.isShared,
+          sharePct: s.sharePct,
+          shareAmount: s.shareAmount ? Number(s.shareAmount) : null,
+          isActive: s.isActive,
+          startMonth: s.startMonth,
+        })),
+        confirmed,
+      );
+    } catch {
+      dues = [];
+    }
+  }
+
   return (
     <>
       <AppHeader title="Actividad" />
+      <DueSubscriptions dues={dues} />
       <ActivityClient txs={txs} months={months} />
     </>
   );
