@@ -1,7 +1,8 @@
 import { ArrowDownLeft, ArrowLeftRight, ArrowUpRight, Repeat } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { formatMoney } from "@/lib/utils";
-import { parseCat } from "@/lib/categories";
+import { lookupCategory } from "@/lib/categories";
+import type { CatalogRow } from "@/lib/catalog";
 
 export type TxRow = {
   id: string;
@@ -21,12 +22,13 @@ export type TxRow = {
   isShared: boolean;
 };
 
-export function TransactionRow({ t }: { t: TxRow }) {
+export function TransactionRow({ t, cats }: { t: TxRow; cats: CatalogRow[] }) {
   const income = t.type === "INCOME";
   const transfer = t.type === "TRANSFER";
   const d = new Date(t.date);
-  const catColor = parseCat(t.category).color;
-  const CatIcon = parseCat(t.category).icon;
+  const cat = lookupCategory(t.category, cats);
+  const catColor = cat.color;
+  const CatIcon = cat.icon;
   return (
     <li className="flex items-center gap-3 rounded-3xl border border-(--border) bg-(--card) p-3.5">
       <span
@@ -63,13 +65,13 @@ export function TransactionRow({ t }: { t: TxRow }) {
   );
 }
 
-export function TransactionList({ txs }: { txs: TxRow[] }) {
+export function TransactionList({ txs, cats }: { txs: TxRow[]; cats: CatalogRow[] }) {
   if (!txs.length) {
     return <p className="rounded-3xl border border-dashed border-(--border) p-8 text-center text-sm text-(--muted-foreground)">Sin movimientos en este periodo.</p>;
   }
   return (
     <ul className="space-y-2">
-      {txs.map((t) => <TransactionRow key={t.id} t={t} />)}
+      {txs.map((t) => <TransactionRow key={t.id} t={t} cats={cats} />)}
     </ul>
   );
 }

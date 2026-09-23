@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowDownLeft,
   ArrowRight,
@@ -26,16 +26,15 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { createTransaction, updateTransaction } from "@/lib/actions";
+import { createCategory } from "@/lib/category-actions";
 import {
-  DEFAULT_CATS,
-  COLOR_PRESETS,
+  CATEGORY_COLORS,
   ICONS,
   ICON_PRESETS,
-  makeCustomCat,
-  parseCat,
+  lookupCategory,
   prettyCat,
-  type CustomCat,
 } from "@/lib/categories";
+import type { CatalogRow } from "@/lib/catalog";
 import { cn } from "@/lib/utils";
 
 export type AccountOpt = { id: string; name: string; type?: string };
@@ -92,12 +91,12 @@ function fmtAmount(s: string) {
 
 export function TransactionForm({
   accountOptions,
-  customs,
+  cats,
   entry,
   onDone,
 }: {
   accountOptions: AccountOpt[];
-  customs: CustomCat[];
+  cats: CatalogRow[];
   entry?: TxEditData;
   onDone?: () => void;
 }) {
@@ -131,25 +130,39 @@ export function TransactionForm({
   const [sharePct, setSharePct] = useState(50);
   const [shareAmt, setShareAmt] = useState("");
   const [panel, setPanel] = useState<Panel>(null);
-  const [localCustoms, setLocalCustoms] = useState<CustomCat[]>([]);
+  const [localRows, setLocalRows] = useState<CatalogRow[]>([]);
   const [newCatName, setNewCatName] = useState("");
   const [newCatIcon, setNewCatIcon] = useState<string>(ICON_PRESETS[0]);
   const [newCatColor, setNewCatColor] = useState<string>("#fb923c");
   const [msg, setMsg] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  const [savingCat, setSavingCat] = useState(false);
+
+  const catalog = useMemo(() => [...cats, ...localRows], [cats, localRows]);
 
   // Solo las categorías del modo activo (gasto o ingreso), resueltas a icono.
+  // Si la actual (legado) no está en la lista, se antepone para no perderla.
   const visibleCats = useMemo(() => {
     const want = mode === "abono" ? "income" : "expense";
-    const codes = [
-      ...DEFAULT_CATS.map((c) => c.code),
-      ...customs.map((c) => c.code),
-      ...localCustoms.map((c) => c.code),
-    ];
-    return codes
-      .map(parseCat)
+    const list = catalog
+      .map((r) => lookupCategory(r.code, catalog))
       .filter((c) => c.kind === want || c.kind === "both");
-  }, [customs, localCustoms, mode]);
+    if (entry && !list.some((c) => c.code === entry.category)) {
+      return [lookupCategory(entry.category, catalog), ...list];
+    }
+    return list;
+  }, [catalog, mode, entry]);
+
+  // La categoría elegida siempre va primera en el slider.
+  const sliderCats = useMemo(() => {
+    const i = visibleCats.findIndex((c) => c.code === category);
+    if (i <= 0) return visibleCats;
+    return [visibleCats[i], ...visibleCats.slice(0, i), ...visibleCats.slice(i + 1)];
+  }, [visibleCats, category]);
+  const sliderRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    sliderRef.current?.scrollTo({ left: 0, behavior: "smooth" });
+  }, [category]);
 
   function switchMode(m: Mode) {
     setMode(m);
@@ -158,7 +171,7 @@ export function TransactionForm({
       return;
     }
     const want = m === "abono" ? "income" : "expense";
-    const ok = [...DEFAULT_CATS, ...customs, ...localCustoms].some(
+    const ok = [...cats, ...localRows].some(
       (c) => c.code === category && (c.kind === want || c.kind === "both"),
     );
     if (!ok) setCategory(m === "abono" ? "NOMINA" : "COMIDA");
@@ -202,7 +215,6 @@ export function TransactionForm({
       : shareAmt
         ? `$${fmtAmount(shareAmt)}`
         : "Monto";
-  const catInfo = parseCat(category);
 
   function press(k: string) {
     setMsg(null);
@@ -278,33 +290,32 @@ export function TransactionForm({
     else onDone?.();
   }
 
-  function saveCustomCat() {
+  async function saveCustomCat() {
     if (newCatName.trim().length < 2) {
       setMsg("La categoría necesita al menos 2 letras");
       return;
     }
-    const code = makeCustomCat(
-      newCatIcon,
-      newCatName,
-      mode === "abono" ? "income" : "expense",
-      newCatColor,
-    );
-    const info = parseCat(code);
-    setLocalCustoms((prev) =>
-      prev.some((c) => c.code === code)
-        ? prev
-        : [
-            ...prev,
-            {
-              code: info.code,
-              iconName: info.iconName,
-              label: info.label,
-              color: info.color,
-              kind: info.kind,
-            },
-          ],
-    );
-    setCategory(code);
+    setSavingCat(true);
+    const fd = new FormData();
+    fd.set("name", newCatName.trim());
+    fd.set("iconName", newCatIcon);
+    fd.set("color", newCatColor);
+    fd.set("kind", mode === "abono" ? "income" : "expense");
+    const res = await createCategory(fd);
+    setSavingCat(false);
+    if ("error" in res && res.error) {
+      setMsg(res.error);
+      return;
+    }
+    if ("category" in res && res.category) {
+      const c = res.category;
+      setLocalRows((prev) =>
+        prev.some((x) => x.code === c.code)
+          ? prev
+          : [...prev, { id: c.id, code: c.code, name: c.name, iconName: c.iconName, color: c.color, kind: c.kind as "expense" | "income" | "both", isDefault: false, mine: true }],
+      );
+      setCategory(c.code);
+    }
     setNewCatName("");
     setPanel("cats");
     setMsg(null);
@@ -448,8 +459,8 @@ export function TransactionForm({
       {/* Categorías: slider ~85% + botón fijo al grid */}
       {mode !== "pago" && (
         <div className="mt-2 flex items-center gap-2">
-          <div className="no-scrollbar flex min-w-0 flex-1 gap-2 overflow-x-auto items-center">
-            {visibleCats.map((c) => (
+          <div ref={sliderRef} className="no-scrollbar flex min-w-0 flex-1 gap-2 overflow-x-auto items-center">
+            {sliderCats.map((c) => (
               <button
                 key={c.code}
                 type="button"
@@ -618,15 +629,15 @@ export function TransactionForm({
                 );
               })}
             </div>
-            <div className="flex flex-wrap gap-2">
-              {COLOR_PRESETS.map((hex) => (
+            <div className="grid grid-cols-8 gap-2">
+              {CATEGORY_COLORS.map((hex) => (
                 <button
                   key={hex}
                   type="button"
                   onClick={() => setNewCatColor(hex)}
                   aria-label={`Color ${hex}`}
                   className={cn(
-                    "flex size-9 items-center justify-center rounded-full border-2",
+                    "flex size-8 items-center justify-center rounded-full border-2 ring-1 ring-inset ring-black/10",
                     newCatColor === hex ? "border-(--foreground)" : "border-transparent",
                   )}
                   style={{ backgroundColor: hex }}
@@ -641,8 +652,8 @@ export function TransactionForm({
               placeholder="Nombre (ej. Videojuegos)"
               maxLength={30}
             />
-            <Button type="button" className="w-full" onClick={saveCustomCat}>
-              Crear categoría
+            <Button type="button" className="w-full" onClick={saveCustomCat} disabled={savingCat}>
+              {savingCat ? "Creando…" : "Crear categoría"}
             </Button>
           </div>
         </DialogContent>
@@ -900,3 +911,5 @@ export function TransactionForm({
     </div>
   );
 }
+
+

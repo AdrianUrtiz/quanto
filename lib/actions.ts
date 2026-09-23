@@ -5,7 +5,7 @@ import { z } from "zod";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { debtorMonthlyAmount } from "@/lib/calculations";
-import { isValidCategory } from "@/lib/categories";
+import { checkCategory } from "@/lib/catalog";
 
 const AccountSchema = z.object({
   name: z.string().min(2, "Nombre muy corto"),
@@ -203,13 +203,15 @@ export async function updateTransaction(formData: FormData) {
   const parsed = UpdateTxSchema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Datos inválidos" };
   const v = parsed.data;
-  if (!isValidCategory(v.category)) return { error: "Categoría inválida" };
 
   const tx = await prisma.transaction.findFirst({
     where: { id: v.id, createdById: userId },
     include: { account: true, shares: true },
   });
   if (!tx) return { error: "Movimiento no encontrado" };
+
+  const catError = await checkCategory(userId, v.category, tx.type as "EXPENSE" | "INCOME" | "TRANSFER");
+  if (catError) return { error: catError };
 
   const newAcc = await prisma.account.findFirst({ where: { id: v.accountId, userId } });
   if (!newAcc) return { error: "Cuenta no encontrada" };
@@ -349,7 +351,8 @@ export async function createTransaction(formData: FormData) {
   const parsed = TxSchema.safeParse({ ...raw, isShared: raw.isShared === "on" || raw.isShared === "true" });
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Datos inválidos" };
   const v = parsed.data;
-  if (!isValidCategory(v.category)) return { error: "Categoría inválida" };
+  const catError = await checkCategory(userId, v.category, v.type as "EXPENSE" | "INCOME" | "TRANSFER");
+  if (catError) return { error: catError };
 
   // Solo cuentas propias: nadie opera ni ve cuentas de su pareja.
   const account = await prisma.account.findFirst({ where: { id: v.accountId, userId } });

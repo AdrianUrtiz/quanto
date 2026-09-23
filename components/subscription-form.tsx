@@ -1,12 +1,15 @@
 "use client";
 
-import { useState } from "react";
-import { Repeat } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { ArrowRight, Check, Delete, LayoutGrid, Plus, Repeat, Wallet } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { createSubscription, updateSubscription } from "@/lib/subscription-actions";
-import { DEFAULT_CATS } from "@/lib/categories";
+import { CATEGORY_COLORS, ICONS, ICON_PRESETS, lookupCategory } from "@/lib/categories";
+import { createCategory } from "@/lib/category-actions";
+import type { CatalogRow } from "@/lib/catalog";
 import type { AccountOpt } from "@/components/transaction-form";
 import { formatMoney } from "@/lib/utils";
 import { cn } from "@/lib/utils";
@@ -23,13 +26,14 @@ export type SubEditData = {
   shareAmount: number | null;
 };
 
-const EXPENSE_CATS = DEFAULT_CATS.filter((c) => c.kind !== "income");
+const EXPENSE_KINDS = ["expense", "both"];
 
 export function SubscriptionForm({
-  subscription, accountOptions, onDone,
+  subscription, accountOptions, cats = [], onDone,
 }: {
   subscription?: SubEditData;
   accountOptions: AccountOpt[];
+  cats?: CatalogRow[];
   onDone?: () => void;
 }) {
   const editing = Boolean(subscription);
@@ -48,13 +52,93 @@ export function SubscriptionForm({
   );
   const [msg, setMsg] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  const [localRows, setLocalRows] = useState<CatalogRow[]>([]);
+  const [addingCat, setAddingCat] = useState(false);
+  const [newCatName, setNewCatName] = useState("");
+  const [newCatIcon, setNewCatIcon] = useState<string>(ICON_PRESETS[0]);
+  const [newCatColor, setNewCatColor] = useState<string>("#fb923c");
+  const [savingCat, setSavingCat] = useState(false);
 
   const totalNum = Number(amount) || 0;
   const preview = shareMode === "pct" ? (totalNum * sharePct) / 100 : Number(shareAmt) || 0;
+
+  // Catálogo de gasto (tabla + creadas en sesión); la elegida va primera.
+  const expenseCats = useMemo(() => {
+    const all = [...cats, ...localRows].filter((c) => EXPENSE_KINDS.includes(c.kind));
+    const list = all.map((r) => lookupCategory(r.code, [...cats, ...localRows]));
+    if (category && !list.some((c) => c.code === category)) {
+      list.unshift(lookupCategory(category, [...cats, ...localRows]));
+    }
+    return list;
+  }, [cats, localRows, category]);
+  const selIdx = expenseCats.findIndex((c) => c.code === category);
+  const sliderCats = selIdx > 0
+    ? [expenseCats[selIdx], ...expenseCats.slice(0, selIdx), ...expenseCats.slice(selIdx + 1)]
+    : expenseCats;
+
+  async function saveCustomCat() {
+    if (newCatName.trim().length < 2) {
+      setMsg("La categoría necesita al menos 2 letras");
+      return;
+    }
+    setSavingCat(true);
+    const fd = new FormData();
+    fd.set("name", newCatName.trim());
+    fd.set("iconName", newCatIcon);
+    fd.set("color", newCatColor);
+    fd.set("kind", "expense");
+    const res = await createCategory(fd);
+    setSavingCat(false);
+    if ("error" in res && res.error) {
+      setMsg(res.error);
+      return;
+    }
+    if ("category" in res && res.category) {
+      const c = res.category;
+      setLocalRows((prev) =>
+        prev.some((x) => x.code === c.code)
+          ? prev
+          : [...prev, { id: c.id, code: c.code, name: c.name, iconName: c.iconName, color: c.color, kind: c.kind as "expense" | "income" | "both", isDefault: false, mine: true }],
+      );
+      setCategory(c.code);
+    }
+    setNewCatName("");
+    setAddingCat(false);
+    setMsg(null);
+  }
+  const sliderRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    sliderRef.current?.scrollTo({ left: 0, behavior: "smooth" });
+  }, [category]);
+  const [accOpen, setAccOpen] = useState(false);
+  const [gridOpen, setGridOpen] = useState(false);
   const accountName = accountOptions.find((a) => a.id === accountId)?.name ?? "Cuenta";
 
-  async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
+  function fmtDisplay(s: string) {
+    if (!s) return "0";
+    const [i, dec] = s.split(".");
+    const int = Number(i || "0").toLocaleString("es-MX");
+    return dec !== undefined ? `${int}.${dec}` : int;
+  }
+
+  function press(k: string) {
+    setMsg(null);
+    setAmount((prev) => {
+      if (k === "back") return prev.length <= 1 ? "" : prev.slice(0, -1);
+      if (k === ".") return prev.includes(".") ? prev : prev === "" ? "0." : prev + ".";
+      let next = prev + k;
+      if (next.includes(".")) {
+        const [, dec] = next.split(".");
+        if (dec.length > 2) return prev;
+      }
+      next = next.replace(/^0+(?=\d)/, "");
+      if (next.replace(".", "").length > 9) return prev;
+      return next;
+    });
+  }
+
+  async function submit() {
+    if (pending) return;
     if (!totalNum || totalNum <= 0) {
       setMsg("Ingresa el monto mensual");
       return;
@@ -95,26 +179,21 @@ export function SubscriptionForm({
   }
 
   return (
-    <form onSubmit={onSubmit} className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-5 pb-6">
-      {editing && <input type="hidden" name="id" value={subscription!.id} />}
-
+    <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-5 pb-6">
       {/* Monto mensual */}
       <div className="flex items-center justify-center gap-1.5 pt-1">
         <span className="text-2xl font-bold text-(--muted-foreground)">$</span>
-        <input
-          value={amount}
-          onChange={(e) => {
-            const v = e.target.value.replace(/[^0-9.]/g, "");
-            if (v.split(".").length > 2) return;
-            const [, dec] = v.split(".");
-            if (dec !== undefined && dec.length > 2) return;
-            setAmount(v);
-          }}
-          placeholder="0"
-          inputMode="decimal"
-          aria-label="Monto mensual"
-          className="w-44 bg-transparent text-center text-5xl font-extrabold tabular-nums outline-none placeholder:text-(--muted-foreground)/40"
-        />
+        <span className="min-w-24 text-center text-5xl font-extrabold tabular-nums">
+          {fmtDisplay(amount)}
+        </span>
+        <button
+          type="button"
+          aria-label="Borrar último dígito"
+          onClick={() => press("back")}
+          className="flex size-8 items-center justify-center rounded-full bg-(--muted) text-(--muted-foreground)"
+        >
+          <Delete className="size-4" />
+        </button>
       </div>
       <p className="-mt-3 text-center text-xs font-medium text-(--muted-foreground)">al mes</p>
 
@@ -127,42 +206,166 @@ export function SubscriptionForm({
         className="h-12 text-base"
       />
 
-      {/* Pills: día · cuenta · categoría */}
+      {/* Pills: día · cuenta */}
       <div className="no-scrollbar -mx-5 flex gap-2 overflow-x-auto px-5 pb-1">
         <DayPill day={day} onPick={setDay} />
-        <select
-          value={accountId}
-          onChange={(e) => setAccountId(e.target.value)}
-          aria-label="Cuenta de cargo"
-          className="max-w-[200px] shrink-0 truncate appearance-none rounded-full border border-(--border) bg-(--muted)/60 px-4 py-2 text-xs font-semibold outline-none"
+        <button
+          type="button"
+          onClick={() => setAccOpen(true)}
+          className="flex max-w-[220px] shrink-0 items-center gap-1.5 rounded-full border border-(--border) bg-(--muted)/60 px-4 py-2 text-xs font-semibold"
         >
-          {accountOptions.length === 0 && <option value="">Sin cuentas</option>}
-          {accountOptions.map((a) => (
-            <option key={a.id} value={a.id}>
-              {a.name}
-            </option>
-          ))}
-        </select>
+          <Wallet className="size-3.5" />
+          <span className="truncate">{accountName}</span>
+        </button>
       </div>
 
-      {/* Categorías slider */}
-      <div className="no-scrollbar -mx-5 flex gap-2 overflow-x-auto px-5 pb-1">
-        {EXPENSE_CATS.map((c) => (
-          <button
-            key={c.code}
-            type="button"
-            onClick={() => setCategory(c.code)}
-            className={cn(
-              "flex shrink-0 items-center gap-1.5 rounded-full border px-3.5 py-2 text-xs font-semibold",
-              category === c.code
-                ? "border-transparent bg-(--foreground) text-(--background)"
-                : "border-(--border) bg-(--muted)/60",
-            )}
-          >
-            <c.icon className="size-4 shrink-0" style={{ color: c.color }} /> {c.label}
-          </button>
-        ))}
+      <Dialog open={accOpen} onOpenChange={setAccOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Cuenta de cargo</DialogTitle>
+          </DialogHeader>
+          <ul className="max-h-[50dvh] space-y-1 overflow-y-auto">
+            {accountOptions.map((a) => (
+              <li key={a.id}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAccountId(a.id);
+                    setAccOpen(false);
+                  }}
+                  className={cn(
+                    "flex w-full items-center gap-2 rounded-2xl px-4 py-3 text-left transition hover:bg-(--muted)",
+                    accountId === a.id && "bg-(--muted)",
+                  )}
+                >
+                  <span className="flex-1 text-sm font-semibold">{a.name}</span>
+                  {accountId === a.id && <Check className="size-4 text-(--primary)" />}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </DialogContent>
+      </Dialog>
+
+      {/* Categorías: slider ~85% + botón fijo al grid */}
+      <div className="mt-2 flex items-center gap-2">
+        <div ref={sliderRef} className="no-scrollbar flex min-w-0 flex-1 gap-2 overflow-x-auto items-center pb-1">
+          {sliderCats.map((c) => (
+            <button
+              key={c.code}
+              type="button"
+              onClick={() => setCategory(c.code)}
+              className={cn(
+                "flex shrink-0 items-center gap-1.5 rounded-full border px-3.5 py-2 text-xs font-semibold",
+                category === c.code
+                  ? "border-transparent bg-(--foreground) text-(--background)"
+                  : "border-(--border) bg-(--muted)/60",
+              )}
+            >
+              <c.icon className="size-4 shrink-0" style={{ color: c.color }} /> {c.label}
+            </button>
+          ))}
+        </div>
+        <button
+          type="button"
+          aria-label="Ver todas las categorías"
+          onClick={() => setGridOpen(true)}
+          className="flex size-10 shrink-0 items-center justify-center rounded-2xl border border-(--border) bg-(--muted)/60 transition active:scale-95"
+        >
+          <LayoutGrid className="size-4" />
+        </button>
       </div>
+
+      <Dialog open={gridOpen} onOpenChange={setGridOpen}>
+        <DialogContent className="max-h-[86dvh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Categorías</DialogTitle>
+          </DialogHeader>
+          <div className="grid grid-cols-4 gap-2 pb-2">
+            {expenseCats.map((c) => (
+              <button
+                key={c.code}
+                type="button"
+                onClick={() => {
+                  setCategory(c.code);
+                  setGridOpen(false);
+                }}
+                className={cn(
+                  "flex flex-col items-center gap-1.5 rounded-3xl border p-3 transition active:scale-95",
+                  category === c.code
+                    ? "border-(--primary) bg-(--primary)/10"
+                    : "border-transparent bg-(--muted)/60",
+                )}
+              >
+                <c.icon className="size-7" style={{ color: c.color }} />
+                <span className="w-full truncate text-center text-[11px] font-medium">
+                  {c.label}
+                </span>
+              </button>
+            ))}
+            <button
+              type="button"
+              onClick={() => setAddingCat((v) => !v)}
+              className="flex flex-col items-center justify-center gap-1.5 rounded-3xl border border-dashed border-(--border) p-3 text-(--muted-foreground) transition active:scale-95"
+            >
+              <Plus className="size-6" />
+              <span className="text-[11px] font-medium">Nueva</span>
+            </button>
+          </div>
+          {addingCat && (
+            <div className="space-y-3 rounded-3xl border border-(--border) p-3">
+              <div className="flex flex-wrap gap-2">
+                {ICON_PRESETS.map((iconName) => {
+                  const Icon = ICONS[iconName] ?? ICONS.Shapes;
+                  return (
+                    <button
+                      key={iconName}
+                      type="button"
+                      onClick={() => setNewCatIcon(iconName)}
+                      aria-label={iconName}
+                      className={cn(
+                        "flex size-10 items-center justify-center rounded-2xl border",
+                        newCatIcon === iconName
+                          ? "border-(--primary) bg-(--primary)/10"
+                          : "border-(--border)",
+                      )}
+                    >
+                      <Icon className="size-5" style={{ color: newCatColor }} />
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="grid grid-cols-8 gap-2">
+                {CATEGORY_COLORS.map((hex) => (
+                  <button
+                    key={hex}
+                    type="button"
+                    onClick={() => setNewCatColor(hex)}
+                    aria-label={`Color ${hex}`}
+                    className={cn(
+                      "flex size-8 items-center justify-center rounded-full border-2 ring-1 ring-inset ring-black/10",
+                      newCatColor === hex ? "border-(--foreground)" : "border-transparent",
+                    )}
+                    style={{ backgroundColor: hex }}
+                  />
+                ))}
+              </div>
+              <div className="flex gap-2">
+                <Input
+                  value={newCatName}
+                  onChange={(e) => setNewCatName(e.target.value)}
+                  placeholder="Nombre (ej. Gimnasio)"
+                  maxLength={30}
+                  className="h-11"
+                />
+                <Button type="button" onClick={saveCustomCat} disabled={savingCat}>
+                  {savingCat ? "Creando…" : "Crear"}
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Compartir */}
       <div className="flex items-center justify-between rounded-2xl border border-(--border) px-4 py-2.5">
@@ -221,10 +424,34 @@ export function SubscriptionForm({
       )}
 
       {msg && <p className="text-center text-sm font-medium text-red-500">{msg}</p>}
-      <Button type="submit" className="h-12 w-full rounded-2xl text-base" disabled={pending}>
-        {pending ? "Guardando…" : editing ? "Guardar cambios" : "Crear suscripción"}
-      </Button>
-    </form>
+
+      {/* Keypad */}
+      <div className="mt-1 grid grid-cols-3 gap-2">
+        {["1", "2", "3", "4", "5", "6", "7", "8", "9", ".", "0", "go"].map((k) =>
+          k === "go" ? (
+            <button
+              key={k}
+              type="button"
+              onClick={submit}
+              disabled={pending}
+              aria-label="Guardar"
+              className="flex h-14 items-center justify-center rounded-2xl bg-(--primary) text-xl font-bold text-(--primary-foreground) transition active:scale-95 disabled:opacity-50"
+            >
+              <ArrowRight className="size-6" />
+            </button>
+          ) : (
+            <button
+              key={k}
+              type="button"
+              onClick={() => press(k)}
+              className="h-14 rounded-2xl bg-(--muted)/70 text-xl font-semibold transition active:scale-95 active:bg-(--muted)"
+            >
+              {k}
+            </button>
+          ),
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -234,33 +461,42 @@ function DayPill({ day, onPick }: { day: number; onPick: (d: number) => void }) 
     <>
       <button
         type="button"
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => setOpen(true)}
         className="flex shrink-0 items-center gap-1.5 rounded-full border border-(--border) bg-(--muted)/60 px-4 py-2 text-xs font-semibold"
       >
         <Repeat className="size-3.5" /> Día {day}
       </button>
-      {open && (
-        <div className="no-scrollbar -mx-5 flex gap-1.5 overflow-x-auto px-5 pb-1">
-          {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => (
-            <button
-              key={d}
-              type="button"
-              onClick={() => {
-                onPick(d);
-                setOpen(false);
-              }}
-              className={cn(
-                "flex size-9 shrink-0 items-center justify-center rounded-full border text-xs font-semibold",
-                day === d
-                  ? "border-transparent bg-(--foreground) text-(--background)"
-                  : "border-(--border) text-(--muted-foreground)",
-              )}
-            >
-              {d}
-            </button>
-          ))}
-        </div>
-      )}
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Día de cobro</DialogTitle>
+          </DialogHeader>
+          <div className="grid grid-cols-7 gap-1.5">
+            {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => (
+              <button
+                key={d}
+                type="button"
+                onClick={() => {
+                  onPick(d);
+                  setOpen(false);
+                }}
+                className={cn(
+                  "flex size-10 items-center justify-center rounded-full border text-sm font-semibold transition active:scale-95",
+                  day === d
+                    ? "border-transparent bg-(--foreground) text-(--background)"
+                    : "border-(--border) text-(--muted-foreground)",
+                )}
+              >
+                {d}
+              </button>
+            ))}
+          </div>
+          <p className="text-center text-[11px] text-(--muted-foreground)">
+            Si el mes no tiene ese día, se cobra el último día
+          </p>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }
+

@@ -7,7 +7,7 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { moveBalance } from "@/lib/actions";
 import { debtorMonthlyAmount } from "@/lib/calculations";
-import { isValidCategory } from "@/lib/categories";
+import { checkCategory } from "@/lib/catalog";
 import { chargeDate } from "@/lib/subscriptions";
 
 const MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
@@ -42,7 +42,8 @@ export async function createSubscription(formData: FormData) {
   const parsed = SubSchema.safeParse({ ...raw, isShared: raw.isShared === "on" || raw.isShared === "true" });
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Datos inválidos" };
   const v = parsed.data;
-  if (!isValidCategory(v.category)) return { error: "Categoría inválida" };
+  const catError = await checkCategory(userId, v.category, "EXPENSE");
+  if (catError) return { error: catError };
 
   const account = await prisma.account.findFirst({ where: { id: v.accountId, userId } });
   if (!account) return { error: "Cuenta no encontrada" };
@@ -82,7 +83,8 @@ export async function updateSubscription(formData: FormData) {
   });
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Datos inválidos" };
   const v = parsed.data;
-  if (!isValidCategory(v.category)) return { error: "Categoría inválida" };
+  const catError = await checkCategory(userId, v.category, "EXPENSE");
+  if (catError) return { error: catError };
 
   const sub = await prisma.subscription.findFirst({ where: { id: v.id, userId } });
   if (!sub) return { error: "Suscripción no encontrada" };

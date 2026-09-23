@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { createAccount, updateAccount } from "@/lib/actions";
-import { COLOR_PRESETS } from "@/lib/categories";
+import { ACCOUNT_COLORS } from "@/lib/categories";
 import { cn } from "@/lib/utils";
 
 export type AccountEditData = {
@@ -36,7 +36,7 @@ export function AccountForm({ account, onDone }: { account?: AccountEditData; on
   const [lastFour, setLastFour] = useState(account?.lastFour ?? "");
   const [expiry, setExpiry] = useState(account?.expiry ?? "");
   const [color, setColor] = useState(account?.color ?? "#6366f1");
-  const [initialBalance, setInitialBalance] = useState("0");
+  const [initialBalance, setInitialBalance] = useState("");
   const [creditLimit, setCreditLimit] = useState(account?.creditLimit != null ? String(account.creditLimit) : "");
   const [statementDay, setStatementDay] = useState(account?.statementDay != null ? String(account.statementDay) : "");
   const [dueDay, setDueDay] = useState(account?.dueDay != null ? String(account.dueDay) : "");
@@ -141,32 +141,20 @@ export function AccountForm({ account, onDone }: { account?: AccountEditData; on
 
       <div className="space-y-1.5">
         <Label>Color</Label>
-        <div className="flex flex-wrap items-center gap-2">
-          {COLOR_PRESETS.map((hex) => (
+        <div className="grid grid-cols-8 gap-2">
+          {ACCOUNT_COLORS.map((hex) => (
             <button
               key={hex}
               type="button"
               onClick={() => setColor(hex)}
               aria-label={`Color ${hex}`}
               className={cn(
-                "flex size-9 items-center justify-center rounded-full border-2 transition active:scale-95",
+                "flex size-8 items-center justify-center rounded-full border-2 ring-1 ring-inset ring-black/10 transition active:scale-95",
                 color.toLowerCase() === hex ? "border-(--foreground)" : "border-transparent",
               )}
               style={{ backgroundColor: hex }}
             />
           ))}
-          <label
-            className="flex size-9 cursor-pointer items-center justify-center overflow-hidden rounded-full border-2 border-dashed border-(--border) text-xs font-bold text-(--muted-foreground)"
-            style={{ background: `conic-gradient(from 0deg, #f87171, #facc15, #34d399, #38bdf8, #a78bfa, #ec4899, #f87171)` }}
-            title="Personalizado"
-          >
-            <input
-              type="color"
-              value={color}
-              onChange={(e) => setColor(e.target.value)}
-              className="sr-only"
-            />
-          </label>
         </div>
         <input type="hidden" name="color" value={color} />
       </div>
@@ -188,6 +176,7 @@ export function AccountForm({ account, onDone }: { account?: AccountEditData; on
                 required
                 className="h-12 text-xl font-bold"
                 inputMode="decimal"
+                placeholder="0"
               />
             </div>
           </div>

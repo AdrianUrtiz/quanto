@@ -12,6 +12,7 @@ import { deleteSubscription, toggleSubscription } from "@/lib/subscription-actio
 import { formatMoney } from "@/lib/utils";
 import type { AccountOpt } from "@/components/transaction-form";
 import type { DueCharge } from "@/lib/subscriptions";
+import type { CatalogRow } from "@/lib/catalog";
 
 export type SubRow = SubEditData & {
   accountName: string;
@@ -19,11 +20,12 @@ export type SubRow = SubEditData & {
 };
 
 export function SubscriptionTab({
-  subs, dues, accountOptions,
+  subs, dues, accountOptions, cats,
 }: {
   subs: SubRow[];
   dues: DueCharge[];
   accountOptions: AccountOpt[];
+  cats: CatalogRow[];
 }) {
   const [editing, setEditing] = useState<SubRow | null>(null);
   const [deleting, setDeleting] = useState<SubRow | null>(null);
@@ -66,6 +68,7 @@ export function SubscriptionTab({
           <SubscriptionSwipeRow
             key={s.id}
             s={s}
+            cats={cats}
             open={openRow === s.id}
             onOpenChange={(o) => setOpenRow(o ? s.id : null)}
             onToggle={() => !busy && toggle(s)}
@@ -80,13 +83,14 @@ export function SubscriptionTab({
       </p>
 
       <BottomSheet open={editing !== null} onOpenChange={(o) => !o && setEditing(null)}>
-        {editing && (
-          <SubscriptionForm
-            subscription={editing}
-            accountOptions={accountOptions}
-            onDone={() => setEditing(null)}
-          />
-        )}
+          {editing && (
+            <SubscriptionForm
+              subscription={editing}
+              accountOptions={accountOptions}
+              cats={cats}
+              onDone={() => setEditing(null)}
+            />
+          )}
       </BottomSheet>
 
       <Dialog open={deleting !== null} onOpenChange={(o) => !o && setDeleting(null)}>

@@ -7,6 +7,7 @@ import { AccountSwipeRow } from "@/components/account-swipe-row";
 import { SubscriptionTab, type SubRow } from "@/components/subscription-tab";
 import { SubscriptionSummaryRow } from "@/components/subscription-swipe-row";
 import type { DueCharge } from "@/lib/subscriptions";
+import type { CatalogRow } from "@/lib/catalog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { BottomSheet } from "@/components/bottom-sheet";
 import { AccountForm } from "@/components/account-form";
@@ -35,7 +36,7 @@ export type PartnerDebt = {
   lines: DebtLine[];
 };
 
-export function CuentasClient({ accounts, meId, debts, owed, subs, dues }: { accounts: AccountRow[]; meId: string; debts: PartnerDebt[]; owed: PartnerDebt[]; subs: SubRow[]; dues: DueCharge[] }) {
+export function CuentasClient({ accounts, meId, debts, owed, subs, dues, cats }: { accounts: AccountRow[]; meId: string; debts: PartnerDebt[]; owed: PartnerDebt[]; subs: SubRow[]; dues: DueCharge[]; cats: CatalogRow[] }) {
   const [tab, setTab] = useState("todas");
   const [open, setOpen] = useState(false);
   const [subOpen, setSubOpen] = useState(false);
@@ -95,7 +96,7 @@ export function CuentasClient({ accounts, meId, debts, owed, subs, dues }: { acc
               <Plus className="size-5" />
             </Button>
             <BottomSheet open={subOpen} onOpenChange={setSubOpen}>
-              <SubscriptionForm accountOptions={accountOpts} onDone={() => setSubOpen(false)} />
+              <SubscriptionForm accountOptions={accountOpts} cats={cats} onDone={() => setSubOpen(false)} />
             </BottomSheet>
           </>
         )}
@@ -145,7 +146,7 @@ export function CuentasClient({ accounts, meId, debts, owed, subs, dues }: { acc
           )}
         </TabsContent>
         <TabsContent value="subs" className="space-y-2">
-          <SubscriptionTab subs={subs} dues={dues} accountOptions={accountOpts} />
+          <SubscriptionTab subs={subs} dues={dues} accountOptions={accountOpts} cats={cats} />
         </TabsContent>
       </Tabs>
     </div>
@@ -215,3 +216,4 @@ function DebtCard({ d, meId }: { d: PartnerDebt; meId: string }) {
 function Empty({ text }: { text: string }) {
   return <p className="rounded-3xl border border-dashed border-(--border) p-8 text-center text-sm text-(--muted-foreground)">{text}</p>;
 }
+

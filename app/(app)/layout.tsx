@@ -4,7 +4,7 @@ import { Fab } from "@/components/fab";
 import { auth, signOut } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { DEMO_ACCOUNTS } from "@/lib/demo-data";
-import { parseCat, type CustomCat } from "@/lib/categories";
+import { getCatalog } from "@/lib/catalog";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const session = await auth();
@@ -30,7 +30,6 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     name: a.name,
     type: a.type as "DEBIT" | "CREDIT",
   }));
-  let customs: CustomCat[] = [];
   if (process.env.DATABASE_URL) {
     try {
       const rows = await prisma.account.findMany({
@@ -39,23 +38,15 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         orderBy: { createdAt: "asc" },
       });
       if (rows.length) accounts = rows.map((r) => ({ id: r.id, name: r.name, type: r.type as "DEBIT" | "CREDIT" }));
-      const catRows = await prisma.transaction.findMany({
-        where: { createdById: meId },
-        select: { category: true },
-        distinct: ["category"],
-      });
-      customs = catRows
-        .map((r) => parseCat(r.category))
-        .filter((c) => c.custom)
-        .map((c) => ({ code: c.code, iconName: c.iconName, label: c.label, color: c.color, kind: c.kind }));
     } catch {
       // fallback demo
     }
   }
+  const catalog = await getCatalog(meId);
   return (
     <div className="mx-auto flex min-h-dvh w-full max-w-md flex-col">
       <main className="flex-1 pb-44">{children}</main>
-      <Fab accountOptions={accounts} customs={customs} />
+      <Fab accountOptions={accounts} cats={catalog} />
       <BottomNav />
     </div>
   );

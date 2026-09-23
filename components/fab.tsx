@@ -4,9 +4,9 @@ import { useState } from "react";
 import { Plus } from "lucide-react";
 import { BottomSheet } from "@/components/bottom-sheet";
 import { TransactionForm, type AccountOpt } from "@/components/transaction-form";
-import type { CustomCat } from "@/lib/categories";
+import type { CatalogRow } from "@/lib/catalog";
 
-export function Fab({ accountOptions, customs }: { accountOptions: AccountOpt[]; customs: CustomCat[] }) {
+export function Fab({ accountOptions, cats }: { accountOptions: AccountOpt[]; cats: CatalogRow[] }) {
   const [open, setOpen] = useState(false);
   return (
     <>
@@ -18,7 +18,7 @@ export function Fab({ accountOptions, customs }: { accountOptions: AccountOpt[];
         <Plus className="size-7" />
       </button>
       <BottomSheet open={open} onOpenChange={setOpen}>
-        <TransactionForm accountOptions={accountOptions} customs={customs} onDone={() => setOpen(false)} />
+        <TransactionForm accountOptions={accountOptions} cats={cats} onDone={() => setOpen(false)} />
       </BottomSheet>
     </>
   );

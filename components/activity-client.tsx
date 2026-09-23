@@ -12,7 +12,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { formatMoney } from "@/lib/utils";
-import { parseCat, prettyCat, type CustomCat } from "@/lib/categories";
+import { lookupCategory } from "@/lib/categories";
+import type { CatalogRow } from "@/lib/catalog";
 
 export type MonthOpt = { key: string; label: string; total: number };
 
@@ -83,9 +84,11 @@ function rangeStart(range: Range): Date | null {
 export function ActivityClient({
   txs,
   months,
+  cats,
 }: {
   txs: TxRow[];
   months: MonthOpt[];
+  cats: CatalogRow[];
 }) {
   const [sheet, setSheet] = useState<Sheet>(null);
   const [openRow, setOpenRow] = useState<string | null>(null);
@@ -256,18 +259,6 @@ export function ActivityClient({
     }));
   }, [txs]);
 
-  // Personalizadas del usuario (para el grid del formulario).
-  const customs = useMemo(() => {
-    const map = new Map<string, CustomCat>();
-    for (const t of txs) {
-      const c = parseCat(t.category);
-      if (c.custom && !map.has(t.category)) {
-        map.set(t.category, { code: t.category, iconName: c.iconName, label: c.label, color: c.color, kind: c.kind });
-      }
-    }
-    return [...map.values()];
-  }, [txs]);
-
   // Opciones con totales (respetan el tipo activo)
   const accountOpts = useMemo(() => {
     const map = new Map<string, number>();
@@ -352,7 +343,7 @@ export function ActivityClient({
             label={
               category === "todas"
                 ? "Todas las categorías"
-                : prettyCat(category)
+                : lookupCategory(category, cats).label
             }
             active={category !== "todas"}
             onClick={() => setSheet("category")}
@@ -371,7 +362,7 @@ export function ActivityClient({
               key={t.id}
               t={t}
               accountOptions={accountOptionsAll}
-              customs={customs}
+              cats={cats}
               open={openRow === t.id}
               onOpenChange={(o) => setOpenRow(o ? t.id : null)}
             />
@@ -449,7 +440,7 @@ export function ActivityClient({
                 { value: "todas", label: "Todas las categorías" },
                 ...categoryOpts.map(([cat, total]) => ({
                   value: cat,
-                  label: prettyCat(cat),
+                  label: lookupCategory(cat, cats).label,
                   total,
                 })),
               ]}

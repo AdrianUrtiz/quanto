@@ -7,6 +7,7 @@ import { DEMO_ACCOUNTS, DEMO_TXS } from "@/lib/demo-data";
 import { installmentMonths } from "@/lib/calculations";
 import { monthKey } from "@/lib/utils";
 import { computeDues, type DueCharge } from "@/lib/subscriptions";
+import { getCatalog } from "@/lib/catalog";
 import type { SubRow } from "@/components/subscription-tab";
 
 export const metadata = { title: "Cuentas" };
@@ -277,10 +278,12 @@ export default async function CuentasPage() {
     owed = demoOwed(meId, key);
   }
 
+  const catalog = await getCatalog(meId);
+
   return (
     <>
       <AppHeader title="Cuentas" />
-      <CuentasClient accounts={accounts} meId={meId} debts={debts} owed={owed} subs={subs} dues={dues} />
+      <CuentasClient accounts={accounts} meId={meId} debts={debts} owed={owed} subs={subs} dues={dues} cats={catalog} />
     </>
   );
 }

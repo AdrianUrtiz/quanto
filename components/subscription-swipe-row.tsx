@@ -4,11 +4,12 @@ import { Pause, Pencil, Play, Repeat, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { SwipeRow } from "@/components/swipe-row";
 import { formatMoney } from "@/lib/utils";
-import { parseCat } from "@/lib/categories";
+import { lookupCategory } from "@/lib/categories";
+import type { CatalogRow } from "@/lib/catalog";
 import type { SubRow } from "@/components/subscription-tab";
 
-function SubFront({ s }: { s: SubRow }) {
-  const cat = parseCat(s.category);
+function SubFront({ s, cats }: { s: SubRow; cats: CatalogRow[] }) {
+  const cat = lookupCategory(s.category, cats);
   return (
     <div
       className={`flex items-center gap-3 rounded-3xl border p-3.5 ${
@@ -42,9 +43,10 @@ const actionCls =
   "flex h-full flex-1 flex-col items-center justify-center gap-1.5 rounded-2xl border border-(--border) bg-(--card) text-xs font-semibold text-(--foreground) shadow-xs transition-all hover:bg-(--muted) active:scale-95";
 
 export function SubscriptionSwipeRow({
-  s, open, onOpenChange, onToggle, onEdit, onDelete,
+  s, cats, open, onOpenChange, onToggle, onEdit, onDelete,
 }: {
   s: SubRow;
+  cats: CatalogRow[];
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onToggle: () => void;
@@ -77,7 +79,7 @@ export function SubscriptionSwipeRow({
         </>
       }
     >
-      <SubFront s={s} />
+      <SubFront s={s} cats={cats} />
     </SwipeRow>
   );
 }

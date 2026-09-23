@@ -6,7 +6,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { BottomSheet } from "@/components/bottom-sheet";
 import { Button } from "@/components/ui/button";
 import { TransactionForm, type AccountOpt } from "@/components/transaction-form";
-import type { CustomCat } from "@/lib/categories";
+import type { CatalogRow } from "@/lib/catalog";
 import { TransactionRow, type TxRow } from "@/components/transaction-list";
 import { deleteTransaction } from "@/lib/actions";
 import { formatMoney } from "@/lib/utils";
@@ -16,11 +16,11 @@ const REVEAL = 152; // dos acciones con espaciado
 const THRESHOLD = 48; // desplazamiento para fijar abierto
 
 export function TransactionSwipeRow({
-  t, accountOptions, customs, open, onOpenChange,
+  t, accountOptions, cats, open, onOpenChange,
 }: {
   t: TxRow;
   accountOptions: AccountOpt[];
-  customs: CustomCat[];
+  cats: CatalogRow[];
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
@@ -145,12 +145,12 @@ export function TransactionSwipeRow({
           className={cn("relative", !dragging && "transition-transform duration-200 ease-out")}
           style={{ transform: `translateX(${x}px)`, touchAction: "pan-y" }}
         >
-          <TransactionRow t={t} />
+          <TransactionRow t={t} cats={cats} />
         </div>
       </div>
 
       <BottomSheet open={editOpen} onOpenChange={setEditOpen}>
-        <TransactionForm accountOptions={accountOptions} customs={customs} entry={t} onDone={() => setEditOpen(false)} />
+        <TransactionForm accountOptions={accountOptions} cats={cats} entry={t} onDone={() => setEditOpen(false)} />
       </BottomSheet>
 
       <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>

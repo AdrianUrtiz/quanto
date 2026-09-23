@@ -4,7 +4,8 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { DEMO_TXS } from "@/lib/demo-data";
 import { monthKey, monthLabelEs } from "@/lib/utils";
-import { parseCat, prettyCat } from "@/lib/categories";
+import { lookupCategory } from "@/lib/categories";
+import { getCatalog } from "@/lib/catalog";
 import { settleMonth } from "@/lib/calculations";
 
 export const metadata = { title: "Resumen" };
@@ -85,8 +86,12 @@ export default async function ResumenPage() {
   const total = mine.reduce((a, t) => a + t.amount, 0);
   const byCat = new Map<string, number>();
   for (const t of mine) byCat.set(t.category, (byCat.get(t.category) ?? 0) + t.amount);
+  const catalog = await getCatalog(meId);
   const byCategory = [...byCat.entries()]
-    .map(([code, value]) => ({ label: prettyCat(code), value, color: parseCat(code).color }))
+    .map(([code, value]) => {
+      const c = lookupCategory(code, catalog);
+      return { label: c.label, value, color: c.color };
+    })
     .sort((a, b) => b.value - a.value);
 
   const settlement = settleMonth(involved, key);

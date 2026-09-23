@@ -7,6 +7,7 @@ import { prisma } from "@/lib/prisma";
 import { DEMO_ACCOUNTS, DEMO_TXS } from "@/lib/demo-data";
 import { monthKey, monthLabelEs } from "@/lib/utils";
 import { computeDues, type DueCharge } from "@/lib/subscriptions";
+import { getCatalog } from "@/lib/catalog";
 
 export const metadata = { title: "Actividad" };
 export const dynamic = "force-dynamic"; // el mes y los datos cambian por request
@@ -103,6 +104,7 @@ export default async function ActividadPage() {
   }
 
   const txs: TxRow[] = raw.map((t) => ({ ...t, date: t.date.toISOString() }));
+  const catalog = await getCatalog(meId);
 
   // Meses con registro (solo gastos suman al total del selector).
   const totals = new Map<string, number>();
@@ -164,7 +166,7 @@ export default async function ActividadPage() {
     <>
       <AppHeader title="Actividad" />
       <DueSubscriptions dues={dues} />
-      <ActivityClient txs={txs} months={months} />
+      <ActivityClient txs={txs} months={months} cats={catalog} />
     </>
   );
 }
