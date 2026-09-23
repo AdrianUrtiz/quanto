@@ -1,13 +1,15 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { useTheme } from "@/components/theme-provider";
-import { Moon, Settings, Sun, LogOut, ChevronDown } from "lucide-react";
+import { Moon, Settings, Shapes, Sun, LogOut, ChevronDown } from "lucide-react";
 import { signOut, useSession } from "next-auth/react";
 
 export function AppHeader({ title, subtitle }: { title: string; subtitle?: string }) {
   const { theme, setTheme } = useTheme();
   const { data } = useSession();
+  const router = useRouter();
   const [menu, setMenu] = useState(false);
   const dark = theme === "dark";
 
@@ -32,6 +34,12 @@ export function AppHeader({ title, subtitle }: { title: string; subtitle?: strin
                 >
                   {dark ? <Sun className="size-4" /> : <Moon className="size-4" />}
                   {dark ? "Modo claro" : "Modo oscuro"}
+                </button>
+                <button
+                  onClick={() => { setMenu(false); router.push("/categorias"); }}
+                  className="flex w-full items-center gap-3 px-4 py-3 text-sm font-medium hover:bg-(--muted)"
+                >
+                  <Shapes className="size-4" /> Categorías
                 </button>
                 <button
                   onClick={() => signOut({ callbackUrl: "/login" })}
