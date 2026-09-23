@@ -40,6 +40,7 @@ model User {
   transactions Transaction[]      @relation("CreatedBy")
   debts        TransactionShare[] @relation("Debtor")
   subscriptions Subscription[]
+  categories   Category[]
 }
 
 model Account {
@@ -113,6 +114,26 @@ model Transaction {
   @@index([accountId])
   @@index([createdById])
   @@index([subscriptionId])
+}
+
+// Catálogo de categorías: filas globales del sistema (userId null, isDefault)
+// + personalizadas de cada usuario. Transaction.category guarda el `code`.
+model Category {
+  id        String  @id @default(cuid())
+  code      String // "COMIDA" o "cXXXXXXXXXXX" para personalizadas
+  name      String // "Comida"
+  iconName  String  @default("Shapes")
+  color     String  @default("#71717a")
+  kind      String  @default("expense") // expense | income | both
+  userId    String?
+  user      User?   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  isDefault Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, code])
+  @@index([userId])
 }
 
 // Plantilla de cargo recurrente mes a mes (ej. Spotify, Netflix).

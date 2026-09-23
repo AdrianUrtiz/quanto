@@ -147,8 +147,8 @@ export function makeCustomCat(
   return `custom:${kind}:${iconName}:${hex}:${clean}`;
 }
 
-// Paleta para elegir color al crear categorías.
-export const COLOR_PRESETS = [
+// Paleta de cuentas: los 12 originales + 12 nuevos (vivos y oscuros variados).
+export const ACCOUNT_COLORS = [
   "#f87171",
   "#fb923c",
   "#facc15",
@@ -161,10 +161,72 @@ export const COLOR_PRESETS = [
   "#a78bfa",
   "#e879f9",
   "#ec4899",
+  "#ef4444",
+  "#f97316",
+  "#22c55e",
+  "#14b8a6",
+  "#3b82f6",
+  "#8b5cf6",
+  "#64748b",
+  "#78716c",
+  "#334155",
+  "#0f172a",
+  "#1c1917",
+  "#000000",
+];
+
+// Paleta de categorías: vibrantes + pasteles (sin oscuros).
+export const CATEGORY_COLORS = [
+  "#ef4444",
+  "#f97316",
+  "#f59e0b",
+  "#84cc16",
+  "#22c55e",
+  "#14b8a6",
+  "#06b6d4",
+  "#3b82f6",
+  "#6366f1",
+  "#8b5cf6",
+  "#d946ef",
+  "#ec4899",
+  "#f43f5e",
+  "#fb7185",
+  "#fb923c",
+  "#facc15",
+  "#fecaca",
+  "#fed7aa",
+  "#fef08a",
+  "#bbf7d0",
+  "#a5f3fc",
+  "#bfdbfe",
+  "#ddd6fe",
+  "#fbcfe8",
 ];
 
 export function isValidCategory(code: string): boolean {
   if (DEFAULT_CATS.some((c) => c.code === code)) return true;
+  // Códigos de tabla (cXXXXXXXXXXX) o legados custom:....
+  if (/^c[a-z0-9]{11}$/.test(code)) return true;
   if (!code.startsWith("custom:")) return false;
   return parseCat(code).label.length >= 2;
+}
+
+/** Resuelve un código contra el catálogo (tabla); si no existe, parseo local/legado. */
+export function lookupCategory(
+  code: string,
+  rows: { code: string; name: string; iconName: string; color: string; kind: CatKind }[],
+): CatInfo {
+  const r = rows.find((x) => x.code === code);
+  if (r) {
+    return {
+      code: r.code,
+      icon: ICONS[r.iconName] ?? Shapes,
+      iconName: r.iconName,
+      label: r.name,
+      color: r.color,
+      custom: !DEFAULT_CATS.some((c) => c.code === code),
+      kind: r.kind,
+    };
+  }
+  return parseCat(code);
 }
