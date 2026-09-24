@@ -1,7 +1,8 @@
 import { redirect } from "next/navigation";
 import { ActivityClient, type MonthOpt } from "@/components/activity-client";
 import { PendingPaymentsBanner } from "@/components/pending-payments-banner";
-import type { ToConfirmItem } from "@/components/cuentas-client";
+import { SourceConfirmBanner } from "@/components/source-confirm-banner";
+import type { ToConfirmItem, SourceConfirmItem } from "@/components/cuentas-client";
 import type { TxRow } from "@/components/transaction-list";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
@@ -55,7 +56,20 @@ export default async function ActividadPage() {
     createdById: t.createdById,
   }));
 
-  const txs: TxRow[] = raw.map((t) => ({ ...t, date: t.date.toISOString() }));
+  // Movimientos huella de pagos CONFIRMED (ingreso del cobro o egreso del
+  // origen): solo lectura, sin acciones de editar/eliminar.
+  const lockedRows = await prisma.debtPayment.findMany({
+    where: {
+      status: "CONFIRMED",
+      share: { OR: [{ debtorId: meId }, { transaction: { createdById: meId } }] },
+    },
+    select: { transactionId: true, debtorTransactionId: true },
+  });
+  const lockedTxIds = new Set(
+    lockedRows.flatMap((p) => [p.transactionId, p.debtorTransactionId]).filter((id) => id != null),
+  );
+
+  const txs: TxRow[] = raw.map((t) => ({ ...t, date: t.date.toISOString(), locked: lockedTxIds.has(t.id) }));
   const catalog = await getCatalog(meId);
 
   // Meses con registro (solo gastos suman al total del selector).
@@ -75,7 +89,7 @@ export default async function ActividadPage() {
     });
 
   // Pagos de pareja pendientes de mi confirmación + mis cuentas (destino).
-  const [mineAccounts, pendingRows] = await Promise.all([
+  const [mineAccounts, pendingRows, sourceRows] = await Promise.all([
     prisma.account.findMany({
       where: { isActive: true, userId: meId },
       select: { id: true, name: true, type: true },
@@ -90,6 +104,19 @@ export default async function ActividadPage() {
       },
       include: {
         share: { include: { transaction: true } },
+        registeredBy: true,
+      },
+      orderBy: { createdAt: "desc" },
+    }),
+    prisma.debtPayment.findMany({
+      where: {
+        status: "CONFIRMED",
+        debtorConfirmedAt: null,
+        registeredById: { not: meId },
+        share: { debtorId: meId },
+      },
+      include: {
+        share: { include: { transaction: { include: { createdBy: true } } } },
         registeredBy: true,
       },
       orderBy: { createdAt: "desc" },
@@ -115,11 +142,26 @@ export default async function ActividadPage() {
         registeredByName: p.registeredBy.name,
       };
     });
+  const toConfirmSource: SourceConfirmItem[] = sourceRows.map((p) => {
+    const [y, mo] = p.month.split("-").map(Number);
+    return {
+      id: p.id,
+      amount: Number(p.amount),
+      month: p.month,
+      monthLabel: monthLabelEs(new Date(y, mo - 1, 1)),
+      concept: p.share.transaction.concept,
+      creditorName: p.registeredBy.name,
+    };
+  });
 
   return (
     <>
       <PendingPaymentsBanner
         items={toConfirm}
+        accountOptions={accountOptions}
+      />
+      <SourceConfirmBanner
+        items={toConfirmSource}
         accountOptions={accountOptions}
       />
       <ActivityClient txs={txs} months={months} cats={catalog} />
