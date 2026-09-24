@@ -74,73 +74,70 @@ export default async function CuentasPage() {
   const me = session?.user?.name ?? "Tú";
   const key = monthKey(new Date());
 
-  let accounts: AccountRow[];
-  let debts: PartnerDebt[];
-  let owed: PartnerDebt[];
   let subs: SubRow[] = [];
   let dues: DueCharge[] = [];
   const toConfirm: ToConfirmItem[] = [];
   const myPending: MyPendingItem[] = [];
   let payStates: SubPayState[] = [];
   const [accRows, sharedRows, sharedOwedRows, subRows, confirmedRows] = await Promise.all([
-        // Privacidad: ni siquiera se consultan las cuentas de la pareja.
-        prisma.account.findMany({
-          where: { isActive: true, userId: meId },
-          include: { user: true },
-          orderBy: { createdAt: "asc" },
-        }),
-        // Solo movimientos creados por mi pareja donde YO soy el deudor.
-        prisma.transaction.findMany({
-          where: {
-            isShared: true,
-            createdById: { not: meId },
-            shares: { some: { debtorId: meId } },
-          },
-          include: {
-            account: true,
-            createdBy: true,
-            shares: { where: { debtorId: meId } },
-          },
-          orderBy: { date: "asc" },
-        }),
-        // Compras MÍAS compartidas donde mi pareja es la deudora (me deben).
-        prisma.transaction.findMany({
-          where: {
-            isShared: true,
-            createdById: meId,
-            shares: { some: { debtorId: { not: meId } } },
-          },
-          include: {
-            account: true,
-            createdBy: true,
-            shares: { include: { debtor: true } },
-          },
-          orderBy: { date: "asc" },
-        }),
-        prisma.subscription.findMany({
-          where: { userId: meId },
-          include: { account: true },
-          orderBy: { createdAt: "asc" },
-        }),
-        prisma.transaction.findMany({
-          where: { createdById: meId, subscriptionId: { not: null } },
-          select: { subscriptionId: true, date: true },
-        }),
-      ]);
-      accounts = accRows.map((a) => ({
-        id: a.id,
-        name: a.name,
-        type: a.type as "DEBIT" | "CREDIT",
-        owner: a.user.name,
-        ownerId: a.user.id,
-        balance: Number(a.balance),
-        creditLimit: a.creditLimit ? Number(a.creditLimit) : undefined,
-        statementDay: a.statementDay ?? undefined,
-        dueDay: a.dueDay ?? undefined,
-        lastFour: a.lastFour ?? undefined,
-        expiry: a.expiry ?? undefined,
-        color: a.color ?? "#6366f1",
-      }));
+    // Privacidad: ni siquiera se consultan las cuentas de la pareja.
+    prisma.account.findMany({
+      where: { isActive: true, userId: meId },
+      include: { user: true },
+      orderBy: { createdAt: "asc" },
+    }),
+    // Solo movimientos creados por mi pareja donde YO soy el deudor.
+    prisma.transaction.findMany({
+      where: {
+        isShared: true,
+        createdById: { not: meId },
+        shares: { some: { debtorId: meId } },
+      },
+      include: {
+        account: true,
+        createdBy: true,
+        shares: { where: { debtorId: meId } },
+      },
+      orderBy: { date: "asc" },
+    }),
+    // Compras MÍAS compartidas donde mi pareja es la deudora (me deben).
+    prisma.transaction.findMany({
+      where: {
+        isShared: true,
+        createdById: meId,
+        shares: { some: { debtorId: { not: meId } } },
+      },
+      include: {
+        account: true,
+        createdBy: true,
+        shares: { include: { debtor: true } },
+      },
+      orderBy: { date: "asc" },
+    }),
+    prisma.subscription.findMany({
+      where: { userId: meId },
+      include: { account: true },
+      orderBy: { createdAt: "asc" },
+    }),
+    prisma.transaction.findMany({
+      where: { createdById: meId, subscriptionId: { not: null } },
+      select: { subscriptionId: true, date: true },
+    }),
+  ]);
+  const accounts: AccountRow[] = accRows.map((a) => ({
+    id: a.id,
+    name: a.name,
+    type: a.type as "DEBIT" | "CREDIT",
+    owner: a.user.name,
+    ownerId: a.user.id,
+    balance: Number(a.balance),
+    creditLimit: a.creditLimit ? Number(a.creditLimit) : undefined,
+    statementDay: a.statementDay ?? undefined,
+    dueDay: a.dueDay ?? undefined,
+    lastFour: a.lastFour ?? undefined,
+    expiry: a.expiry ?? undefined,
+    color: a.color ?? "#6366f1",
+  }));
       // Pagos de pareja: sumas por línea + pendientes donde participo.
       const allShareIds = [
         ...sharedRows.flatMap((t) => t.shares.map((s) => s.id)),
@@ -182,7 +179,7 @@ export default async function CuentasPage() {
           toConfirm.push({ ...base, registeredByName: p.registeredBy.name });
         }
       }
-      debts = buildDebts(
+      const debts = buildDebts(
         sharedRows.map((t) => ({
           shareId: t.shares[0]?.id ?? "",
           accountId: t.account.id,
@@ -200,7 +197,7 @@ export default async function CuentasPage() {
         key,
         sums
       );
-      owed = buildDebts(
+      const owed = buildDebts(
         sharedOwedRows.flatMap((t) =>
           t.shares
             .filter((s) => s.debtorId !== meId)
