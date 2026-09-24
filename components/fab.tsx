@@ -59,7 +59,7 @@ function CuentasSpeedDial({ accountOptions, cats }: FabProps) {
           expanded ? "opacity-100" : "pointer-events-none opacity-0",
         )}
       />
-      <div className="fixed right-5 bottom-28 z-50 flex flex-col items-end gap-3">
+      <div className="fixed right-5 bottom-24 z-50 flex flex-col items-end gap-3">
         <div
           className={cn(
             "flex flex-col items-end gap-3 transition-all duration-200",
