@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 import { ArrowDownLeft, ArrowUpRight, Pencil, Trash2 } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { BottomSheet } from "@/components/bottom-sheet";
@@ -37,8 +38,14 @@ export function AccountSwipeRow({
     setDeleting(true);
     const res = await deleteAccount(a.id);
     setDeleting(false);
-    if ("error" in res && res.error) setDelError(res.error);
-    else setConfirmOpen(false);
+    if ("error" in res && res.error) {
+      setDelError(res.error);
+      toast.error(res.error);
+    } else {
+      setConfirmOpen(false);
+      toast.success("Cuenta eliminada");
+      router.refresh();
+    }
   }
 
   return (

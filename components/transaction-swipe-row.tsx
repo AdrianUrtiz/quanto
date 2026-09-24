@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 import { Pencil, Trash2 } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { BottomSheet } from "@/components/bottom-sheet";
@@ -31,6 +33,7 @@ export function TransactionSwipeRow({
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [delError, setDelError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const router = useRouter();
   const start = useRef<{ x: number; base: number } | null>(null);
   const moved = useRef(false);
 
@@ -91,8 +94,14 @@ export function TransactionSwipeRow({
     setDeleting(true);
     const res = await deleteTransaction(t.id);
     setDeleting(false);
-    if ("error" in res && res.error) setDelError(res.error);
-    else setConfirmOpen(false);
+    if ("error" in res && res.error) {
+      setDelError(res.error);
+      toast.error(res.error);
+    } else {
+      setConfirmOpen(false);
+      toast.success("Movimiento eliminado");
+      router.refresh();
+    }
   }
 
   return (
