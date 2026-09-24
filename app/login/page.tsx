@@ -1,14 +1,17 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { Wallet } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/password-input";
 import { Label } from "@/components/ui/label";
 import { loginAction } from "@/lib/actions";
 
 export default function LoginPage() {
+  const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
 
@@ -17,10 +20,15 @@ export default function LoginPage() {
     setError(null);
     setPending(true);
     try {
-      await loginAction(new FormData(e.currentTarget));
+      const res = await loginAction(new FormData(e.currentTarget));
+      if ("error" in res && res.error) {
+        setError(res.error);
+      } else {
+        router.push("/actividad");
+        router.refresh();
+      }
     } catch {
-      // NEXT_REDIRECT = éxito; si seguimos aquí, fueron credenciales malas
-      setError("Revisa tu usuario y contraseña");
+      setError("No se pudo iniciar sesión, intenta de nuevo");
     } finally {
       setPending(false);
     }
@@ -42,11 +50,11 @@ export default function LoginPage() {
           <form onSubmit={onSubmit} className="space-y-4">
             <div className="space-y-1.5">
               <Label htmlFor="username">Usuario</Label>
-              <Input id="username" name="username" type="text" placeholder="adrian" autoComplete="username" required />
+              <Input id="username" name="username" type="text" placeholder="" autoComplete="username" required />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="password">Contraseña</Label>
-              <Input id="password" name="password" type="password" placeholder="••••••••" autoComplete="current-password" required />
+              <PasswordInput id="password" name="password" placeholder="••••••••" autoComplete="current-password" required />
             </div>
             {error && <p className="text-sm font-medium text-red-500">{error}</p>}
             <Button className="w-full" disabled={pending}>

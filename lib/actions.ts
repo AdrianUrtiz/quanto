@@ -457,13 +457,18 @@ export async function createTransaction(formData: FormData) {
 }
 
 export async function loginAction(formData: FormData) {
+  // Credenciales malas con redirect:false llegan como excepción CredentialsSignin.
+  const { CredentialsSignin } = await import("next-auth");
   const { signIn } = await import("@/auth");
   const username = String(formData.get("username") ?? "");
   const password = String(formData.get("password") ?? "");
   try {
-    await signIn("credentials", { username, password, redirectTo: "/actividad" });
+    // redirect:false → no lanza NEXT_REDIRECT; el fallo viene como excepción.
+    const res = await signIn("credentials", { username, password, redirect: false });
+    if (res?.error) return { error: "Revisa tu usuario y contraseña" };
+    return { ok: true };
   } catch (e) {
-    // NextAuth lanza NEXT_REDIRECT en éxito — se propaga solo.
-    throw e;
+    if (e instanceof CredentialsSignin) return { error: "Revisa tu usuario y contraseña" };
+    return { error: "No se pudo iniciar sesión, intenta de nuevo" };
   }
 }
