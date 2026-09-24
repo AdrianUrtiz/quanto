@@ -1,9 +1,9 @@
+import { redirect } from "next/navigation";
 import { CuentasClient, type MyPendingItem, type PartnerDebt, type ToConfirmItem } from "@/components/cuentas-client";
 import type { SubPayState } from "@/components/subscription-tab";
 import type { AccountRow } from "@/components/account-card";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
-import { DEMO_ACCOUNTS, DEMO_TXS } from "@/lib/demo-data";
 import { installmentMonths } from "@/lib/calculations";
 import { monthKey, monthLabelEs } from "@/lib/utils";
 import { computeDues, type DueCharge } from "@/lib/subscriptions";
@@ -67,79 +67,11 @@ function buildDebts(items: DebtItem[], key: string, sums: Map<string, LineSums>)
   return [...byAcc.values()].sort((a, b) => b.total - a.total);
 }
 
-function demoDebts(me: string, meId: string, key: string): PartnerDebt[] {
-  const items: DebtItem[] = [];
-  for (const t of DEMO_TXS) {
-    if (!t.isShared || t.createdById === meId) continue;
-    const share = t.shares.find((s) => s.debtorId === meId);
-    if (!share) continue;
-    const acc = DEMO_ACCOUNTS.find((a) => a.id === t.accountId);
-    if (!acc) continue;
-    items.push({
-      shareId: "",
-      accountId: acc.id,
-      accountName: acc.name,
-      accountType: acc.type,
-      dueDay: acc.dueDay,
-      debtorId: meId,
-      debtorName: me,
-      creditorName: t.creatorName,
-      concept: t.concept,
-      monthly: share.monthlyAmount,
-      installments: t.installments,
-      date: new Date(t.date),
-    });
-  }
-  return buildDebts(items, key, new Map());
-}
-
-function demoOwed(meId: string, key: string): PartnerDebt[] {
-  const items: DebtItem[] = [];
-  for (const t of DEMO_TXS) {
-    if (!t.isShared || t.createdById !== meId) continue;
-    const acc = DEMO_ACCOUNTS.find((a) => a.id === t.accountId);
-    if (!acc) continue;
-    for (const share of t.shares) {
-      if (share.debtorId === meId) continue;
-      items.push({
-        shareId: "",
-        accountId: acc.id,
-        accountName: acc.name,
-        accountType: acc.type,
-        dueDay: acc.dueDay,
-        debtorId: share.debtorId,
-        debtorName: share.debtorName,
-        creditorName: t.creatorName,
-        concept: t.concept,
-        monthly: share.monthlyAmount,
-        installments: t.installments,
-        date: new Date(t.date),
-      });
-    }
-  }
-  return buildDebts(items, key, new Map());
-}
-
-function demoAccounts(): AccountRow[] {
-  return DEMO_ACCOUNTS.map((a) => ({
-    id: a.id,
-    name: a.name,
-    type: a.type,
-    owner: a.owner,
-    ownerId: a.ownerId,
-    balance: a.balance,
-    creditLimit: a.creditLimit,
-    statementDay: a.statementDay,
-    dueDay: a.dueDay,
-    lastFour: a.lastFour,
-    color: a.color,
-  }));
-}
-
 export default async function CuentasPage() {
   const session = await auth();
+  const meId = (session?.user as { id?: string } | undefined)?.id;
+  if (!meId) redirect("/login");
   const me = session?.user?.name ?? "Tú";
-  const meId = (session?.user as { id?: string } | undefined)?.id ?? "u-adrian";
   const key = monthKey(new Date());
 
   let accounts: AccountRow[];
@@ -150,9 +82,7 @@ export default async function CuentasPage() {
   const toConfirm: ToConfirmItem[] = [];
   const myPending: MyPendingItem[] = [];
   let payStates: SubPayState[] = [];
-  if (process.env.DATABASE_URL) {
-    try {
-      const [accRows, sharedRows, sharedOwedRows, subRows, confirmedRows] = await Promise.all([
+  const [accRows, sharedRows, sharedOwedRows, subRows, confirmedRows] = await Promise.all([
         // Privacidad: ni siquiera se consultan las cuentas de la pareja.
         prisma.account.findMany({
           where: { isActive: true, userId: meId },
@@ -373,16 +303,6 @@ export default async function CuentasPage() {
           };
         });
       }
-    } catch {
-      accounts = demoAccounts();
-      debts = demoDebts(me, meId, key);
-      owed = demoOwed(meId, key);
-    }
-  } else {
-    accounts = demoAccounts();
-    debts = demoDebts(me, meId, key);
-    owed = demoOwed(meId, key);
-  }
 
   const catalog = await getCatalog(meId);
 

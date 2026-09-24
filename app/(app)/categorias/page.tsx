@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { ChevronLeft } from "lucide-react";
 import { CategoryManager } from "@/components/category-manager";
 import { auth } from "@/auth";
@@ -9,7 +10,8 @@ export const dynamic = "force-dynamic";
 
 export default async function CategoriasPage() {
   const session = await auth();
-  const meId = (session?.user as { id?: string } | undefined)?.id ?? "u-adrian";
+  const meId = (session?.user as { id?: string } | undefined)?.id;
+  if (!meId) redirect("/login");
   const cats = await getCatalog(meId);
 
   return (

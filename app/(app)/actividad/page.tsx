@@ -1,3 +1,4 @@
+import { redirect } from "next/navigation";
 import { ActivityClient, type MonthOpt } from "@/components/activity-client";
 import { DueSubscriptions } from "@/components/due-subscriptions";
 import { PendingPaymentsBanner } from "@/components/pending-payments-banner";
@@ -5,7 +6,6 @@ import type { ToConfirmItem } from "@/components/cuentas-client";
 import type { TxRow } from "@/components/transaction-list";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
-import { DEMO_ACCOUNTS, DEMO_TXS } from "@/lib/demo-data";
 import { monthKey, monthLabelEs } from "@/lib/utils";
 import { computeDues, type DueCharge } from "@/lib/subscriptions";
 import { getCatalog } from "@/lib/catalog";
@@ -15,94 +15,47 @@ export const dynamic = "force-dynamic"; // el mes y los datos cambian por reques
 
 export default async function ActividadPage() {
   const session = await auth();
-  const meId = (session?.user as { id?: string } | undefined)?.id ?? "u-adrian";
+  const meId = (session?.user as { id?: string } | undefined)?.id;
+  if (!meId) redirect("/login");
 
   // Sin cota inferior: "Todo el tiempo" debe ser literal (escala personal).
 
   // Privacidad: solo MIS movimientos. Lo que gasta mi pareja no aparece aquí;
   // lo que le debo vive en Cuentas > Mi pareja y en el Resumen.
-  type Raw = {
-    id: string;
-    concept: string;
-    category: string;
-    amount: number;
-    date: Date;
-    type: string;
-    accountId: string;
-    accountName: string;
-    accountType: string;
-    transferToAccountId?: string | null;
-    transferToAccountName?: string | null;
-    transferToAccountType?: string | null;
-    creatorName: string;
-    installments: number;
-    isShared: boolean;
-    createdById: string;
-  };
-
-  let raw: Raw[];
-  if (process.env.DATABASE_URL) {
-    try {
-      const [rows, accRows] = await Promise.all([
-        prisma.transaction.findMany({
-          where: { createdById: meId },
-          include: { account: true, createdBy: true },
-          orderBy: { date: "desc" },
-        }),
-        prisma.account.findMany({
-          where: { userId: meId },
-          select: { id: true, name: true, type: true },
-        }),
-      ]);
-      const accById = new Map(accRows.map((a) => [a.id, a]));
-      raw = rows.map((t) => ({
-        id: t.id,
-        concept: t.concept,
-        category: t.category,
-        amount: Number(t.amount),
-        date: t.date,
-        type: t.type,
-        accountId: t.accountId,
-        accountName: t.account.name,
-        accountType: t.account.type,
-        transferToAccountId: t.transferToAccountId ?? null,
-        transferToAccountName: t.transferToAccountId
-          ? (accById.get(t.transferToAccountId)?.name ?? null)
-          : null,
-        transferToAccountType: t.transferToAccountId
-          ? (accById.get(t.transferToAccountId)?.type ?? null)
-          : null,
-        creatorName: t.createdBy.name,
-        installments: t.installments,
-        isShared: t.isShared,
-        createdById: t.createdById,
-      }));
-    } catch {
-      raw = DEMO_TXS.filter((t) => t.createdById === meId).map((t) => ({
-        ...t,
-        date: new Date(t.date),
-        accountName: t.accountName,
-        accountType:
-          DEMO_ACCOUNTS.find((a) => a.id === t.accountId)?.type ?? "DEBIT",
-        transferToAccountId: null,
-        transferToAccountName: null,
-        transferToAccountType: null,
-        creatorName: t.creatorName,
-      }));
-    }
-  } else {
-    raw = DEMO_TXS.filter((t) => t.createdById === meId).map((t) => ({
-      ...t,
-      date: new Date(t.date),
-      accountName: t.accountName,
-      accountType:
-        DEMO_ACCOUNTS.find((a) => a.id === t.accountId)?.type ?? "DEBIT",
-      transferToAccountId: null,
-      transferToAccountName: null,
-      transferToAccountType: null,
-      creatorName: t.creatorName,
-    }));
-  }
+  const [rows, accRows] = await Promise.all([
+    prisma.transaction.findMany({
+      where: { createdById: meId },
+      include: { account: true, createdBy: true },
+      orderBy: { date: "desc" },
+    }),
+    prisma.account.findMany({
+      where: { userId: meId },
+      select: { id: true, name: true, type: true },
+    }),
+  ]);
+  const accById = new Map(accRows.map((a) => [a.id, a]));
+  const raw = rows.map((t) => ({
+    id: t.id,
+    concept: t.concept,
+    category: t.category,
+    amount: Number(t.amount),
+    date: t.date,
+    type: t.type,
+    accountId: t.accountId,
+    accountName: t.account.name,
+    accountType: t.account.type,
+    transferToAccountId: t.transferToAccountId ?? null,
+    transferToAccountName: t.transferToAccountId
+      ? (accById.get(t.transferToAccountId)?.name ?? null)
+      : null,
+    transferToAccountType: t.transferToAccountId
+      ? (accById.get(t.transferToAccountId)?.type ?? null)
+      : null,
+    creatorName: t.createdBy.name,
+    installments: t.installments,
+    isShared: t.isShared,
+    createdById: t.createdById,
+  }));
 
   const txs: TxRow[] = raw.map((t) => ({ ...t, date: t.date.toISOString() }));
   const catalog = await getCatalog(meId);
@@ -124,93 +77,77 @@ export default async function ActividadPage() {
     });
 
   // Suscripciones: cargos pendientes por confirmar (solo mías).
-  let dues: DueCharge[] = [];
-  if (process.env.DATABASE_URL) {
-    try {
-      const [subRows, confirmedRows] = await Promise.all([
-        prisma.subscription.findMany({
-          where: { userId: meId },
-          include: { account: true },
-        }),
-        prisma.transaction.findMany({
-          where: { createdById: meId, subscriptionId: { not: null } },
-          select: { subscriptionId: true, date: true },
-        }),
-      ]);
-      const confirmed = new Set(
-        confirmedRows
-          .filter((t) => t.subscriptionId)
-          .map((t) => `${t.subscriptionId}:${monthKey(new Date(t.date))}`),
-      );
-      dues = computeDues(
-        subRows.map((s) => ({
-          id: s.id,
-          name: s.name,
-          amount: Number(s.amount),
-          accountId: s.accountId,
-          accountName: s.account.name,
-          chargeDay: s.chargeDay,
-          isShared: s.isShared,
-          sharePct: s.sharePct,
-          shareAmount: s.shareAmount ? Number(s.shareAmount) : null,
-          isActive: s.isActive,
-          startMonth: s.startMonth,
-        })),
-        confirmed,
-      );
-    } catch {
-      dues = [];
-    }
-  }
+  const [subRows, confirmedRows] = await Promise.all([
+    prisma.subscription.findMany({
+      where: { userId: meId },
+      include: { account: true },
+    }),
+    prisma.transaction.findMany({
+      where: { createdById: meId, subscriptionId: { not: null } },
+      select: { subscriptionId: true, date: true },
+    }),
+  ]);
+  const confirmed = new Set(
+    confirmedRows
+      .filter((t) => t.subscriptionId)
+      .map((t) => `${t.subscriptionId}:${monthKey(new Date(t.date))}`),
+  );
+  const dues: DueCharge[] = computeDues(
+    subRows.map((s) => ({
+      id: s.id,
+      name: s.name,
+      amount: Number(s.amount),
+      accountId: s.accountId,
+      accountName: s.account.name,
+      chargeDay: s.chargeDay,
+      isShared: s.isShared,
+      sharePct: s.sharePct,
+      shareAmount: s.shareAmount ? Number(s.shareAmount) : null,
+      isActive: s.isActive,
+      startMonth: s.startMonth,
+    })),
+    confirmed,
+  );
 
   // Pagos de pareja pendientes de mi confirmación + mis cuentas (destino).
-  let toConfirm: ToConfirmItem[] = [];
-  let accountOptions: { id: string; name: string; type: "DEBIT" | "CREDIT" }[] = [];
-  if (process.env.DATABASE_URL) {
-    try {
-      const [mineAccounts, pendingRows] = await Promise.all([
-        prisma.account.findMany({
-          where: { isActive: true, userId: meId },
-          select: { id: true, name: true, type: true },
-          orderBy: { createdAt: "asc" },
-        }),
-        prisma.debtPayment.findMany({
-          where: {
-            status: "PENDING",
-            share: { OR: [{ debtorId: meId }, { transaction: { createdById: meId } }] },
-          },
-          include: {
-            share: { include: { transaction: true } },
-            registeredBy: true,
-          },
-          orderBy: { createdAt: "desc" },
-        }),
-      ]);
-      accountOptions = mineAccounts.map((a) => ({
-        id: a.id,
-        name: a.name,
-        type: a.type as "DEBIT" | "CREDIT",
-      }));
-      toConfirm = pendingRows
-        .filter((p) => p.registeredById !== meId)
-        .map((p) => {
-          const [y, mo] = p.month.split("-").map(Number);
-          return {
-            id: p.id,
-            amount: Number(p.amount),
-            month: p.month,
-            monthLabel: monthLabelEs(new Date(y, mo - 1, 1)),
-            concept: p.share.transaction.concept,
-            monthly: Number(p.share.monthlyAmount),
-            shareId: p.shareId,
-            registeredByName: p.registeredBy.name,
-          };
-        });
-    } catch {
-      toConfirm = [];
-      accountOptions = [];
-    }
-  }
+  const [mineAccounts, pendingRows] = await Promise.all([
+    prisma.account.findMany({
+      where: { isActive: true, userId: meId },
+      select: { id: true, name: true, type: true },
+      orderBy: { createdAt: "asc" },
+    }),
+    prisma.debtPayment.findMany({
+      where: {
+        status: "PENDING",
+        share: { OR: [{ debtorId: meId }, { transaction: { createdById: meId } }] },
+      },
+      include: {
+        share: { include: { transaction: true } },
+        registeredBy: true,
+      },
+      orderBy: { createdAt: "desc" },
+    }),
+  ]);
+  const accountOptions = mineAccounts.map((a) => ({
+    id: a.id,
+    name: a.name,
+    type: a.type as "DEBIT" | "CREDIT",
+  }));
+  const toConfirm: ToConfirmItem[] = pendingRows
+    .filter((p) => p.registeredById !== meId)
+    .map((p) => {
+      const [y, mo] = p.month.split("-").map(Number);
+      return {
+        id: p.id,
+        amount: Number(p.amount),
+        month: p.month,
+        monthLabel: monthLabelEs(new Date(y, mo - 1, 1)),
+        concept: p.share.transaction.concept,
+        monthly: Number(p.share.monthlyAmount),
+        shareId: p.shareId,
+        registeredByName: p.registeredBy.name,
+      };
+    });
 
   return (
     <>

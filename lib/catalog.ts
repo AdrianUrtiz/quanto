@@ -31,7 +31,7 @@ export async function getCatalog(userId: string): Promise<CatalogRow[]> {
       mine: r.userId === userId,
     }));
   } catch {
-    // Sin DB o tabla vacía: catálogo quemado como respaldo.
+    // Tabla vacía: catálogo quemado como respaldo.
     return DEFAULT_CATS.map((c) => ({
       id: c.code,
       code: c.code,
