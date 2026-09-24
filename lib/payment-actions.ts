@@ -6,7 +6,7 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { installmentMonths } from "@/lib/calculations";
 import { checkCategory } from "@/lib/catalog";
-import { getLineSums, lineKey, lineRemaining } from "@/lib/debt-payments";
+import { createCreditorIncome, getLineSums, lineKey, lineRemaining } from "@/lib/debt-payments";
 
 function revalidateDebts() {
   revalidatePath("/cuentas");
@@ -87,22 +87,12 @@ export async function registerPayment(formData: FormData) {
     if (catError) return { error: catError };
     const debtor = await prisma.user.findUnique({ where: { id: debtorId }, select: { name: true } });
 
-    const income = await prisma.transaction.create({
-      data: {
-        type: "INCOME",
-        amount: v.amount,
-        concept: `Pago de ${debtor?.name ?? "pareja"} · ${tx.concept}`,
-        category: "TRANSFERENCIA",
-        date: new Date(),
-        accountId,
-        createdById: userId,
-        installments: 1,
-        isShared: false,
-      },
-    });
-    await prisma.account.update({
-      where: { id: accountId },
-      data: account.type === "CREDIT" ? { balance: { decrement: v.amount } } : { balance: { increment: v.amount } },
+    const incomeId = await createCreditorIncome(prisma, {
+      amount: v.amount,
+      concept: `Pago de ${debtor?.name ?? "pareja"} · ${tx.concept}`,
+      accountId,
+      accountType: account.type,
+      userId,
     });
     await prisma.debtPayment.create({
       data: {
@@ -113,7 +103,7 @@ export async function registerPayment(formData: FormData) {
         registeredById: userId,
         confirmedById: userId,
         accountId,
-        transactionId: income.id,
+        transactionId: incomeId,
       },
     });
     revalidateDebts();
@@ -206,26 +196,16 @@ export async function confirmPayment(formData: FormData) {
       }
 
       const debtor = await db.user.findUnique({ where: { id: p.share.debtorId }, select: { name: true } });
-      const income = await db.transaction.create({
-        data: {
-          type: "INCOME",
-          amount: p.amount,
-          concept: `Pago de ${debtor?.name ?? "pareja"} · ${p.share.transaction.concept}`,
-          category: "TRANSFERENCIA",
-          date: new Date(),
-          accountId: v.accountId,
-          createdById: userId,
-          installments: 1,
-          isShared: false,
-        },
-      });
-      await db.account.update({
-        where: { id: v.accountId },
-        data: account.type === "CREDIT" ? { balance: { decrement: p.amount } } : { balance: { increment: p.amount } },
+      const incomeId = await createCreditorIncome(db, {
+        amount: Number(p.amount),
+        concept: `Pago de ${debtor?.name ?? "pareja"} · ${p.share.transaction.concept}`,
+        accountId: v.accountId,
+        accountType: account.type,
+        userId,
       });
       await db.debtPayment.update({
         where: { id: p.id },
-        data: { status: "CONFIRMED", confirmedById: userId, accountId: v.accountId, transactionId: income.id },
+        data: { status: "CONFIRMED", confirmedById: userId, accountId: v.accountId, transactionId: incomeId },
       });
     });
   } catch (e) {
