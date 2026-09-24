@@ -1,4 +1,5 @@
 import { CuentasClient, type MyPendingItem, type PartnerDebt, type ToConfirmItem } from "@/components/cuentas-client";
+import type { SubPayState } from "@/components/subscription-tab";
 import type { AccountRow } from "@/components/account-card";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
@@ -148,6 +149,7 @@ export default async function CuentasPage() {
   let dues: DueCharge[] = [];
   const toConfirm: ToConfirmItem[] = [];
   const myPending: MyPendingItem[] = [];
+  let payStates: SubPayState[] = [];
   if (process.env.DATABASE_URL) {
     try {
       const [accRows, sharedRows, sharedOwedRows, subRows, confirmedRows] = await Promise.all([
@@ -322,6 +324,55 @@ export default async function CuentasPage() {
           .map((t) => `${t.subscriptionId}:${monthKey(new Date(t.date))}`),
       );
       dues = computeDues(infos, confirmed);
+
+      // Estado de pago por suscripción (mes pendiente o actual).
+      if (subRows.length) {
+        const subIds = subRows.map((s) => s.id);
+        const [subTxs, subShares] = await Promise.all([
+          prisma.transaction.findMany({
+            where: { createdById: meId, subscriptionId: { in: subIds } },
+            select: { subscriptionId: true, date: true },
+          }),
+          prisma.transactionShare.findMany({
+            where: { transaction: { subscriptionId: { in: subIds }, createdById: meId } },
+            select: {
+              id: true,
+              monthlyAmount: true,
+              transaction: { select: { subscriptionId: true, date: true } },
+            },
+          }),
+        ]);
+        const txMonth = new Set(
+          subTxs.filter((t) => t.subscriptionId).map((t) => `${t.subscriptionId}:${monthKey(new Date(t.date))}`),
+        );
+        const shareBySubMonth = new Map(
+          subShares
+            .filter((s) => s.transaction.subscriptionId)
+            .map((s) => [`${s.transaction.subscriptionId}:${monthKey(new Date(s.transaction.date))}`, s]),
+        );
+        const sums = await getLineSums(subShares.map((s) => s.id));
+        const dueBySub = new Map(dues.map((d) => [d.id, d]));
+        const accTypeById = new Map(accounts.map((a) => [a.id, a.type]));
+        payStates = subRows.map((s) => {
+          const due = dueBySub.get(s.id);
+          const month = due?.monthKey ?? key;
+          const [yy, mm] = month.split("-").map(Number);
+          const sh = shareBySubMonth.get(`${s.id}:${month}`);
+          const monthly = due?.monthlyShare ?? (sh ? Number(sh.monthlyAmount) : 0);
+          const sl = sh ? (sums.get(`${sh.id}:${month}`) ?? { confirmed: 0, pending: 0 }) : { confirmed: 0, pending: 0 };
+          return {
+            subId: s.id,
+            month,
+            monthLabel: monthLabelEs(new Date(yy, mm - 1, 1)),
+            chargeConfirmed: txMonth.has(`${s.id}:${month}`),
+            shareId: sh?.id ?? null,
+            monthly,
+            paid: sl.confirmed,
+            pending: sl.pending,
+            accountType: accTypeById.get(s.accountId) ?? "DEBIT",
+          };
+        });
+      }
     } catch {
       accounts = demoAccounts();
       debts = demoDebts(me, meId, key);
@@ -337,7 +388,7 @@ export default async function CuentasPage() {
 
   return (
     <>
-      <CuentasClient accounts={accounts} meId={meId} debts={debts} owed={owed} subs={subs} dues={dues} cats={catalog} toConfirm={toConfirm} myPending={myPending} />
+      <CuentasClient accounts={accounts} meId={meId} debts={debts} owed={owed} subs={subs} dues={dues} cats={catalog} toConfirm={toConfirm} myPending={myPending} payStates={payStates} />
     </>
   );
 }

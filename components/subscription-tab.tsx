@@ -1,11 +1,14 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { BottomSheet } from "@/components/bottom-sheet";
 import { SubscriptionForm, type SubEditData } from "@/components/subscription-form";
+import { SubscriptionPaySheet } from "@/components/subscription-pay-sheet";
+import type { AccountRow } from "@/components/account-card";
 import { DueSubscriptions } from "@/components/due-subscriptions";
 import { SubscriptionSwipeRow } from "@/components/subscription-swipe-row";
 import { deleteSubscription, toggleSubscription } from "@/lib/subscription-actions";
@@ -19,17 +22,34 @@ export type SubRow = SubEditData & {
   isActive: boolean;
 };
 
+/** Estado de pago de una suscripción para el mes relevante. */
+export type SubPayState = {
+  subId: string;
+  month: string; // "YYYY-MM" (cargo pendiente o mes actual)
+  monthLabel: string;
+  chargeConfirmed: boolean;
+  shareId: string | null;
+  monthly: number; // parte de la pareja ese mes (0 si es solo mía)
+  paid: number; // suma CONFIRMED de su parte
+  pending: number; // suma PENDING de su parte
+  accountType: "DEBIT" | "CREDIT"; // cuenta donde cae el cargo
+};
+
 export function SubscriptionTab({
-  subs, dues, accountOptions, cats,
+  subs, dues, accountOptions, cats, payStates = [], accounts = [],
 }: {
   subs: SubRow[];
   dues: DueCharge[];
   accountOptions: AccountOpt[];
   cats: CatalogRow[];
+  payStates?: SubPayState[];
+  accounts?: AccountRow[];
 }) {
+  const router = useRouter();
   const [editing, setEditing] = useState<SubRow | null>(null);
   const [deleting, setDeleting] = useState<SubRow | null>(null);
   const [openRow, setOpenRow] = useState<string | null>(null);
+  const [paying, setPaying] = useState<{ s: SubRow; state: SubPayState } | null>(null);
   const [busy, setBusy] = useState(false);
 
   const monthly = subs.filter((s) => s.isActive).reduce((a, s) => a + s.amount, 0);
@@ -74,6 +94,11 @@ export function SubscriptionTab({
             onToggle={() => !busy && toggle(s)}
             onEdit={() => setEditing(s)}
             onDelete={() => setDeleting(s)}
+            pay={payStates.find((p) => p.subId === s.id)}
+            onPay={() => {
+              const st = payStates.find((p) => p.subId === s.id);
+              if (st) setPaying({ s, state: st });
+            }}
           />
         ))}
       </div>
@@ -91,6 +116,22 @@ export function SubscriptionTab({
               onDone={() => setEditing(null)}
             />
           )}
+      </BottomSheet>
+
+      <BottomSheet open={paying !== null} onOpenChange={(o) => !o && setPaying(null)}>
+        {paying && (
+          <SubscriptionPaySheet
+            key={`${paying.s.id}:${paying.state.month}`}
+            sub={paying.s}
+            state={paying.state}
+            accountOptions={accountOptions}
+            targetAccount={accounts.find((a) => a.id === paying.s.accountId)}
+            onDone={() => {
+              setPaying(null);
+              router.refresh();
+            }}
+          />
+        )}
       </BottomSheet>
 
       <Dialog open={deleting !== null} onOpenChange={(o) => !o && setDeleting(null)}>

@@ -2,13 +2,14 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 import { ArrowUpRight, Check, HandCoins } from "lucide-react";
 import type { AccountRow } from "@/components/account-card";
 import { AccountSwipeRow } from "@/components/account-swipe-row";
 import { SwipeRow } from "@/components/swipe-row";
 import { PaymentSheet } from "@/components/payment-sheet";
 import { cancelPayment } from "@/lib/payment-actions";
-import { SubscriptionTab, type SubRow } from "@/components/subscription-tab";
+import { SubscriptionTab, type SubPayState, type SubRow } from "@/components/subscription-tab";
 import { SubscriptionSummaryRow } from "@/components/subscription-swipe-row";
 import type { DueCharge } from "@/lib/subscriptions";
 import type { CatalogRow } from "@/lib/catalog";
@@ -67,7 +68,7 @@ export type PartnerDebt = {
   lines: DebtLine[];
 };
 
-export function CuentasClient({ accounts, meId, debts, owed, subs, dues, cats, toConfirm = [], myPending = [] }: { accounts: AccountRow[]; meId: string; debts: PartnerDebt[]; owed: PartnerDebt[]; subs: SubRow[]; dues: DueCharge[]; cats: CatalogRow[]; toConfirm?: ToConfirmItem[]; myPending?: MyPendingItem[] }) {
+export function CuentasClient({ accounts, meId, debts, owed, subs, dues, cats, toConfirm = [], myPending = [], payStates = [] }: { accounts: AccountRow[]; meId: string; debts: PartnerDebt[]; owed: PartnerDebt[]; subs: SubRow[]; dues: DueCharge[]; cats: CatalogRow[]; toConfirm?: ToConfirmItem[]; myPending?: MyPendingItem[]; payStates?: SubPayState[] }) {
   const router = useRouter();
   const [tab, setTab] = useState("todas");
   const [open, setOpen] = useState(false);
@@ -81,7 +82,13 @@ export function CuentasClient({ accounts, meId, debts, owed, subs, dues, cats, t
   const mine = useMemo(() => accounts.filter((a) => a.ownerId === meId), [accounts, meId]);
 
   const swipe = (a: AccountRow) => (
-    <AccountSwipeRow key={a.id} a={a} open={openRow === a.id} onOpenChange={(o) => setOpenRow(o ? a.id : null)} />
+    <AccountSwipeRow
+      key={a.id}
+      a={a}
+      open={openRow === a.id}
+      onOpenChange={(o) => setOpenRow(o ? a.id : null)}
+      debitOptions={mine.filter((m) => m.type === "DEBIT").map((m) => ({ id: m.id, name: m.name, type: m.type }))}
+    />
   );
 
   // Saldo total: suma débitos + disponible de créditos
@@ -210,7 +217,7 @@ export function CuentasClient({ accounts, meId, debts, owed, subs, dues, cats, t
           )}
         </TabsContent>
         <TabsContent value="subs" className="space-y-2">
-          <SubscriptionTab subs={subs} dues={dues} accountOptions={accountOpts} cats={cats} />
+          <SubscriptionTab subs={subs} dues={dues} accountOptions={accountOpts} cats={cats} payStates={payStates} accounts={accounts} />
         </TabsContent>
       </Tabs>
 
@@ -347,10 +354,9 @@ function DebtSwipeRow({
     <SwipeRow
       open={open}
       onOpenChange={onOpenChange}
-      direction="right"
-      actionsWidth={132}
+      leftActionsWidth={132}
       disabled={settled}
-      actions={
+      leftActions={
         <button
           type="button"
           onClick={() => {
@@ -359,8 +365,8 @@ function DebtSwipeRow({
           }}
           className={
             owe
-              ? "flex h-full flex-1 flex-col items-center justify-center gap-1.5 rounded-2xl bg-(--foreground) text-xs font-semibold text-(--background) shadow-xs transition-all active:scale-95"
-              : "flex h-full flex-1 flex-col items-center justify-center gap-1.5 rounded-2xl bg-emerald-500 text-xs font-semibold text-white shadow-xs transition-all active:scale-95"
+              ? "flex h-full flex-1 flex-col items-center justify-center gap-1.5 rounded-2xl bg-amber-500 text-xs font-semibold text-white shadow-xs transition-all hover:bg-amber-600 active:scale-95"
+              : "flex h-full flex-1 flex-col items-center justify-center gap-1.5 rounded-2xl bg-emerald-500 text-xs font-semibold text-white shadow-xs transition-all hover:bg-emerald-600 active:scale-95"
           }
         >
           {owe ? <ArrowUpRight className="size-4" /> : <HandCoins className="size-4" />}
@@ -400,9 +406,13 @@ function MyPendingRow({ p, onDone }: { p: MyPendingItem; onDone: () => void }) {
   const [busy, setBusy] = useState(false);
   async function cancel() {
     setBusy(true);
-    await cancelPayment(p.id);
+    const res = await cancelPayment(p.id);
     setBusy(false);
-    onDone();
+    if ("error" in res && res.error) toast.error(res.error);
+    else {
+      toast.success("Registro cancelado");
+      onDone();
+    }
   }
   return (
     <div className="flex w-full items-center gap-3 rounded-3xl border border-dashed border-(--border) p-4">

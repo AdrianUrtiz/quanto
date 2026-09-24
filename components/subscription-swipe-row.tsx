@@ -1,12 +1,12 @@
 "use client";
 
-import { Pause, Pencil, Play, Repeat, Trash2 } from "lucide-react";
+import { ArrowUpRight, HandCoins, Pause, Pencil, Play, Repeat, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { SwipeRow } from "@/components/swipe-row";
 import { formatMoney } from "@/lib/utils";
 import { lookupCategory } from "@/lib/categories";
 import type { CatalogRow } from "@/lib/catalog";
-import type { SubRow } from "@/components/subscription-tab";
+import type { SubPayState, SubRow } from "@/components/subscription-tab";
 
 function SubFront({ s, cats }: { s: SubRow; cats: CatalogRow[] }) {
   const cat = lookupCategory(s.category, cats);
@@ -43,7 +43,7 @@ const actionCls =
   "flex h-full flex-1 flex-col items-center justify-center gap-1.5 rounded-2xl border border-(--border) bg-(--card) text-xs font-semibold text-(--foreground) shadow-xs transition-all hover:bg-(--muted) active:scale-95";
 
 export function SubscriptionSwipeRow({
-  s, cats, open, onOpenChange, onToggle, onEdit, onDelete,
+  s, cats, open, onOpenChange, onToggle, onEdit, onDelete, pay, onPay,
 }: {
   s: SubRow;
   cats: CatalogRow[];
@@ -52,12 +52,52 @@ export function SubscriptionSwipeRow({
   onToggle: () => void;
   onEdit: () => void;
   onDelete: () => void;
+  pay?: SubPayState;
+  onPay: () => void;
 }) {
+  // Dinero a la derecha: confirmar el cobro de la plataforma, cobrar a la
+  // pareja, o saldar la tarjeta (crédito siempre se puede abonar).
+  const moneyOpen =
+    pay != null &&
+    s.isActive &&
+    (!pay.chargeConfirmed ||
+      (s.isShared && pay.monthly - pay.paid > 0.005) ||
+      pay.accountType === "CREDIT");
   return (
     <SwipeRow
       open={open}
       onOpenChange={onOpenChange}
       actionsWidth={224}
+      leftActionsWidth={80}
+      leftActions={
+        moneyOpen ? (
+          s.isShared ? (
+            <button
+              type="button"
+              onClick={() => {
+                onOpenChange(false);
+                onPay();
+              }}
+              className="flex h-full flex-1 flex-col items-center justify-center gap-1.5 rounded-2xl bg-emerald-500 text-xs font-semibold text-white shadow-xs transition-all active:scale-95"
+            >
+              <HandCoins className="size-4" />
+              <span>Cobrar</span>
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => {
+                onOpenChange(false);
+                onPay();
+              }}
+              className="flex h-full flex-1 flex-col items-center justify-center gap-1.5 rounded-2xl bg-(--foreground) text-xs font-semibold text-(--background) shadow-xs transition-all active:scale-95"
+            >
+              <ArrowUpRight className="size-4" />
+              <span>Pagar</span>
+            </button>
+          )
+        ) : undefined
+      }
       actions={
         <>
           <button type="button" onClick={() => { onOpenChange(false); onToggle(); }} className={actionCls}>

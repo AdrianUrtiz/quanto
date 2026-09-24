@@ -1,24 +1,30 @@
 "use client";
 
 import { useState } from "react";
-import { Pencil, Trash2 } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { ArrowDownLeft, ArrowUpRight, Pencil, Trash2 } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { BottomSheet } from "@/components/bottom-sheet";
 import { Button } from "@/components/ui/button";
 import { AccountForm } from "@/components/account-form";
+import { AccountMoneySheet } from "@/components/account-money-sheet";
 import { AccountCard, type AccountRow } from "@/components/account-card";
 import { SwipeRow } from "@/components/swipe-row";
 import { deleteAccount } from "@/lib/actions";
+import type { AccountOpt } from "@/components/transaction-form";
 
 export function AccountSwipeRow({
-  a, open, onOpenChange,
+  a, open, onOpenChange, debitOptions = [],
 }: {
   a: AccountRow;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  debitOptions?: AccountOpt[];
 }) {
+  const router = useRouter();
   const [editOpen, setEditOpen] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [payOpen, setPayOpen] = useState(false);
   const [delError, setDelError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
 
@@ -40,7 +46,35 @@ export function AccountSwipeRow({
       <SwipeRow
         open={open}
         onOpenChange={onOpenChange}
-        disabled={editOpen || confirmOpen}
+        disabled={editOpen || confirmOpen || payOpen}
+        leftActionsWidth={80}
+        leftActions={
+          a.type === "CREDIT" ? (
+            <button
+              type="button"
+              onClick={() => {
+                close();
+                setPayOpen(true);
+              }}
+              className="flex h-full flex-1 flex-col items-center justify-center gap-1.5 rounded-2xl bg-(--foreground) text-xs font-semibold text-(--background) shadow-xs transition-all active:scale-95"
+            >
+              <ArrowUpRight className="size-4" />
+              <span>Pagar</span>
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => {
+                close();
+                setPayOpen(true);
+              }}
+              className="flex h-full flex-1 flex-col items-center justify-center gap-1.5 rounded-2xl bg-emerald-500 text-xs font-semibold text-white shadow-xs transition-all active:scale-95"
+            >
+              <ArrowDownLeft className="size-4" />
+              <span>Abonar</span>
+            </button>
+          )
+        }
         actions={
           <>
             <button
@@ -74,6 +108,18 @@ export function AccountSwipeRow({
 
       <BottomSheet open={editOpen} onOpenChange={setEditOpen}>
         <AccountForm account={a} onDone={() => setEditOpen(false)} />
+      </BottomSheet>
+
+      <BottomSheet open={payOpen} onOpenChange={setPayOpen}>
+        <AccountMoneySheet
+          key={a.id}
+          account={a}
+          sourceOptions={debitOptions.filter((d) => d.id !== a.id)}
+          onDone={() => {
+            setPayOpen(false);
+            router.refresh();
+          }}
+        />
       </BottomSheet>
 
       <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>

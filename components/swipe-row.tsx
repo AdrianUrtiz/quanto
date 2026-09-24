@@ -1,44 +1,56 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 
 // Contenedor deslizable genérico: al arrastrar revela las acciones de abajo.
-// direction="left" (defecto): desliza a la izquierda, acciones a la derecha.
-// direction="right": desliza a la derecha, acciones a la izquierda (dinero).
+// - `actions`: lado derecho, se revela deslizando a la izquierda (gestionar).
+// - `leftActions`: lado izquierdo, se revela deslizando a la derecha (dinero).
+// `direction` limita el gesto ("left" | "right" | "both"); por defecto permite
+// los lados que tengan acciones.
 export function SwipeRow({
   open,
   onOpenChange,
   actions,
   actionsWidth = 152,
+  leftActions,
+  leftActionsWidth = 132,
   disabled,
-  direction = "left",
+  direction,
   children,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  actions: React.ReactNode;
+  actions?: React.ReactNode;
   actionsWidth?: number;
+  leftActions?: React.ReactNode;
+  leftActionsWidth?: number;
   disabled?: boolean;
-  direction?: "left" | "right";
+  direction?: "left" | "right" | "both";
   children: React.ReactNode;
 }) {
   const [x, setX] = useState(0);
   const [dragging, setDragging] = useState(false);
-  const [isClosed, setIsClosed] = useState(!open);
   const start = useRef<{ x: number; base: number } | null>(null);
   const moved = useRef(false);
   const THRESHOLD = 48;
-  const sign = direction === "right" ? 1 : -1;
 
-  // Si se abre otra fila, esta se cierra.
-  useEffect(() => {
-    if (!open) {
-      setX(0);
-    } else {
-      setIsClosed(false);
-    }
-  }, [open ]);
+  const allowLeft = actions != null && direction !== "right";
+  const allowRight = leftActions != null && direction !== "left";
+  const minX = allowLeft ? -actionsWidth : 0;
+  const maxX = allowRight ? leftActionsWidth : 0;
+
+  // Si se abre otra fila, esta se cierra. Se ajusta durante el render
+  // (patrón recomendado por React en vez de setState dentro de un efecto).
+  const [prevOpen, setPrevOpen] = useState(open);
+  if (prevOpen !== open) {
+    setPrevOpen(open);
+    if (!open) setX(0);
+    else if (x !== 0) setX(x > 0 ? maxX : minX);
+  }
+
+  // Acciones ocultas cuando el frente está en reposo (derivado, sin estado).
+  const closed = x === 0;
 
   function close() {
     setX(0);
@@ -47,7 +59,6 @@ export function SwipeRow({
 
   function onPointerDown(e: React.PointerEvent<HTMLDivElement>) {
     if (disabled) return;
-    setIsClosed(false);
     moved.current = false;
     start.current = { x: e.clientX, base: x };
     setDragging(true);
@@ -58,16 +69,18 @@ export function SwipeRow({
     const s = start.current;
     if (!s) return;
     const dx = e.clientX - s.x;
-    if (Math.abs(dx) > 8) moved.current = true;
-    const raw = s.base + dx;
-    setX(sign === 1 ? Math.max(0, Math.min(actionsWidth, raw)) : Math.max(-actionsWidth, Math.min(0, raw)));
+    if (Math.abs(dx) > 6) moved.current = true;
+    setX(Math.max(minX, Math.min(maxX, s.base + dx)));
   }
 
   function onPointerUp() {
     start.current = null;
     setDragging(false);
-    if (sign * x >= THRESHOLD) {
-      setX(sign * actionsWidth);
+    if (maxX > 0 && x >= THRESHOLD) {
+      setX(maxX);
+      onOpenChange(true);
+    } else if (minX < 0 && x <= -THRESHOLD) {
+      setX(minX);
       onOpenChange(true);
     } else {
       setX(0);
@@ -86,31 +99,43 @@ export function SwipeRow({
 
   return (
     <div className="relative overflow-hidden rounded-3xl bg-(--muted)/40">
-      {/* Acciones debajo */}
-      <div
-        className={cn(
-          "absolute inset-y-0 flex items-center gap-2 p-2 transition-opacity duration-150",
-          direction === "right" ? "left-0 justify-start" : "right-0 justify-end",
-          isClosed && "pointer-events-none opacity-0",
-        )}
-        style={{ width: actionsWidth }}
-      >
-        {actions}
-      </div>
+      {/* Acciones derechas (gesto a la izquierda) */}
+      {actions != null && (
+        <div
+          className={cn(
+            "absolute inset-y-0 right-0 flex items-center justify-end gap-2 p-2 transition-[opacity,visibility] duration-150",
+            (closed || x > 0) && "pointer-events-none opacity-0 invisible",
+          )}
+          style={{ width: actionsWidth }}
+        >
+          {actions}
+        </div>
+      )}
 
-      {/* Frente deslizable */}
+      {/* Acciones izquierdas (gesto a la derecha) */}
+      {leftActions != null && (
+        <div
+          className={cn(
+            "absolute inset-y-0 left-0 flex items-center justify-start gap-2 p-2 transition-[opacity,visibility] duration-150",
+            (closed || x < 0) && "pointer-events-none opacity-0 invisible",
+          )}
+          style={{ width: leftActionsWidth }}
+        >
+          {leftActions}
+        </div>
+      )}
+
+      {/* Frente deslizable con fondo sólido para que las acciones nunca se trasluzcan */}
       <div
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
         onClickCapture={onClickCapture}
-        onTransitionEnd={(e) => {
-          if (e.target === e.currentTarget && x === 0) {
-            setIsClosed(true);
-          }
-        }}
-        className={cn("relative", !dragging && "transition-transform duration-200 ease-out")}
+        className={cn(
+          "relative rounded-3xl bg-(--card)",
+          !dragging && "transition-transform duration-200 ease-out",
+        )}
         style={{ transform: `translateX(${x}px)`, touchAction: "pan-y" }}
       >
         {children}
