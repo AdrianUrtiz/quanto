@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { toast } from "sonner";
 import { Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -79,24 +80,34 @@ export function PaymentSheet({
     if (mode !== "confirm" && !sel) return;
     setMsg(null);
     setPending(true);
-    let res;
-    if (mode === "confirm") {
-      const fd = new FormData();
-      fd.set("paymentId", payment!.id);
-      fd.set("accountId", accountId);
-      res = await confirmPayment(fd);
-    } else {
-      const fd = new FormData();
-      fd.set("shareId", sel.shareId);
-      fd.set("month", sel.month);
-      fd.set("amount", amount);
-      if (mode === "receive" || !noMovement) fd.set("accountId", accountId);
-      res = await registerPayment(fd);
-    }
+    const res = await (mode === "confirm"
+      ? (() => {
+          const fd = new FormData();
+          fd.set("paymentId", payment!.id);
+          fd.set("accountId", accountId);
+          return confirmPayment(fd);
+        })()
+      : (() => {
+          const fd = new FormData();
+          fd.set("shareId", sel.shareId);
+          fd.set("month", sel.month);
+          fd.set("amount", amount);
+          if (mode === "receive" || !noMovement) fd.set("accountId", accountId);
+          return registerPayment(fd);
+        })());
     setPending(false);
-    if ("error" in res && res.error) setMsg(res.error);
-    else {
+    if ("error" in res && res.error) {
+      setMsg(res.error);
+      toast.error(res.error);
+    } else {
       setMsg(null);
+      toast.success(
+        mode === "confirm"
+          ? "Pago confirmado"
+          : mode === "receive"
+            ? "Cobro registrado"
+            : "Pago registrado, esperando confirmación",
+      );
       onDone?.();
     }
   }
@@ -107,8 +118,13 @@ export function PaymentSheet({
     setPending(true);
     const res = await rejectPayment(payment.id);
     setPending(false);
-    if ("error" in res && res.error) setMsg(res.error);
-    else onDone?.();
+    if ("error" in res && res.error) {
+      setMsg(res.error);
+      toast.error(res.error);
+    } else {
+      toast.success("Pago rechazado");
+      onDone?.();
+    }
   }
 
   const title =
