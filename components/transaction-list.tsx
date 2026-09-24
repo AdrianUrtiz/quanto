@@ -20,6 +20,8 @@ export type TxRow = {
   creatorName: string;
   installments: number;
   isShared: boolean;
+  /** Movimiento huella de un pago CONFIRMED: sin acciones (solo lectura). */
+  locked?: boolean;
 };
 
 export function TransactionRow({ t, cats }: { t: TxRow; cats: CatalogRow[] }) {

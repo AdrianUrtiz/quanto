@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { Check, Search } from "lucide-react";
 import { ActivityChart } from "@/components/activity-chart";
 import { TransactionSwipeRow } from "@/components/transaction-swipe-row";
-import type { TxRow } from "@/components/transaction-list";
+import { TransactionRow, type TxRow } from "@/components/transaction-list";
 import {
   Dialog,
   DialogContent,
@@ -357,16 +357,20 @@ export function ActivityClient({
         </p>
       ) : (
         <ul className="space-y-2">
-          {filtered.map((t) => (
-            <TransactionSwipeRow
-              key={t.id}
-              t={t}
-              accountOptions={accountOptionsAll}
-              cats={cats}
-              open={openRow === t.id}
-              onOpenChange={(o) => setOpenRow(o ? t.id : null)}
-            />
-          ))}
+          {filtered.map((t) =>
+            t.locked ? (
+              <TransactionRow key={t.id} t={t} cats={cats} />
+            ) : (
+              <TransactionSwipeRow
+                key={t.id}
+                t={t}
+                accountOptions={accountOptionsAll}
+                cats={cats}
+                open={openRow === t.id}
+                onOpenChange={(o) => setOpenRow(o ? t.id : null)}
+              />
+            ),
+          )}
         </ul>
       )}
 

@@ -6,6 +6,7 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { debtorMonthlyAmount } from "@/lib/calculations";
 import { checkCategory } from "@/lib/catalog";
+import { getLineSums, lineKey } from "@/lib/debt-payments";
 
 const AccountSchema = z.object({
   name: z.string().min(2, "Nombre muy corto"),
@@ -156,6 +157,30 @@ export async function updateTransaction(formData: FormData) {
   });
   if (!tx) return { error: "Movimiento no encontrado" };
 
+  // Pagos de pareja ligados: CONFIRMED bloquea (historia acordada);
+  // PENDING se sincroniza al nuevo monto (validado contra el restante).
+  const linkedPayments = await prisma.debtPayment.findMany({
+    where: { OR: [{ transactionId: v.id }, { debtorTransactionId: v.id }] },
+    select: { id: true, status: true, shareId: true, month: true, amount: true },
+  });
+  if (linkedPayments.some((p) => p.status === "CONFIRMED")) {
+    return { error: "Este movimiento ya fue confirmado en Pareja" };
+  }
+  const pendingLinks = linkedPayments.filter((p) => p.status === "PENDING");
+  for (const p of pendingLinks) {
+    const share = await prisma.transactionShare.findUnique({
+      where: { id: p.shareId },
+      select: { monthlyAmount: true },
+    });
+    if (!share) return { error: "Aportación no encontrada" };
+    const sums = await getLineSums([p.shareId]);
+    const confirmed = sums.get(lineKey(p.shareId, p.month))?.confirmed ?? 0;
+    const rest = Math.max(0, Number(share.monthlyAmount) - confirmed) + Number(p.amount);
+    if (v.amount - rest > 0.005) {
+      return { error: `Solo restan $${rest.toLocaleString("es-MX", { maximumFractionDigits: 2 })} en esa parcialidad` };
+    }
+  }
+
   const catError = await checkCategory(userId, v.category, tx.type as "EXPENSE" | "INCOME" | "TRANSFER");
   if (catError) return { error: catError };
 
@@ -199,6 +224,11 @@ export async function updateTransaction(formData: FormData) {
     },
   });
 
+  // Sincroniza los reclamos pendientes al nuevo monto.
+  for (const p of pendingLinks) {
+    await prisma.debtPayment.update({ where: { id: p.id }, data: { amount: v.amount } });
+  }
+
   // Si era compartido, recalcula la cuota mensual con el nuevo monto
   // (mismo porcentaje y parcialidades). Los montos fijos pactados no se tocan.
   for (const s of tx.shares) {
@@ -216,8 +246,11 @@ export async function updateTransaction(formData: FormData) {
 }
 
 // Borrado físico. El saldo se deriva por suma, así que basta borrar la fila.
-// Solo el creador. Bloquea si el movimiento es ingreso/egreso de un pago de
-// pareja o cargo de suscripción (primero cancela el pago/cargo).
+// Solo el creador. Si el movimiento es parte de un pago de pareja:
+// - PENDING (la contraparte aún no confirma) → se puede borrar; el reclamo
+//   pendiente se elimina con él.
+// - CONFIRMED (ya confirmado) → bloqueado, primero cancélalo en Pareja.
+// Los cargos de suscripción siguen bloqueados (tienen su propio flujo).
 export async function deleteTransaction(id: string) {
   const session = await auth();
   const userId = (session?.user as { id?: string } | undefined)?.id;
@@ -235,8 +268,13 @@ export async function deleteTransaction(id: string) {
   });
   if (!tx) return { error: "Movimiento no encontrado" };
 
-  if (tx.debtPayment || tx.debtorSourcePayment) {
-    return { error: "Este movimiento es parte de un pago de pareja: cancélalo en Pareja" };
+  const linkedPayments = [tx.debtPayment, tx.debtorSourcePayment].filter((p) => p != null);
+  if (linkedPayments.some((p) => p.status === "CONFIRMED")) {
+    return { error: "Este pago ya fue confirmado por tu pareja: cancélalo en Pareja" };
+  }
+  if (linkedPayments.length > 0) {
+    // Reclamos aún no confirmados: mueren con el movimiento.
+    await prisma.debtPayment.deleteMany({ where: { id: { in: linkedPayments.map((p) => p.id) } } });
   }
   if (tx.charges.length > 0) {
     return { error: "Este movimiento es un cargo de suscripción confirmado" };
