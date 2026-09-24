@@ -40,6 +40,8 @@ model User {
   categories         Category[]
   paymentsRegistered DebtPayment[]      @relation("PaymentRegistrar")
   paymentsConfirmed  DebtPayment[]      @relation("PaymentConfirmer")
+  chargesOwnerPaid   SubscriptionCharge[] @relation("ChargeOwnerPayer")
+  chargesPartnerPaid SubscriptionCharge[] @relation("ChargePartnerPayer")
 }
 
 model Account {
@@ -73,7 +75,8 @@ model Account {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  debtPayments DebtPayment[]
+  debtPayments DebtPayment[] @relation("PaymentAccount")
+  debtorSourcePayments DebtPayment[] @relation("DebtorPaymentAccount")
 
   @@index([userId])
 }
@@ -108,7 +111,11 @@ model Transaction {
   subscriptionId String?
   subscription   Subscription? @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
 
-  debtPayment DebtPayment?
+  // Cargo mensual de suscripción (nuevo modelo checklist).
+  charges SubscriptionCharge[]
+
+  debtPayment DebtPayment? @relation("PaymentTransaction")
+  debtorSourcePayment DebtPayment? @relation("DebtorPaymentTransaction")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -155,8 +162,9 @@ model Subscription {
 
   chargeDay Int // día de cobro 1-31 (se ajusta al último día del mes si no existe)
 
-  isShared    Boolean  @default(false)
-  // Reparto: porcentaje del deudor o cantidad fija total (igual que el formulario).
+  isShared Boolean @default(false)
+  // Reparto de la pareja: porcentaje o cantidad fija total. Solo referencia
+  // para el split al confirmar; los pagos se registran en Pareja, no aquí.
   sharePct    Float    @default(50)
   shareAmount Decimal? @db.Decimal(12, 2)
 
@@ -165,11 +173,45 @@ model Subscription {
   startMonth String
 
   transactions Transaction[]
+  charges      SubscriptionCharge[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([userId])
+}
+
+// Instancia mensual de una suscripción: el cargo + checklist de pagos.
+// Sin transacciones asociadas salvo el movimiento del cargo en sí.
+model SubscriptionCharge {
+  id             String       @id @default(cuid())
+  subscriptionId String
+  subscription   Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+
+  // Mes del cargo, "YYYY-MM".
+  month String
+
+  // Movimiento del cargo total en la tarjeta (creado al confirmar).
+  transactionId String?      @unique
+  transaction   Transaction? @relation(fields: [transactionId], references: [id], onDelete: SetNull)
+
+  // Checks: el dueño cubrió lo suyo (nace true al confirmar) / la pareja pagó su parte.
+  ownerPaid   Boolean @default(false)
+  partnerPaid Boolean @default(false)
+
+  ownerPaidById   String?
+  ownerPaidBy     User?   @relation("ChargeOwnerPayer", fields: [ownerPaidById], references: [id], onDelete: SetNull)
+  partnerPaidById String?
+  partnerPaidBy   User?   @relation("ChargePartnerPayer", fields: [partnerPaidById], references: [id], onDelete: SetNull)
+
+  ownerPaidAt   DateTime?
+  partnerPaidAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([subscriptionId, month])
+  @@index([subscriptionId])
 }
 
 model TransactionShare {
@@ -230,11 +272,19 @@ model DebtPayment {
 
   // Cuenta propia afectada (destino del ingreso u origen del egreso).
   accountId String?
-  account   Account? @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  account   Account? @relation("PaymentAccount", fields: [accountId], references: [id], onDelete: SetNull)
 
   // Movimiento generado (ingreso del acreedor o egreso del deudor).
   transactionId String?      @unique
-  transaction   Transaction? @relation(fields: [transactionId], references: [id], onDelete: SetNull)
+  transaction   Transaction? @relation("PaymentTransaction", fields: [transactionId], references: [id], onDelete: SetNull)
+
+  // Lado deudor: de qué cuenta salió el dinero que el acreedor dice recibido.
+  // Se llena cuando el deudor confirma el origen (o al confirmar su propio registro).
+  debtorAccountId String?
+  debtorAccount   Account? @relation("DebtorPaymentAccount", fields: [debtorAccountId], references: [id], onDelete: SetNull)
+  debtorTransactionId String?      @unique
+  debtorTransaction   Transaction? @relation("DebtorPaymentTransaction", fields: [debtorTransactionId], references: [id], onDelete: SetNull)
+  debtorConfirmedAt DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
