@@ -5,6 +5,7 @@ import { DEMO_TXS } from "@/lib/demo-data";
 import { monthKey, monthLabelEs } from "@/lib/utils";
 import { lookupCategory } from "@/lib/categories";
 import { getCatalog } from "@/lib/catalog";
+import { getLineSums } from "@/lib/debt-payments";
 import { settleMonth } from "@/lib/calculations";
 
 export const metadata = { title: "Resumen" };
@@ -25,7 +26,7 @@ export default async function ResumenPage() {
     id: string; concept: string; category: string; amount: number; date: Date;
     type: string; installments: number; isShared: boolean;
     createdById: string; creatorName: string;
-    shares: { debtorId: string; debtorName: string; sharePct: number; monthlyAmount: number }[];
+    shares: { id: string; debtorId: string; debtorName: string; sharePct: number; monthlyAmount: number }[];
   };
 
   // Privacidad: el donut/categorías solo con MIS gastos. La liquidación solo
@@ -61,7 +62,7 @@ export default async function ResumenPage() {
         ...slim(t),
         creatorName: t.createdBy.name,
         shares: t.shares.map((s) => ({
-          debtorId: s.debtorId, debtorName: s.debtor.name,
+          id: s.id, debtorId: s.debtor.id, debtorName: s.debtor.name,
           sharePct: s.sharePct, monthlyAmount: Number(s.monthlyAmount),
         })),
       }));
@@ -74,7 +75,7 @@ export default async function ResumenPage() {
       id: t.id, concept: t.concept, category: t.category, amount: t.amount,
       date: new Date(t.date), type: t.type, installments: t.installments, isShared: t.isShared,
       createdById: t.createdById, creatorName: t.creatorName,
-      shares: t.shares.map((s) => ({ ...s })),
+      shares: t.shares.map((s) => ({ ...s, id: "" })),
     }));
     mine = demo.filter((t) => t.createdById === meId);
     involved = demo.filter(
@@ -93,7 +94,17 @@ export default async function ResumenPage() {
     })
     .sort((a, b) => b.value - a.value);
 
-  const settlement = settleMonth(involved, key);
+  // Lo ya liquidado no suma al "por liquidar".
+  let confirmedMap: Map<string, number> | undefined;
+  if (process.env.DATABASE_URL) {
+    try {
+      const sums = await getLineSums(involved.flatMap((t) => t.shares.map((s) => s.id)));
+      confirmedMap = new Map([...sums.entries()].map(([k, s]) => [k, s.confirmed]));
+    } catch {
+      confirmedMap = undefined;
+    }
+  }
+  const settlement = settleMonth(involved, key, confirmedMap);
 
   return (
     <>

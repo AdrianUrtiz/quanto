@@ -51,6 +51,7 @@ export type SettlementLine = {
 /**
  * Calcula "Cuentas por liquidar entre pareja" para un mes dado.
  * Entrada: transacciones del periodo con shares + creador.
+ * `confirmed`: mapa opcional "shareId:month" → monto ya liquidado (se resta).
  */
 export function settleMonth(
   txs: {
@@ -62,9 +63,10 @@ export function settleMonth(
     isShared: boolean;
     createdById: string;
     creatorName: string;
-    shares: { debtorId: string; debtorName: string; sharePct: number; monthlyAmount: number }[];
+    shares: { id: string; debtorId: string; debtorName: string; sharePct: number; monthlyAmount: number }[];
   }[],
-  targetMonth: string
+  targetMonth: string,
+  confirmed?: Map<string, number>
 ): SettlementLine[] {
   const map = new Map<string, SettlementLine>();
 
@@ -76,6 +78,9 @@ export function settleMonth(
 
     for (const s of tx.shares) {
       if (s.debtorId === tx.createdById) continue; // nadie se debe a sí mismo
+      const paid = confirmed?.get(`${s.id}:${targetMonth}`) ?? 0;
+      const rest = Number(s.monthlyAmount) - paid;
+      if (rest <= 0.005) continue; // parcialidad ya liquidada
       const key = `${s.debtorId}->${tx.createdById}`;
       const line =
         map.get(key) ??
@@ -87,10 +92,10 @@ export function settleMonth(
           amount: 0,
           details: [],
         } satisfies SettlementLine);
-      line.amount += Number(s.monthlyAmount);
+      line.amount += rest;
       line.details.push({
         concept: tx.concept,
-        monthly: Number(s.monthlyAmount),
+        monthly: rest,
         installment: `${idx + 1}/${tx.installments}`,
       });
       map.set(key, line);
