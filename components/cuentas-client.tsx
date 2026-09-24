@@ -80,25 +80,15 @@ export function CuentasClient({ accounts, meId, debts, owed, subs, dues, cats }:
           <p className="text-xs font-medium text-(--muted-foreground)">{header.label}</p>
           <p className="text-4xl font-extrabold tracking-tight">{formatMoney(header.value)}</p>
         </div>
-        {header.action === "account" && (
-          <>
-            <Button size="icon" aria-label="Agregar cuenta" className="rounded-full" onClick={() => setOpen(true)}>
-              <Plus className="size-5" />
-            </Button>
+        {header.action === "account" && (          
             <BottomSheet open={open} onOpenChange={setOpen}>
               <AccountForm onDone={() => setOpen(false)} />
             </BottomSheet>
-          </>
         )}
         {header.action === "sub" && (
-          <>
-            <Button size="icon" aria-label="Agregar suscripción" className="rounded-full" onClick={() => setSubOpen(true)}>
-              <Plus className="size-5" />
-            </Button>
             <BottomSheet open={subOpen} onOpenChange={setSubOpen}>
               <SubscriptionForm accountOptions={accountOpts} cats={cats} onDone={() => setSubOpen(false)} />
             </BottomSheet>
-          </>
         )}
       </div>
 
