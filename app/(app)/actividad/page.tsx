@@ -1,5 +1,7 @@
 import { ActivityClient, type MonthOpt } from "@/components/activity-client";
 import { DueSubscriptions } from "@/components/due-subscriptions";
+import { PendingPaymentsBanner } from "@/components/pending-payments-banner";
+import type { ToConfirmItem } from "@/components/cuentas-client";
 import type { TxRow } from "@/components/transaction-list";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
@@ -161,9 +163,59 @@ export default async function ActividadPage() {
     }
   }
 
+  // Pagos de pareja pendientes de mi confirmación + mis cuentas (destino).
+  let toConfirm: ToConfirmItem[] = [];
+  let accountOptions: { id: string; name: string; type: "DEBIT" | "CREDIT" }[] = [];
+  if (process.env.DATABASE_URL) {
+    try {
+      const [mineAccounts, pendingRows] = await Promise.all([
+        prisma.account.findMany({
+          where: { isActive: true, userId: meId },
+          select: { id: true, name: true, type: true },
+          orderBy: { createdAt: "asc" },
+        }),
+        prisma.debtPayment.findMany({
+          where: {
+            status: "PENDING",
+            share: { OR: [{ debtorId: meId }, { transaction: { createdById: meId } }] },
+          },
+          include: {
+            share: { include: { transaction: true } },
+            registeredBy: true,
+          },
+          orderBy: { createdAt: "desc" },
+        }),
+      ]);
+      accountOptions = mineAccounts.map((a) => ({
+        id: a.id,
+        name: a.name,
+        type: a.type as "DEBIT" | "CREDIT",
+      }));
+      toConfirm = pendingRows
+        .filter((p) => p.registeredById !== meId)
+        .map((p) => {
+          const [y, mo] = p.month.split("-").map(Number);
+          return {
+            id: p.id,
+            amount: Number(p.amount),
+            month: p.month,
+            monthLabel: monthLabelEs(new Date(y, mo - 1, 1)),
+            concept: p.share.transaction.concept,
+            monthly: Number(p.share.monthlyAmount),
+            shareId: p.shareId,
+            registeredByName: p.registeredBy.name,
+          };
+        });
+    } catch {
+      toConfirm = [];
+      accountOptions = [];
+    }
+  }
+
   return (
     <>
       <DueSubscriptions dues={dues} />
+      <PendingPaymentsBanner items={toConfirm} accountOptions={accountOptions} />
       <ActivityClient txs={txs} months={months} cats={catalog} />
     </>
   );
