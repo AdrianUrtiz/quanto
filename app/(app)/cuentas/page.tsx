@@ -1,17 +1,19 @@
-import { CuentasClient, type PartnerDebt } from "@/components/cuentas-client";
+import { CuentasClient, type MyPendingItem, type PartnerDebt, type ToConfirmItem } from "@/components/cuentas-client";
 import type { AccountRow } from "@/components/account-card";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { DEMO_ACCOUNTS, DEMO_TXS } from "@/lib/demo-data";
 import { installmentMonths } from "@/lib/calculations";
-import { monthKey } from "@/lib/utils";
+import { monthKey, monthLabelEs } from "@/lib/utils";
 import { computeDues, type DueCharge } from "@/lib/subscriptions";
+import { getLineSums, type LineSums } from "@/lib/debt-payments";
 import { getCatalog } from "@/lib/catalog";
 import type { SubRow } from "@/components/subscription-tab";
 
 export const metadata = { title: "Cuentas" };
 
 type DebtItem = {
+  shareId: string;
   accountId: string;
   accountName: string;
   accountType: "DEBIT" | "CREDIT";
@@ -29,7 +31,7 @@ type DebtItem = {
  * Agrupa por cuenta+deudor solo lo exigible en el mes `key`.
  * Si la compra fue a MSI, únicamente cae la parcialidad del periodo actual.
  */
-function buildDebts(items: DebtItem[], key: string): PartnerDebt[] {
+function buildDebts(items: DebtItem[], key: string, sums: Map<string, LineSums>): PartnerDebt[] {
   const byAcc = new Map<string, PartnerDebt>();
   for (const it of items) {
     const months = installmentMonths(new Date(it.date), it.installments);
@@ -48,11 +50,16 @@ function buildDebts(items: DebtItem[], key: string): PartnerDebt[] {
       lines: [],
     };
     g.total += it.monthly;
+    const s = sums.get(`${it.shareId}:${key}`) ?? { confirmed: 0, pending: 0 };
     g.lines.push({
       concept: it.concept,
       monthly: it.monthly,
       installment: idx + 1,
       installments: it.installments,
+      shareId: it.shareId || null,
+      month: key,
+      paid: s.confirmed,
+      pending: s.pending,
     });
     byAcc.set(gk, g);
   }
@@ -68,6 +75,7 @@ function demoDebts(me: string, meId: string, key: string): PartnerDebt[] {
     const acc = DEMO_ACCOUNTS.find((a) => a.id === t.accountId);
     if (!acc) continue;
     items.push({
+      shareId: "",
       accountId: acc.id,
       accountName: acc.name,
       accountType: acc.type,
@@ -81,7 +89,7 @@ function demoDebts(me: string, meId: string, key: string): PartnerDebt[] {
       date: new Date(t.date),
     });
   }
-  return buildDebts(items, key);
+  return buildDebts(items, key, new Map());
 }
 
 function demoOwed(meId: string, key: string): PartnerDebt[] {
@@ -93,6 +101,7 @@ function demoOwed(meId: string, key: string): PartnerDebt[] {
     for (const share of t.shares) {
       if (share.debtorId === meId) continue;
       items.push({
+        shareId: "",
         accountId: acc.id,
         accountName: acc.name,
         accountType: acc.type,
@@ -107,7 +116,7 @@ function demoOwed(meId: string, key: string): PartnerDebt[] {
       });
     }
   }
-  return buildDebts(items, key);
+  return buildDebts(items, key, new Map());
 }
 
 function demoAccounts(): AccountRow[] {
@@ -137,6 +146,8 @@ export default async function CuentasPage() {
   let owed: PartnerDebt[];
   let subs: SubRow[] = [];
   let dues: DueCharge[] = [];
+  const toConfirm: ToConfirmItem[] = [];
+  const myPending: MyPendingItem[] = [];
   if (process.env.DATABASE_URL) {
     try {
       const [accRows, sharedRows, sharedOwedRows, subRows, confirmedRows] = await Promise.all([
@@ -198,8 +209,50 @@ export default async function CuentasPage() {
         expiry: a.expiry ?? undefined,
         color: a.color ?? "#6366f1",
       }));
+      // Pagos de pareja: sumas por línea + pendientes donde participo.
+      const allShareIds = [
+        ...sharedRows.flatMap((t) => t.shares.map((s) => s.id)),
+        ...sharedOwedRows.flatMap((t) => t.shares.map((s) => s.id)),
+      ];
+      const [sums, pendingRows] = await Promise.all([
+        getLineSums(allShareIds),
+        prisma.debtPayment.findMany({
+          where: {
+            status: "PENDING",
+            share: { OR: [{ debtorId: meId }, { transaction: { createdById: meId } }] },
+          },
+          include: {
+            share: { include: { transaction: { include: { createdBy: true } }, debtor: true } },
+            registeredBy: true,
+          },
+          orderBy: { createdAt: "desc" },
+        }),
+      ]);
+      const monthLabelOf = (m: string) => {
+        const [y, mo] = m.split("-").map(Number);
+        return monthLabelEs(new Date(y, mo - 1, 1));
+      };
+      for (const p of pendingRows) {
+        const base = {
+          id: p.id,
+          amount: Number(p.amount),
+          month: p.month,
+          monthLabel: monthLabelOf(p.month),
+          concept: p.share.transaction.concept,
+          monthly: Number(p.share.monthlyAmount),
+          shareId: p.shareId,
+        };
+        if (p.registeredById === meId) {
+          // Yo (deudor) lo registré → espera confirmación del acreedor.
+          myPending.push({ ...base, confirmerName: p.share.transaction.createdBy.name });
+        } else {
+          // PENDING siempre lo registró el deudor → yo soy el acreedor que confirma.
+          toConfirm.push({ ...base, registeredByName: p.registeredBy.name });
+        }
+      }
       debts = buildDebts(
         sharedRows.map((t) => ({
+          shareId: t.shares[0]?.id ?? "",
           accountId: t.account.id,
           accountName: t.account.name,
           accountType: t.account.type as "DEBIT" | "CREDIT",
@@ -212,13 +265,15 @@ export default async function CuentasPage() {
           installments: t.installments,
           date: t.date,
         })),
-        key
+        key,
+        sums
       );
       owed = buildDebts(
         sharedOwedRows.flatMap((t) =>
           t.shares
             .filter((s) => s.debtorId !== meId)
             .map((s) => ({
+              shareId: s.id,
               accountId: t.account.id,
               accountName: t.account.name,
               accountType: t.account.type as "DEBIT" | "CREDIT",
@@ -232,7 +287,8 @@ export default async function CuentasPage() {
               date: t.date,
             })),
         ),
-        key
+        key,
+        sums
       );
       subs = subRows.map((s) => ({
         id: s.id,
@@ -281,7 +337,7 @@ export default async function CuentasPage() {
 
   return (
     <>
-      <CuentasClient accounts={accounts} meId={meId} debts={debts} owed={owed} subs={subs} dues={dues} cats={catalog} />
+      <CuentasClient accounts={accounts} meId={meId} debts={debts} owed={owed} subs={subs} dues={dues} cats={catalog} toConfirm={toConfirm} myPending={myPending} />
     </>
   );
 }
