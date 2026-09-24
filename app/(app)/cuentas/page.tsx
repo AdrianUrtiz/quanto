@@ -49,10 +49,12 @@ function buildDebts(items: DebtItem[], key: string, sums: Map<string, LineSums>)
       debtorName: it.debtorName,
       creditorName: it.creditorName,
       total: 0,
+      remaining: 0,
       lines: [],
     };
     g.total += it.monthly;
     const s = sums.get(`${it.shareId}:${key}`) ?? { confirmed: 0, pending: 0 };
+    g.remaining += Math.max(0, it.monthly - s.confirmed);
     g.lines.push({
       concept: it.concept,
       monthly: it.monthly,
@@ -65,7 +67,7 @@ function buildDebts(items: DebtItem[], key: string, sums: Map<string, LineSums>)
     });
     byAcc.set(gk, g);
   }
-  return [...byAcc.values()].sort((a, b) => b.total - a.total);
+  return [...byAcc.values()].sort((a, b) => b.remaining - a.remaining);
 }
 
 export default async function CuentasPage() {

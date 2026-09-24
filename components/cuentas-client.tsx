@@ -66,7 +66,7 @@ export type SourceConfirmItem = {
 };
 
 /** Deuda entre pareja este mes, agrupada por cuenta. Si debtorId soy yo, la debo;
- * si no, me la deben. */
+ * si no, me la deben. `total` = mensualidades originales; `remaining` = por pagar. */
 export type PartnerDebt = {
   accountId: string;
   accountName: string;
@@ -76,6 +76,7 @@ export type PartnerDebt = {
   debtorName: string;
   creditorName: string;
   total: number;
+  remaining: number;
   lines: DebtLine[];
 };
 
@@ -106,9 +107,9 @@ export function CuentasClient({ accounts, meId, debts, owed, subs, dues, cats, t
   // Saldo total: suma débitos + disponible de créditos
   const totalOf = (list: AccountRow[]) =>
     list.reduce((a, c) => a + (c.type === "CREDIT" ? (c.creditLimit ?? 0) - c.balance : c.balance), 0);
-  const oweTotal = useMemo(() => debts.reduce((a, d) => a + d.total, 0), [debts]);
+  const oweTotal = useMemo(() => debts.reduce((a, d) => a + d.remaining, 0), [debts]);
 
-  const owedTotal = useMemo(() => owed.reduce((a, d) => a + d.total, 0), [owed]);
+  const owedTotal = useMemo(() => owed.reduce((a, d) => a + d.remaining, 0), [owed]);
 
   const monthly = useMemo(() => subs.filter((s) => s.isActive).reduce((a, s) => a + s.amount, 0), [subs]);
 
@@ -308,7 +309,7 @@ function DebtSummaryRow({ d, meId, onOpen }: { d: PartnerDebt; meId: string; onO
         </span>
       </span>
       <span className="shrink-0 text-right">
-        <span className="block text-base font-extrabold">{formatMoney(d.total)}</span>
+        <span className="block text-base font-extrabold">{formatMoney(d.remaining)}</span>
         <span className={`block text-[11px] font-semibold ${owe ? "debt-owe-text" : "debt-owed-text"}`}>Ver detalle ›</span>
       </span>
     </button>
@@ -329,7 +330,7 @@ function DebtCard({ d, meId }: { d: PartnerDebt; meId: string }) {
           <><b className="text-(--foreground)">{d.debtorName}</b> te debe</>
         )}
       </p>
-      <p className="text-2xl font-extrabold tracking-tight">{formatMoney(d.total)}</p>
+      <p className="text-2xl font-extrabold tracking-tight">{formatMoney(d.remaining)}</p>
       <p className="text-xs font-medium text-(--muted-foreground)">
         a {d.accountName} · {due}
       </p>
@@ -356,9 +357,8 @@ function DebtCard({ d, meId }: { d: PartnerDebt; meId: string }) {
                 ) : (
                   (l.paid > 0 || l.pending > 0) && (
                     <span className="mt-0.5 block">
-                      {l.paid > 0 && <>Abonado {formatMoney(l.paid)} · </>}
-                      {l.pending > 0 && <>Por confirmar {formatMoney(l.pending)} · </>}
-                      Restan {formatMoney(rest)}
+                      {l.paid > 0 && <>Abonado {formatMoney(l.paid)}</>}
+                      {l.pending > 0 && <>Por confirmar {formatMoney(l.pending)}</>}
                     </span>
                   )
                 ))}
