@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { toast } from "sonner";
 import { CreditCard, Landmark } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -53,9 +54,12 @@ export function AccountForm({ account, onDone }: { account?: AccountEditData; on
       ? await updateAccount(new FormData(e.currentTarget))
       : await createAccount(new FormData(e.currentTarget));
     setPending(false);
-    if ("error" in res && res.error) setMsg(res.error);
-    else {
+    if ("error" in res && res.error) {
+      setMsg(res.error);
+      toast.error(res.error);
+    } else {
       setMsg(null);
+      toast.success(editing ? "Cuenta actualizada" : "Cuenta agregada");
       onDone?.();
     }
   }

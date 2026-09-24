@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -56,8 +57,14 @@ export function CategoryForm({
     fd.set("kind", kind);
     const res = editing ? await updateCategory(fd) : await createCategory(fd);
     setPending(false);
-    if ("error" in res && res.error) setMsg(res.error);
-    else onDone?.();
+    if ("error" in res && res.error) {
+      setMsg(res.error);
+      toast.error(res.error);
+    } else {
+      setMsg(null);
+      toast.success(editing ? "Categoría actualizada" : "Categoría creada");
+      onDone?.();
+    }
   }
 
   return (

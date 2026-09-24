@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
 import {
   ArrowDownLeft,
   ArrowRight,
@@ -286,8 +287,14 @@ export function TransactionForm({
       ? await updateTransaction(fd)
       : await createTransaction(fd);
     setPending(false);
-    if ("error" in res && res.error) setMsg(res.error);
-    else onDone?.();
+    if ("error" in res && res.error) {
+      setMsg(res.error);
+      toast.error(res.error);
+    } else {
+      setMsg(null);
+      toast.success(editing ? "Movimiento actualizado" : "Movimiento registrado");
+      onDone?.();
+    }
   }
 
   async function saveCustomCat() {
@@ -315,6 +322,7 @@ export function TransactionForm({
           : [...prev, { id: c.id, code: c.code, name: c.name, iconName: c.iconName, color: c.color, kind: c.kind as "expense" | "income" | "both", isDefault: false, mine: true }],
       );
       setCategory(c.code);
+      toast.success("Categoría creada");
     }
     setNewCatName("");
     setPanel("cats");

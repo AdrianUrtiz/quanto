@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
 import {
   ArrowRight,
   Check,
@@ -160,6 +161,7 @@ export function SubscriptionForm({
     setNewCatName("");
     setAddingCat(false);
     setMsg(null);
+    toast.success("Categoría creada");
   }
   const sliderRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -242,8 +244,14 @@ export function SubscriptionForm({
       ? await updateSubscription(fd)
       : await createSubscription(fd);
     setPending(false);
-    if ("error" in res && res.error) setMsg(res.error);
-    else onDone?.();
+    if ("error" in res && res.error) {
+      setMsg(res.error);
+      toast.error(res.error);
+    } else {
+      setMsg(null);
+      toast.success(editing ? "Suscripción actualizada" : "Suscripción agregada");
+      onDone?.();
+    }
   }
 
   return (
