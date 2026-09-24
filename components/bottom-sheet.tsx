@@ -4,31 +4,7 @@ import * as React from "react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { cn } from "@/lib/utils";
 import { useBackToClose } from "@/lib/use-back-to-close";
-
-/**
- * Altura del teclado en px (0 si está cerrado). Solo mientras el sheet
- * está abierto. Umbral de 120px para ignorar la barra del navegador.
- */
-function useKeyboardOffset(enabled: boolean): number {
-  const [offset, setOffset] = React.useState(0);
-  React.useEffect(() => {
-    if (!enabled || typeof window === "undefined") return;
-    const vv = window.visualViewport;
-    if (!vv) return;
-    const update = () => {
-      const kb = window.innerHeight - vv.height - vv.offsetTop;
-      setOffset(kb > 120 ? Math.round(kb) : 0);
-    };
-    update();
-    vv.addEventListener("resize", update);
-    vv.addEventListener("scroll", update);
-    return () => {
-      vv.removeEventListener("resize", update);
-      vv.removeEventListener("scroll", update);
-    };
-  }, [enabled]);
-  return offset;
-}
+import { useKeyboardOffset } from "@/lib/use-keyboard";
 
 /** Lleva el campo enfocado a zona visible dentro del scroll del sheet. */
 function scrollFieldIntoView(target: EventTarget | null, root: HTMLElement | null) {

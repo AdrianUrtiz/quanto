@@ -37,6 +37,7 @@ import {
 } from "@/lib/categories";
 import type { CatalogRow } from "@/lib/catalog";
 import { cn } from "@/lib/utils";
+import { useKeyboardOpen } from "@/lib/use-keyboard";
 
 export type AccountOpt = { id: string; name: string; type?: string };
 
@@ -111,6 +112,8 @@ export function TransactionForm({
     : "cargo";
 
   const [mode, setMode] = useState<Mode>(initialMode);
+  // Teclado del teléfono abierto: se oculta el keypad propio (ver abajo).
+  const kbOpen = useKeyboardOpen();
   const [amount, setAmount] = useState(entry ? String(entry.amount) : "0");
   const [dateYMD, setDateYMD] = useState(
     entry ? toYMD(new Date(entry.date)) : toYMD(new Date()),
@@ -509,33 +512,45 @@ export function TransactionForm({
         </p>
       )}
 
-      {/* Keypad */}
-      <div className="mt-3 grid grid-cols-3 gap-2">
-        {["1", "2", "3", "4", "5", "6", "7", "8", "9", ".", "0", "go"].map(
-          (k) =>
-            k === "go" ? (
-              <button
-                key={k}
-                type="button"
-                onClick={submit}
-                disabled={pending || pagoBlocked}
-                aria-label="Guardar"
-                className="flex h-14 items-center justify-center rounded-2xl bg-(--primary) text-xl font-bold text-(--primary-foreground) transition active:scale-95 disabled:opacity-50"
-              >
-                <ArrowRight className="size-6" />
-              </button>
-            ) : (
-              <button
-                key={k}
-                type="button"
-                onClick={() => press(k === "." ? "." : k)}
-                className="h-14 rounded-2xl bg-(--muted)/70 text-xl font-semibold transition active:scale-95 active:bg-(--muted)"
-              >
-                {k}
-              </button>
-            ),
-        )}
-      </div>
+      {/* Keypad (se oculta si el teclado del teléfono está abierto;
+          en su lugar queda un botón Guardar de ancho completo) */}
+      {kbOpen ? (
+        <Button
+          type="button"
+          onClick={submit}
+          disabled={pending || pagoBlocked}
+          className="mt-3 h-12 w-full rounded-2xl text-base"
+        >
+          {pending ? "Guardando…" : "Guardar movimiento"}
+        </Button>
+      ) : (
+        <div className="mt-3 grid grid-cols-3 gap-2">
+          {["1", "2", "3", "4", "5", "6", "7", "8", "9", ".", "0", "go"].map(
+            (k) =>
+              k === "go" ? (
+                <button
+                  key={k}
+                  type="button"
+                  onClick={submit}
+                  disabled={pending || pagoBlocked}
+                  aria-label="Guardar"
+                  className="flex h-14 items-center justify-center rounded-2xl bg-(--primary) text-xl font-bold text-(--primary-foreground) transition active:scale-95 disabled:opacity-50"
+                >
+                  <ArrowRight className="size-6" />
+                </button>
+              ) : (
+                <button
+                  key={k}
+                  type="button"
+                  onClick={() => press(k === "." ? "." : k)}
+                  className="h-14 rounded-2xl bg-(--muted)/70 text-xl font-semibold transition active:scale-95 active:bg-(--muted)"
+                >
+                  {k}
+                </button>
+              ),
+          )}
+        </div>
+      )}
       {pagoBlocked && (
         <p className="mt-2 text-center text-xs text-(--muted-foreground)">
           Necesitas una cuenta de débito y una tarjeta de crédito.
