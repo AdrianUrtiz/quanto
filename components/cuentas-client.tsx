@@ -10,14 +10,14 @@ import { SwipeRow } from "@/components/swipe-row";
 import { PaymentSheet } from "@/components/payment-sheet";
 import { cancelPayment, confirmPaymentSource } from "@/lib/payment-actions";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { FilterOptions, FilterPill } from "@/components/filter-dialog";
 import { SubscriptionTab, type SubRow } from "@/components/subscription-tab";
 import { SubscriptionSummaryRow } from "@/components/subscription-swipe-row";
 import type { DueCharge } from "@/lib/subscriptions";
 import type { CatalogRow } from "@/lib/catalog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { BottomSheet } from "@/components/bottom-sheet";
-import { AccountForm } from "@/components/account-form";
-import { SubscriptionForm } from "@/components/subscription-form";
 import { formatMoney } from "@/lib/utils";
 
 export type DebtLine = {
@@ -83,8 +83,6 @@ export type PartnerDebt = {
 export function CuentasClient({ accounts, meId, debts, owed, subs, dues, cats, toConfirm = [], myPending = [], toConfirmSource = [] }: { accounts: AccountRow[]; meId: string; debts: PartnerDebt[]; owed: PartnerDebt[]; subs: SubRow[]; dues: DueCharge[]; cats: CatalogRow[]; toConfirm?: ToConfirmItem[]; myPending?: MyPendingItem[]; toConfirmSource?: SourceConfirmItem[] }) {
   const router = useRouter();
   const [tab, setTab] = useState("todas");
-  const [open, setOpen] = useState(false);
-  const [subOpen, setSubOpen] = useState(false);
   const [openRow, setOpenRow] = useState<string | null>(null);
   const [paySheet, setPaySheet] = useState<{ d: PartnerDebt; mode: "receive" | "pay" } | null>(null);
   const [confirmTarget, setConfirmTarget] = useState<ToConfirmItem | null>(null);
@@ -118,34 +116,123 @@ export function CuentasClient({ accounts, meId, debts, owed, subs, dues, cats, t
     [mine]
   );
 
-  // Header homologado: texto pequeño → monto grande → botón a la derecha.
-  // Botón por tab: todas/pareja ninguno · cuentas: + cuenta · subs: + suscripción.
+  // Filtros de la tab Cuentas: orden + tipo/estado.
+  const [accSort, setAccSort] = useState("default");
+  const [accType, setAccType] = useState("all");
+  const [accSheet, setAccSheet] = useState<null | "sort" | "type">(null);
+  const [allSection, setAllSection] = useState("all");
+  const [allSort, setAllSort] = useState("default");
+  const [allSheet, setAllSheet] = useState<null | "section" | "sort">(null);
+
+  // Monto representativo: saldo en débito, disponible en crédito.
+  const effValue = (a: AccountRow) =>
+    a.type === "CREDIT" ? (a.creditLimit ?? 0) - a.balance : a.balance;
+
+  function daysUntilDue(dueDay: number, now = new Date()): number {
+    const dimThis = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+    const dayThis = Math.min(dueDay, dimThis);
+    if (dayThis >= now.getDate()) return dayThis - now.getDate();
+    const dimNext = new Date(now.getFullYear(), now.getMonth() + 2, 0).getDate();
+    return dimThis - now.getDate() + Math.min(dueDay, dimNext);
+  }
+
+  const filteredMine = useMemo(() => {
+    let list = mine;
+    if (accType === "debit") list = list.filter((a) => a.type === "DEBIT");
+    else if (accType === "credit") list = list.filter((a) => a.type === "CREDIT");
+    else if (accType === "debt") list = list.filter((a) => a.type === "CREDIT" && a.balance > 0.005);
+    else if (accType === "due") list = list.filter((a) => a.type === "CREDIT" && a.dueDay != null && daysUntilDue(a.dueDay) <= 7);
+    const sorted = [...list];
+    if (accSort === "high") sorted.sort((a, b) => effValue(b) - effValue(a));
+    else if (accSort === "low") sorted.sort((a, b) => effValue(a) - effValue(b));
+    else if (accSort === "az") sorted.sort((a, b) => a.name.localeCompare(b.name, "es"));
+    return sorted;
+  }, [mine, accSort, accType]);
+
+  const typeCounts = useMemo(() => {
+    const debt = mine.filter((a) => a.type === "CREDIT" && a.balance > 0.005).length;
+    const due = mine.filter((a) => a.type === "CREDIT" && a.dueDay != null && daysUntilDue(a.dueDay) <= 7).length;
+    return {
+      all: mine.length,
+      debit: mine.filter((a) => a.type === "DEBIT").length,
+      credit: mine.filter((a) => a.type === "CREDIT").length,
+      debt,
+      due,
+    };
+  }, [mine]);
+
+  const SORT_OPTS = [
+    { value: "default", label: "Predeterminado" },
+    { value: "high", label: "Mayor monto" },
+    { value: "low", label: "Menor monto" },
+    { value: "az", label: "Nombre A–Z" },
+  ];
+  const SECTION_OPTS = [
+    { value: "all", label: "Todo" },
+    { value: "accounts", label: "Cuentas" },
+    { value: "debts", label: "Pareja" },
+    { value: "subs", label: "Suscripciones" },
+  ];
+
+  function sortAccounts(list: AccountRow[]) {
+    const sorted = [...list];
+    if (allSort === "high") sorted.sort((a, b) => effValue(b) - effValue(a));
+    else if (allSort === "low") sorted.sort((a, b) => effValue(a) - effValue(b));
+    return sorted;
+  }
+
+  const allMine = sortAccounts(mine);
+  const allDebts = useMemo(() => {
+    const sorted = [...debts];
+    if (allSort === "high") sorted.sort((a, b) => b.remaining - a.remaining);
+    else if (allSort === "low") sorted.sort((a, b) => a.remaining - b.remaining);
+    return sorted;
+  }, [debts, allSort]);
+  const allOwed = useMemo(() => {
+    const sorted = [...owed];
+    if (allSort === "high") sorted.sort((a, b) => b.remaining - a.remaining);
+    else if (allSort === "low") sorted.sort((a, b) => a.remaining - b.remaining);
+    return sorted;
+  }, [owed, allSort]);
+  const allSubs = useMemo(() => {
+    const list = subs.filter((s) => s.isActive);
+    const sorted = [...list];
+    if (allSort === "high") sorted.sort((a, b) => b.amount - a.amount);
+    else if (allSort === "low") sorted.sort((a, b) => a.amount - b.amount);
+    return sorted;
+  }, [subs, allSort]);
+
+  const showAccounts = allSection === "all" || allSection === "accounts";
+  const showDebts = allSection === "all" || allSection === "debts";
+  const showSubs = allSection === "all" || allSection === "subs";
+  const allEmpty =
+    (!showAccounts || allMine.length === 0) &&
+    (!showDebts || (allDebts.length === 0 && allOwed.length === 0)) &&
+    (!showSubs || allSubs.length === 0);
+  const TYPE_OPTS = [
+    { value: "all", label: "Todas" },
+    { value: "debit", label: "Débito" },
+    { value: "credit", label: "Crédito" },
+    { value: "debt", label: "Con deuda" },
+    { value: "due", label: "Vence pronto" },
+  ];
+
+  // Header homologado: texto pequeño → monto grande (sin botones; la creación
+  // vive en el speed-dial del FAB). En Cuentas el total responde al filtro.
   const header =
     tab === "mias"
-      ? { label: "Saldo total", value: totalOf(mine), action: "account" as const }
+      ? { label: "Saldo total", value: totalOf(filteredMine) }
       : tab === "subs"
-        ? { label: "Comprometido/mes", value: monthly, action: "sub" as const }
+        ? { label: "Comprometido/mes", value: monthly }
         : tab === "pareja"
-          ? { label: "Le debes este mes", value: oweTotal, action: null }
-          : { label: "Saldo total", value: totalOf(mine), action: null };
+          ? { label: "Le debes este mes", value: oweTotal }
+          : { label: "Saldo total", value: totalOf(mine) };
 
   return (
     <div className="space-y-4 px-5 pt-4">
-      <div className="flex items-start justify-between">
-        <div>
-          <p className="text-xs font-medium text-(--muted-foreground)">{header.label}</p>
-          <p className="text-4xl font-extrabold tracking-tight">{formatMoney(header.value)}</p>
-        </div>
-        {header.action === "account" && (          
-            <BottomSheet open={open} onOpenChange={setOpen}>
-              <AccountForm onDone={() => setOpen(false)} />
-            </BottomSheet>
-        )}
-        {header.action === "sub" && (
-            <BottomSheet open={subOpen} onOpenChange={setSubOpen}>
-              <SubscriptionForm accountOptions={accountOpts} cats={cats} onDone={() => setSubOpen(false)} />
-            </BottomSheet>
-        )}
+      <div>
+        <p className="text-xs font-medium text-(--muted-foreground)">{header.label}</p>
+        <p className="text-4xl font-extrabold tracking-tight">{formatMoney(header.value)}</p>
       </div>
 
       <Tabs value={tab} onValueChange={setTab}>
@@ -156,19 +243,51 @@ export function CuentasClient({ accounts, meId, debts, owed, subs, dues, cats, t
           <TabsTrigger value="pareja">Pareja</TabsTrigger>
         </TabsList>
         <TabsContent value="todas" className="space-y-2">
-          {mine.map(swipe)}
-          {debts.map((d) => <DebtSummaryRow key={`${d.accountId}:${d.debtorId}`} d={d} meId={meId} onOpen={() => setTab("pareja")} />)}
-          {owed.map((d) => <DebtSummaryRow key={`${d.accountId}:${d.debtorId}`} d={d} meId={meId} onOpen={() => setTab("pareja")} />)}
-          {subs.filter((s) => s.isActive).map((s) => (
+          <div className="no-scrollbar -mx-5 flex gap-2 overflow-x-auto px-5 pb-1">
+            <FilterPill
+              label={SECTION_OPTS.find((o) => o.value === allSection)!.label}
+              active={allSection !== "all"}
+              onClick={() => setAllSheet("section")}
+            />
+            <FilterPill
+              label={SORT_OPTS.find((o) => o.value === allSort)!.label}
+              active={allSort !== "default"}
+              onClick={() => setAllSheet("sort")}
+            />
+          </div>
+          {showAccounts && allMine.map(swipe)}
+          {showDebts && allDebts.map((d) => <DebtSummaryRow key={`${d.accountId}:${d.debtorId}`} d={d} meId={meId} onOpen={() => setTab("pareja")} />)}
+          {showDebts && allOwed.map((d) => <DebtSummaryRow key={`${d.accountId}:${d.debtorId}`} d={d} meId={meId} onOpen={() => setTab("pareja")} />)}
+          {showSubs && allSubs.map((s) => (
             <SubscriptionSummaryRow key={s.id} s={s} onOpen={() => setTab("subs")} />
           ))}
-          {mine.length === 0 && debts.length === 0 && owed.length === 0 && subs.filter((s) => s.isActive).length === 0 && (
-            <Empty text="Sin cuentas aquí todavía." />
+          {allEmpty && (
+            <Empty
+              text={
+                mine.length === 0 && debts.length === 0 && owed.length === 0 && subs.filter((s) => s.isActive).length === 0
+                  ? "Sin cuentas aquí todavía."
+                  : "Sin resultados para ese filtro."
+              }
+            />
           )}
         </TabsContent>
         <TabsContent value="mias" className="space-y-2">
-          {mine.length === 0 && <Empty text="Sin cuentas aquí todavía." />}
-          {mine.map(swipe)}
+          <div className="no-scrollbar -mx-5 flex gap-2 overflow-x-auto px-5 pb-1">
+            <FilterPill
+              label={SORT_OPTS.find((o) => o.value === accSort)!.label}
+              active={accSort !== "default"}
+              onClick={() => setAccSheet("sort")}
+            />
+            <FilterPill
+              label={TYPE_OPTS.find((o) => o.value === accType)!.label}
+              active={accType !== "all"}
+              onClick={() => setAccSheet("type")}
+            />
+          </div>
+          {filteredMine.length === 0 && (
+            <Empty text={mine.length === 0 ? "Sin cuentas aquí todavía." : "Sin resultados para ese filtro."} />
+          )}
+          {filteredMine.map(swipe)}
         </TabsContent>
         <TabsContent value="pareja" className="space-y-4">
           {debts.length === 0 && owed.length === 0 && toConfirm.length === 0 && myPending.length === 0 && toConfirmSource.length === 0 && (
@@ -287,6 +406,65 @@ export function CuentasClient({ accounts, meId, debts, owed, subs, dues, cats, t
           />
         )}
       </BottomSheet>
+
+      <Dialog open={accSheet !== null} onOpenChange={(o) => !o && setAccSheet(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{accSheet === "sort" ? "Ordenar cuentas" : "Filtrar cuentas"}</DialogTitle>
+          </DialogHeader>
+          {accSheet === "sort" ? (
+            <FilterOptions
+              items={SORT_OPTS}
+              value={accSort}
+              onPick={(v) => {
+                setAccSort(v);
+                setAccSheet(null);
+              }}
+            />
+          ) : (
+            <FilterOptions
+              items={TYPE_OPTS.map((o) => ({
+                ...o,
+                meta: `${typeCounts[o.value as keyof typeof typeCounts]} · ${
+                  typeCounts[o.value as keyof typeof typeCounts] === 1 ? "cuenta" : "cuentas"
+                }`,
+              }))}
+              value={accType}
+              onPick={(v) => {
+                setAccType(v);
+                setAccSheet(null);
+              }}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={allSheet !== null} onOpenChange={(o) => !o && setAllSheet(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{allSheet === "sort" ? "Ordenar todo" : "Secciones visibles"}</DialogTitle>
+          </DialogHeader>
+          {allSheet === "sort" ? (
+            <FilterOptions
+              items={SORT_OPTS.filter((o) => o.value !== "az")}
+              value={allSort}
+              onPick={(v) => {
+                setAllSort(v);
+                setAllSheet(null);
+              }}
+            />
+          ) : (
+            <FilterOptions
+              items={SECTION_OPTS}
+              value={allSection}
+              onPick={(v) => {
+                setAllSection(v);
+                setAllSheet(null);
+              }}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
