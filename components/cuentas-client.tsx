@@ -358,7 +358,7 @@ function DebtCard({ d, meId }: { d: PartnerDebt; meId: string }) {
                   (l.paid > 0 || l.pending > 0) && (
                     <span className="mt-0.5 block">
                       {l.paid > 0 && <>Abonado {formatMoney(l.paid)}</>}
-                      {l.pending > 0 && <>Por confirmar {formatMoney(l.pending)}</>}
+                      {l.pending > 0 && <> · Por confirmar {formatMoney(l.pending)}</>}
                     </span>
                   )
                 ))}
