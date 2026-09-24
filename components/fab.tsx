@@ -4,6 +4,7 @@ import { useState } from "react";
 import { usePathname } from "next/navigation";
 import { Landmark, Plus, Repeat } from "lucide-react";
 import { BottomSheet } from "@/components/bottom-sheet";
+import { useBackToClose } from "@/lib/use-back-to-close";
 import {
   TransactionForm,
   type AccountOpt,
@@ -52,6 +53,7 @@ function CuentasSpeedDial({ accountOptions, cats }: FabProps) {
   const [expanded, setExpanded] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
   const [subOpen, setSubOpen] = useState(false);
+  useBackToClose(expanded, () => setExpanded(false));
 
   return (
     <>
