@@ -1,13 +1,11 @@
 import { redirect } from "next/navigation";
 import { ActivityClient, type MonthOpt } from "@/components/activity-client";
-import { DueSubscriptions } from "@/components/due-subscriptions";
 import { PendingPaymentsBanner } from "@/components/pending-payments-banner";
 import type { ToConfirmItem } from "@/components/cuentas-client";
 import type { TxRow } from "@/components/transaction-list";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { monthKey, monthLabelEs } from "@/lib/utils";
-import { computeDues, type DueCharge } from "@/lib/subscriptions";
 import { getCatalog } from "@/lib/catalog";
 
 export const metadata = { title: "Actividad" };
@@ -76,39 +74,6 @@ export default async function ActividadPage() {
       return { key, label: monthLabelEs(new Date(y, m - 1, 1)), total };
     });
 
-  // Suscripciones: cargos pendientes por confirmar (solo mías).
-  const [subRows, confirmedRows] = await Promise.all([
-    prisma.subscription.findMany({
-      where: { userId: meId },
-      include: { account: true },
-    }),
-    prisma.transaction.findMany({
-      where: { createdById: meId, subscriptionId: { not: null } },
-      select: { subscriptionId: true, date: true },
-    }),
-  ]);
-  const confirmed = new Set(
-    confirmedRows
-      .filter((t) => t.subscriptionId)
-      .map((t) => `${t.subscriptionId}:${monthKey(new Date(t.date))}`),
-  );
-  const dues: DueCharge[] = computeDues(
-    subRows.map((s) => ({
-      id: s.id,
-      name: s.name,
-      amount: Number(s.amount),
-      accountId: s.accountId,
-      accountName: s.account.name,
-      chargeDay: s.chargeDay,
-      isShared: s.isShared,
-      sharePct: s.sharePct,
-      shareAmount: s.shareAmount ? Number(s.shareAmount) : null,
-      isActive: s.isActive,
-      startMonth: s.startMonth,
-    })),
-    confirmed,
-  );
-
   // Pagos de pareja pendientes de mi confirmación + mis cuentas (destino).
   const [mineAccounts, pendingRows] = await Promise.all([
     prisma.account.findMany({
@@ -119,7 +84,9 @@ export default async function ActividadPage() {
     prisma.debtPayment.findMany({
       where: {
         status: "PENDING",
-        share: { OR: [{ debtorId: meId }, { transaction: { createdById: meId } }] },
+        share: {
+          OR: [{ debtorId: meId }, { transaction: { createdById: meId } }],
+        },
       },
       include: {
         share: { include: { transaction: true } },
@@ -151,8 +118,10 @@ export default async function ActividadPage() {
 
   return (
     <>
-      <DueSubscriptions dues={dues} />
-      <PendingPaymentsBanner items={toConfirm} accountOptions={accountOptions} />
+      <PendingPaymentsBanner
+        items={toConfirm}
+        accountOptions={accountOptions}
+      />
       <ActivityClient txs={txs} months={months} cats={catalog} />
     </>
   );

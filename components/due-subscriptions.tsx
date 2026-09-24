@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { BellRing, Check, Repeat } from "lucide-react";
+import { BellRing } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { confirmSubscriptionCharge } from "@/lib/subscription-actions";
@@ -15,7 +15,8 @@ export function DueSubscriptions({ dues, compact }: { dues: DueCharge[]; compact
   if (!dues.length) return null;
 
   async function confirm(d: DueCharge) {
-    setBusy(`${d.id}:${d.monthKey}`);
+    const k = `${d.id}:${d.monthKey}:confirm`;
+    setBusy(k);
     const res = await confirmSubscriptionCharge(d.id, d.monthKey);
     setBusy(null);
     if ("error" in res && res.error) toast.error(res.error);
@@ -26,55 +27,73 @@ export function DueSubscriptions({ dues, compact }: { dues: DueCharge[]; compact
     <div className={cn("space-y-2", !compact && "px-5 pt-4")}>
       {!compact && (
         <p className="flex items-center gap-1.5 text-xs font-semibold text-(--muted-foreground)">
-          <BellRing className="size-3.5" /> Cargos pendientes por confirmar
+          <BellRing className="size-3.5" /> Suscripciones pendientes
         </p>
       )}
       {dues.map((d) => {
-        const key = `${d.id}:${d.monthKey}`;
-        const loading = busy === key;
+        const loadingConfirm = busy === `${d.id}:${d.monthKey}:confirm`;
+        // Etiqueta informativa: en las mías me pagan a mí,
+        // en las suyas yo le pago a la dueña. El pago se registra en Pareja.
+        const awaitingLabel = d.isMine
+          ? d.partnerName
+            ? `${d.partnerName} te debe ${formatMoney(d.monthlyShare ?? 0)}`
+            : "Por cobrar"
+          : `Le debes a ${d.ownerName} ${formatMoney(d.monthlyShare ?? 0)}`;
+        const refAmount = d.monthlyShare;
         return (
           <div
-            key={key}
-            className="flex items-center gap-3 rounded-3xl border border-amber-500/30 bg-amber-500/[0.07] p-3.5"
+            key={`${d.id}:${d.monthKey}`}
+            className="space-y-2 rounded-3xl border border-amber-500/30 bg-amber-500/[0.07] p-3.5"
           >
-            <span className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-amber-500/15">
-              <Repeat className="size-5 text-amber-500" />
-            </span>
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-semibold">
-                {d.name}{" "}
-                {d.overdue && (
-                  <span className="ml-1 rounded-full bg-red-500/15 px-2 py-0.5 text-[10px] font-bold text-red-500">
-                    Vencido
-                  </span>
+            <div className="flex items-center gap-3">
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-semibold">
+                  {d.isMine ? d.name : `${d.name} · de ${d.ownerName}`}{" "}
+                  {d.overdue && (
+                    <span className="ml-1 rounded-full bg-red-500/15 px-2 py-0.5 text-[10px] font-bold text-red-500">
+                      {d.confirmed ? "Por cobrar" : "Vencido"}
+                    </span>
+                  )}
+                </p>
+                <p className="truncate text-xs text-(--muted-foreground)">
+                  {d.monthLabel} · {d.accountName}
+                  {d.isShared && d.monthlyShare != null && ` · su parte ${formatMoney(d.monthlyShare)}`}
+                </p>
+              </div>
+              <div className="shrink-0 text-right">
+                <p className="text-base font-extrabold">{formatMoney(d.amount)}</p>
+                {!d.isMine && (
+                  <p className="text-[11px] text-(--muted-foreground)">cargo en su tarjeta</p>
                 )}
-              </p>
-              <p className="truncate text-xs text-(--muted-foreground)">
-                {d.monthLabel} · {d.accountName}
-                {d.monthlyShare != null && ` · pareja ${formatMoney(d.monthlyShare)}`}
-              </p>
+              </div>
             </div>
-            <div className="shrink-0 text-right">
-              <p className="text-base font-extrabold">{formatMoney(d.amount)}</p>
-              <Button
-                size="sm"
-                className="mt-1 h-8 rounded-full px-3 text-xs"
-                disabled={loading}
-                onClick={() => confirm(d)}
-              >
-                {loading ? (
-                  "Guardando…"
-                ) : (
-                  <>
-                    <Check className="size-3.5" /> Confirmar
-                  </>
-                )}
-              </Button>
-            </div>
+
+            {!d.confirmed ? (
+              d.isMine ? (
+                <Button
+                  size="sm"
+                  className="h-9 w-full rounded-full text-xs"
+                  disabled={loadingConfirm}
+                  onClick={() => confirm(d)}
+                >
+                  {loadingConfirm ? "Guardando…" : `Confirmar cobro · ${formatMoney(d.amount)}`}
+                </Button>
+              ) : (
+                <p className="text-center text-[11px] text-(--muted-foreground)">
+                  Lo confirma {d.ownerName} en su sesión
+                </p>
+              )
+            ) : (
+              <p className="rounded-2xl bg-(--muted)/60 px-3.5 py-2.5 text-center text-xs font-semibold">
+                {awaitingLabel}
+                <span className="block text-[11px] font-normal text-(--muted-foreground)">
+                  Se marca solo al liquidar en Pareja
+                </span>
+              </p>
+            )}
           </div>
         );
       })}
     </div>
   );
 }
-

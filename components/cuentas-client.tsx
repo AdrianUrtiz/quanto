@@ -8,8 +8,9 @@ import type { AccountRow } from "@/components/account-card";
 import { AccountSwipeRow } from "@/components/account-swipe-row";
 import { SwipeRow } from "@/components/swipe-row";
 import { PaymentSheet } from "@/components/payment-sheet";
-import { cancelPayment } from "@/lib/payment-actions";
-import { SubscriptionTab, type SubPayState, type SubRow } from "@/components/subscription-tab";
+import { cancelPayment, confirmPaymentSource } from "@/lib/payment-actions";
+import { Button } from "@/components/ui/button";
+import { SubscriptionTab, type SubRow } from "@/components/subscription-tab";
 import { SubscriptionSummaryRow } from "@/components/subscription-swipe-row";
 import type { DueCharge } from "@/lib/subscriptions";
 import type { CatalogRow } from "@/lib/catalog";
@@ -54,6 +55,16 @@ export type MyPendingItem = {
   confirmerName: string;
 };
 
+/** Cobro que el acreedor dice recibido y espera que yo indique de qué cuenta salió. */
+export type SourceConfirmItem = {
+  id: string;
+  amount: number;
+  month: string;
+  monthLabel: string;
+  concept: string;
+  creditorName: string;
+};
+
 /** Deuda entre pareja este mes, agrupada por cuenta. Si debtorId soy yo, la debo;
  * si no, me la deben. */
 export type PartnerDebt = {
@@ -68,7 +79,7 @@ export type PartnerDebt = {
   lines: DebtLine[];
 };
 
-export function CuentasClient({ accounts, meId, debts, owed, subs, dues, cats, toConfirm = [], myPending = [], payStates = [] }: { accounts: AccountRow[]; meId: string; debts: PartnerDebt[]; owed: PartnerDebt[]; subs: SubRow[]; dues: DueCharge[]; cats: CatalogRow[]; toConfirm?: ToConfirmItem[]; myPending?: MyPendingItem[]; payStates?: SubPayState[] }) {
+export function CuentasClient({ accounts, meId, debts, owed, subs, dues, cats, toConfirm = [], myPending = [], toConfirmSource = [] }: { accounts: AccountRow[]; meId: string; debts: PartnerDebt[]; owed: PartnerDebt[]; subs: SubRow[]; dues: DueCharge[]; cats: CatalogRow[]; toConfirm?: ToConfirmItem[]; myPending?: MyPendingItem[]; toConfirmSource?: SourceConfirmItem[] }) {
   const router = useRouter();
   const [tab, setTab] = useState("todas");
   const [open, setOpen] = useState(false);
@@ -76,6 +87,7 @@ export function CuentasClient({ accounts, meId, debts, owed, subs, dues, cats, t
   const [openRow, setOpenRow] = useState<string | null>(null);
   const [paySheet, setPaySheet] = useState<{ d: PartnerDebt; mode: "receive" | "pay" } | null>(null);
   const [confirmTarget, setConfirmTarget] = useState<ToConfirmItem | null>(null);
+  const [sourceTarget, setSourceTarget] = useState<SourceConfirmItem | null>(null);
 
   const refresh = () => router.refresh();
 
@@ -158,8 +170,18 @@ export function CuentasClient({ accounts, meId, debts, owed, subs, dues, cats, t
           {mine.map(swipe)}
         </TabsContent>
         <TabsContent value="pareja" className="space-y-4">
-          {debts.length === 0 && owed.length === 0 && toConfirm.length === 0 && myPending.length === 0 && (
+          {debts.length === 0 && owed.length === 0 && toConfirm.length === 0 && myPending.length === 0 && toConfirmSource.length === 0 && (
             <Empty text="No hay cuentas pendientes con tu pareja este mes. 🎉" />
+          )}
+          {toConfirmSource.length > 0 && (
+            <section className="space-y-2">
+              <p className="text-xs font-semibold text-(--muted-foreground)">
+                Confirma de qué cuenta salió · {formatMoney(toConfirmSource.reduce((a, p) => a + p.amount, 0))}
+              </p>
+              {toConfirmSource.map((p) => (
+                <SourceConfirmRow key={p.id} p={p} onOpen={() => setSourceTarget(p)} />
+              ))}
+            </section>
           )}
           {toConfirm.length > 0 && (
             <section className="space-y-2">
@@ -217,7 +239,7 @@ export function CuentasClient({ accounts, meId, debts, owed, subs, dues, cats, t
           )}
         </TabsContent>
         <TabsContent value="subs" className="space-y-2">
-          <SubscriptionTab subs={subs} dues={dues} accountOptions={accountOpts} cats={cats} payStates={payStates} accounts={accounts} />
+          <SubscriptionTab subs={subs} dues={dues} accountOptions={accountOpts} cats={cats} />
         </TabsContent>
       </Tabs>
 
@@ -246,6 +268,19 @@ export function CuentasClient({ accounts, meId, debts, owed, subs, dues, cats, t
             accountOptions={accountOpts}
             onDone={() => {
               setConfirmTarget(null);
+              refresh();
+            }}
+          />
+        )}
+      </BottomSheet>
+      <BottomSheet open={sourceTarget != null} onOpenChange={(o) => !o && setSourceTarget(null)}>
+        {sourceTarget && (
+          <SourceConfirmSheet
+            key={sourceTarget.id}
+            p={sourceTarget}
+            accountOptions={accountOpts}
+            onDone={() => {
+              setSourceTarget(null);
               refresh();
             }}
           />
@@ -399,6 +434,86 @@ function ToConfirmRow({ p, onOpen }: { p: ToConfirmItem; onOpen: () => void }) {
         <span className="block text-[11px] font-semibold text-emerald-500">Revisar ›</span>
       </span>
     </button>
+  );
+}
+
+function SourceConfirmRow({ p, onOpen }: { p: SourceConfirmItem; onOpen: () => void }) {
+  return (
+    <button
+      onClick={onOpen}
+      className="flex w-full items-center gap-3 rounded-3xl border border-sky-500/40 p-4 text-left transition active:scale-[.99]"
+    >
+      <span className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-sky-500/15">
+        <ArrowUpRight className="size-5 text-sky-500" />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-sm font-semibold">{p.concept} · {p.monthLabel}</span>
+        <span className="block truncate text-xs text-(--muted-foreground)">
+          {p.creditorName} dice que le pagaste · ¿de qué cuenta salió?
+        </span>
+      </span>
+      <span className="shrink-0 text-right">
+        <span className="block text-base font-extrabold">{formatMoney(p.amount)}</span>
+        <span className="block text-[11px] font-semibold text-sky-500">Indicar ›</span>
+      </span>
+    </button>
+  );
+}
+
+function SourceConfirmSheet({ p, accountOptions, onDone }: { p: SourceConfirmItem; accountOptions: { id: string; name: string }[]; onDone: () => void }) {
+  const [accountId, setAccountId] = useState(accountOptions[0]?.id ?? "");
+  const [msg, setMsg] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
+
+  async function confirm() {
+    if (!accountId) {
+      setMsg("Elige de qué cuenta salió");
+      return;
+    }
+    setMsg(null);
+    setPending(true);
+    const fd = new FormData();
+    fd.set("paymentId", p.id);
+    fd.set("accountId", accountId);
+    const res = await confirmPaymentSource(fd);
+    setPending(false);
+    if ("error" in res && res.error) {
+      setMsg(res.error);
+      toast.error(res.error);
+    } else {
+      toast.success("Origen confirmado");
+      onDone();
+    }
+  }
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-5 pb-6">
+      <div className="space-y-1 text-center">
+        <p className="text-sm font-bold">{p.concept} · {p.monthLabel}</p>
+        <p className="text-xs text-(--muted-foreground)">
+          {p.creditorName} registró que le pagaste <b className="text-(--foreground)">{formatMoney(p.amount)}</b>.
+          Elige de qué cuenta salió para reflejar tu egreso.
+        </p>
+      </div>
+      <ul className="max-h-56 space-y-1 overflow-y-auto">
+        {accountOptions.map((a) => (
+          <li key={a.id}>
+            <button
+              type="button"
+              onClick={() => setAccountId(a.id)}
+              className={`flex w-full items-center gap-2 rounded-2xl px-4 py-3 text-left transition hover:bg-(--muted) ${accountId === a.id ? "bg-(--muted)" : ""}`}
+            >
+              <span className="flex-1 text-sm font-semibold">{a.name}</span>
+              {accountId === a.id && <Check className="size-4 text-(--primary)" />}
+            </button>
+          </li>
+        ))}
+      </ul>
+      {msg && <p className="text-center text-sm font-medium text-red-500">{msg}</p>}
+      <Button type="button" className="h-12 w-full rounded-2xl text-base" disabled={pending || !accountId} onClick={confirm}>
+        {pending ? "Guardando…" : "Confirmar origen"}
+      </Button>
+    </div>
   );
 }
 

@@ -5,12 +5,16 @@ import { z } from "zod";
 import type { Session } from "next-auth";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
-import { moveBalance } from "@/lib/actions";
 import { debtorMonthlyAmount } from "@/lib/calculations";
 import { checkCategory } from "@/lib/catalog";
-import { chargeDate } from "@/lib/subscriptions";
-import { createCreditorIncome, getLineSums, lineKey, type TxDb } from "@/lib/debt-payments";
-import type { Prisma } from "@prisma/client";
+import {
+  chargeDate,
+  computeDues,
+  monthHistory,
+  type ChargeRow,
+  type DueCharge,
+  type SubInfo,
+} from "@/lib/subscriptions";
 
 const MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
 
@@ -35,6 +39,14 @@ function revalidateAll() {
   revalidatePath("/cuentas");
 }
 
+function partsOf(v: { amount: number; isShared: boolean; sharePct?: number; shareAmount?: number }) {
+  if (!v.isShared) return { sharePct: 50, shareAmount: null as number | null };
+  if (v.shareAmount != null && v.shareAmount >= v.amount) {
+    return { error: "La aportación debe ser menor al total" };
+  }
+  return { sharePct: v.sharePct ?? 50, shareAmount: v.shareAmount ?? null };
+}
+
 export async function createSubscription(formData: FormData) {
   const userId = authedUser(await auth());
   if (!userId) return { error: "No autenticado" };
@@ -49,9 +61,8 @@ export async function createSubscription(formData: FormData) {
 
   const account = await prisma.account.findFirst({ where: { id: v.accountId, userId } });
   if (!account) return { error: "Cuenta no encontrada" };
-  if (v.isShared && v.shareAmount && v.shareAmount >= v.amount) {
-    return { error: "La aportación debe ser menor al total" };
-  }
+  const parts = partsOf(v);
+  if ("error" in parts) return { error: parts.error };
 
   const now = new Date();
   await prisma.subscription.create({
@@ -63,8 +74,8 @@ export async function createSubscription(formData: FormData) {
       accountId: v.accountId,
       chargeDay: Math.round(v.chargeDay),
       isShared: v.isShared,
-      sharePct: v.isShared ? v.sharePct : 50,
-      shareAmount: v.isShared ? (v.shareAmount ?? null) : null,
+      sharePct: parts.sharePct,
+      shareAmount: parts.shareAmount,
       startMonth: `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`,
     },
   });
@@ -92,9 +103,8 @@ export async function updateSubscription(formData: FormData) {
   if (!sub) return { error: "Suscripción no encontrada" };
   const account = await prisma.account.findFirst({ where: { id: v.accountId, userId } });
   if (!account) return { error: "Cuenta no encontrada" };
-  if (v.isShared && v.shareAmount && v.shareAmount >= v.amount) {
-    return { error: "La aportación debe ser menor al total" };
-  }
+  const parts = partsOf(v);
+  if ("error" in parts) return { error: parts.error };
 
   // Solo afecta cargos futuros: lo ya confirmado es inmutable.
   await prisma.subscription.update({
@@ -106,8 +116,8 @@ export async function updateSubscription(formData: FormData) {
       accountId: v.accountId,
       chargeDay: Math.round(v.chargeDay),
       isShared: v.isShared,
-      sharePct: v.isShared ? v.sharePct : sub.sharePct,
-      shareAmount: v.isShared ? (v.shareAmount ?? null) : null,
+      sharePct: parts.sharePct,
+      shareAmount: parts.shareAmount,
     },
   });
 
@@ -136,13 +146,17 @@ export async function deleteSubscription(id: string) {
   const sub = await prisma.subscription.findFirst({ where: { id, userId } });
   if (!sub) return { error: "Suscripción no encontrada" };
 
-  // Los cargos ya confirmados se conservan (subscriptionId → null).
+  // Los cargos ya confirmados se conservan como movimientos normales.
   await prisma.subscription.delete({ where: { id } });
   revalidateAll();
   return { ok: true };
 }
 
-// Confirma un cargo pendiente: crea el movimiento real con su split y saldo.
+/**
+ * Confirmar cobro (solo el dueño): registra el hecho indivisible — gasto total
+ * en la tarjeta — y SI genera la deuda de la pareja (split), visible en Pareja.
+ * Nace ownerPaid=true. Los pagos de esa deuda se registran en Pareja, no aquí.
+ */
 export async function confirmSubscriptionCharge(subscriptionId: string, month: string) {
   const userId = authedUser(await auth());
   if (!userId) return { error: "No autenticado" };
@@ -154,204 +168,193 @@ export async function confirmSubscriptionCharge(subscriptionId: string, month: s
     include: { account: true },
   });
   if (!sub) return { error: "Suscripción no encontrada" };
+  if (!sub.isActive) return { error: "La suscripción está pausada" };
 
-  try {
-    await confirmChargeCore(prisma, sub, month, userId);
-  } catch (e) {
-    return { error: e instanceof Error ? e.message : "No se pudo confirmar" };
-  }
-  revalidateAll();
-  return { ok: true };
-}
-
-type SubWithAccount = Prisma.SubscriptionGetPayload<{ include: { account: true } }>;
-
-/**
- * Núcleo de confirmación: crea el gasto + split + saldo. Lanza Error si
- * ya existe, está pausada o no hay deudor. Corre dentro o fuera de tx.
- */
-async function confirmChargeCore(db: TxDb, sub: SubWithAccount, month: string, userId: string) {
-  if (!sub.isActive) throw new Error("La suscripción está pausada");
-
-  const [y, m] = month.split("-").map(Number);
-  const start = new Date(y, m - 1, 1);
-  const end = new Date(y, m, 1);
-  const existing = await db.transaction.findFirst({
-    where: { subscriptionId: sub.id, date: { gte: start, lt: end }, createdById: userId },
+  const existing = await prisma.subscriptionCharge.findUnique({
+    where: { subscriptionId_month: { subscriptionId, month } },
     select: { id: true },
   });
-  if (existing) throw new Error("Este cargo ya fue confirmado");
+  if (existing) return { error: "Este cargo ya fue confirmado" };
 
   const amount = Number(sub.amount);
-  const date = chargeDate(month, sub.chargeDay);
-
-  let debtorId: string | null = null;
-  if (sub.isShared) {
-    const other = await db.user.findFirst({ where: { id: { not: userId } } });
-    debtorId = other?.id ?? null;
-    if (!debtorId || debtorId === userId) throw new Error("No se pudo determinar quién debe aportar");
-  }
-
-  const tx = await db.transaction.create({
-    data: {
-      type: "EXPENSE",
-      amount,
-      concept: sub.name,
-      category: sub.category,
-      date,
-      accountId: sub.accountId,
-      createdById: userId,
-      installments: 1,
-      isShared: sub.isShared,
-      subscriptionId: sub.id,
-    },
-  });
-
-  let share: { id: string; debtorId: string; monthlyAmount: unknown } | null = null;
-  if (sub.isShared && debtorId) {
-    const fixed = sub.shareAmount ? Number(sub.shareAmount) : null;
-    share = await db.transactionShare.create({
-      data: {
-        transactionId: tx.id,
-        debtorId,
-        sharePct: fixed ? (fixed / amount) * 100 : sub.sharePct,
-        monthlyAmount: fixed ?? debtorMonthlyAmount(amount, 1, sub.sharePct),
-        isFixedAmount: Boolean(fixed),
-      },
-      select: { id: true, debtorId: true, monthlyAmount: true },
-    });
-  }
-
-  if (db === prisma) {
-    await moveBalance(sub.accountId, sub.account.type, "EXPENSE", amount, 1);
-  } else {
-    await db.account.update({
-      where: { id: sub.accountId },
-      data:
-        sub.account.type === "CREDIT" ? { balance: { increment: amount } } : { balance: { decrement: amount } },
-    });
-  }
-  return { tx, share };
-}
-
-const SubPaySchema = z.object({
-  subscriptionId: z.string().min(1),
-  month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, "Mes inválido"),
-  who: z.enum(["me", "partner"]),
-  amount: z.coerce.number().positive("El monto debe ser mayor a 0").optional(),
-  accountId: z.string().optional(),
-});
-
-/**
- * Pagos a una suscripción (solo yo gestiono mis suscripciones → sin confirmación).
- * - Solo + who=me: confirma el cargo (gasto en su cuenta).
- * - Compartida + who=me ("Pagué yo"): confirma el cargo (gasto total + deuda de ella).
- * - Compartida + who=partner ("Pagó mi pareja"): confirma el cargo si falta y
- *   registra su cobro (CONFIRMED + ingreso en mi cuenta, admite abonos).
- */
-export async function registerSubscriptionPayment(formData: FormData) {
-  const userId = authedUser(await auth());
-  if (!userId) return { error: "No autenticado" };
-  if (!process.env.DATABASE_URL) return { error: "Configura DATABASE_URL" };
-
-  const parsed = SubPaySchema.safeParse(Object.fromEntries(formData));
-  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Datos inválidos" };
-  const v = parsed.data;
-
-  const sub = await prisma.subscription.findFirst({
-    where: { id: v.subscriptionId, userId },
-    include: { account: true },
-  });
-  if (!sub) return { error: "Suscripción no encontrada" };
-  if (!sub.isActive) return { error: "La suscripción está pausada" };
-  if (v.who === "partner" && !sub.isShared) return { error: "Esta suscripción no es compartida" };
-
-  // Solo mía (o "Pagué yo" sin más): confirmar el cargo basta.
-  if (v.who === "me") {
-    try {
-      await confirmChargeCore(prisma, sub, v.month, userId);
-    } catch (e) {
-      return { error: e instanceof Error ? e.message : "No se pudo registrar" };
-    }
-    revalidateAll();
-    return { ok: true };
-  }
-
-  // "Pagó mi pareja": cuenta destino propia obligatoria.
-  const accountId = v.accountId || null;
-  if (!accountId) return { error: "Elige la cuenta donde recibiste" };
-  const account = await prisma.account.findFirst({ where: { id: accountId, userId } });
-  if (!account) return { error: "Cuenta no encontrada" };
-  const catError = await checkCategory(userId, "TRANSFERENCIA", "INCOME");
-  if (catError) return { error: catError };
-
+  // Todo indivisible en una transacción: gasto + share + cargo.
+  // El saldo se deriva por suma (lib/balances.ts).
   try {
     await prisma.$transaction(async (db) => {
-      // Cargo confirmado (o se confirma ahora mismo) + su aportación.
-      let shareId: string;
-      let monthly: number;
-      let debtorId: string;
-      let debtorName: string;
-      let concept: string;
-      const [y, m] = v.month.split("-").map(Number);
-      const start = new Date(y, m - 1, 1);
-      const end = new Date(y, m, 1);
-      const existingTx = await db.transaction.findFirst({
-        where: { subscriptionId: sub.id, date: { gte: start, lt: end }, createdById: userId },
-        select: { id: true, concept: true },
-      });
-      if (existingTx) {
-        const sh = await db.transactionShare.findFirst({
-          where: { transactionId: existingTx.id },
-          include: { debtor: true },
-        });
-        if (!sh) throw new Error("El cargo no generó aportación de pareja");
-        shareId = sh.id;
-        monthly = Number(sh.monthlyAmount);
-        debtorId = sh.debtorId;
-        debtorName = sh.debtor.name;
-        concept = existingTx.concept;
-      } else {
-        const { tx, share } = await confirmChargeCore(db, sub, v.month, userId);
-        if (!share) throw new Error("No se pudo crear la aportación");
-        const debt = await db.user.findUnique({ where: { id: share.debtorId }, select: { name: true } });
-        shareId = share.id;
-        monthly = Number(share.monthlyAmount);
-        debtorId = share.debtorId;
-        debtorName = debt?.name ?? "pareja";
-        concept = tx.concept;
-      }
-      if (debtorId === userId) throw new Error("No puedes cobrarte a ti mismo");
-
-      const sums = await getLineSums([shareId], db);
-      const rest = Math.max(0, monthly - (sums.get(lineKey(shareId, v.month))?.confirmed ?? 0));
-      const amt = v.amount ?? rest;
-      if (rest <= 0.005) throw new Error("Su parte ya está liquidada");
-      if (amt - rest > 0.005) throw new Error(`Solo restan $${rest.toLocaleString("es-MX", { maximumFractionDigits: 2 })}`);
-
-      const incomeId = await createCreditorIncome(db, {
-        amount: amt,
-        concept: `Pago de ${debtorName} · ${concept}`,
-        accountId,
-        accountType: account.type,
-        userId,
-      });
-      await db.debtPayment.create({
+      const tx = await db.transaction.create({
         data: {
-          shareId,
-          month: v.month,
-          amount: amt,
-          status: "CONFIRMED",
-          registeredById: userId,
-          confirmedById: userId,
-          accountId,
-          transactionId: incomeId,
+          type: "EXPENSE",
+          amount,
+          concept: sub.name,
+          category: sub.category,
+          date: chargeDate(month, sub.chargeDay),
+          accountId: sub.accountId,
+          createdById: userId,
+          installments: 1,
+          isShared: sub.isShared,
+          subscriptionId: sub.id,
+        },
+      });
+
+      if (sub.isShared) {
+        const other = await db.user.findFirst({ where: { id: { not: userId } }, select: { id: true } });
+        const debtorId = other?.id;
+        if (!debtorId || debtorId === userId) throw new Error("No se pudo determinar quién debe aportar");
+        const fixed = sub.shareAmount ? Number(sub.shareAmount) : null;
+        await db.transactionShare.create({
+          data: {
+            transactionId: tx.id,
+            debtorId,
+            sharePct: fixed ? (fixed / amount) * 100 : sub.sharePct,
+            monthlyAmount: fixed ?? debtorMonthlyAmount(amount, 1, sub.sharePct),
+            isFixedAmount: Boolean(fixed),
+          },
+        });
+      }
+
+      await db.subscriptionCharge.create({
+        data: {
+          subscriptionId: sub.id,
+          month,
+          transactionId: tx.id,
+          ownerPaid: true,
+          ownerPaidById: userId,
+          ownerPaidAt: new Date(),
+          partnerPaid: false,
         },
       });
     });
   } catch (e) {
-    return { error: e instanceof Error ? e.message : "No se pudo registrar" };
+    return { error: e instanceof Error ? e.message : "No se pudo confirmar el cargo" };
   }
+
   revalidateAll();
   return { ok: true };
 }
+
+export type SubFull = {
+  id: string;
+  name: string;
+  amount: number;
+  category: string;
+  accountId: string;
+  accountName: string;
+  accountType: "DEBIT" | "CREDIT";
+  chargeDay: number;
+  isShared: boolean;
+  sharePct: number;
+  shareAmount: number | null;
+  isActive: boolean;
+  startMonth: string;
+  ownerId: string;
+  ownerName: string;
+  isMine: boolean;
+  partnerName: string | null;
+  history: { monthKey: string; short: string; confirmed: boolean; partnerPaid: boolean; isShared: boolean }[];
+};
+
+/**
+ * Todo lo de suscripciones para un usuario en una sola llamada: plantillas
+ * propias + compartidas de la pareja (sin saldos ajenos) y cargos pendientes.
+ */
+export async function getSubscriptionData(userId: string): Promise<{ subs: SubFull[]; dues: DueCharge[] }> {
+  if (!process.env.DATABASE_URL || !userId) return { subs: [], dues: [] };
+  try {
+    const [me, partner, mySubs, partnerSubs] = await Promise.all([
+      prisma.user.findUnique({ where: { id: userId }, select: { name: true } }),
+      prisma.user.findFirst({ where: { id: { not: userId } }, select: { id: true, name: true } }),
+      prisma.subscription.findMany({
+        where: { userId },
+        include: { account: true, user: { select: { name: true } } },
+        orderBy: { createdAt: "asc" },
+      }),
+      prisma.subscription.findMany({
+        where: { userId: { not: userId }, isShared: true },
+        include: {
+          account: { select: { id: true, type: true } },
+          user: { select: { name: true } },
+        },
+        orderBy: { createdAt: "asc" },
+      }),
+    ]);
+    if (!me) return { subs: [], dues: [] };
+    // Nombre del otro miembro (para "¿Te pagó X?"). En las suyas es la dueña.
+    const partnerName = partner?.name ?? null;
+
+    const infos: SubInfo[] = [
+      ...mySubs.map((s) => ({
+        id: s.id,
+        name: s.name,
+        amount: Number(s.amount),
+        category: s.category,
+        accountId: s.accountId,
+        accountName: s.account.name,
+        accountType: s.account.type as "DEBIT" | "CREDIT",
+        chargeDay: s.chargeDay,
+        isShared: s.isShared,
+        sharePct: s.sharePct,
+        shareAmount: s.shareAmount ? Number(s.shareAmount) : null,
+        isActive: s.isActive,
+        startMonth: s.startMonth,
+        ownerId: userId,
+        ownerName: me.name,
+        isMine: true,
+        partnerName,
+      })),
+      ...partnerSubs.map((s) => ({
+        id: s.id,
+        name: s.name,
+        amount: Number(s.amount),
+        category: s.category,
+        accountId: s.accountId,
+        accountName: `Tarjeta de ${s.user.name}`,
+        accountType: s.account.type as "DEBIT" | "CREDIT",
+        chargeDay: s.chargeDay,
+        isShared: s.isShared,
+        sharePct: s.sharePct,
+        shareAmount: s.shareAmount ? Number(s.shareAmount) : null,
+        isActive: s.isActive,
+        startMonth: s.startMonth,
+        ownerId: "",
+        ownerName: s.user.name,
+        isMine: false,
+        partnerName: s.user.name,
+      })),
+    ];
+
+    const charges = await prisma.subscriptionCharge.findMany({
+      where: { subscriptionId: { in: infos.map((s) => s.id) } },
+      include: {
+        ownerPaidBy: { select: { name: true } },
+        partnerPaidBy: { select: { name: true } },
+      },
+    });
+    const chargeMap = new Map<string, ChargeRow>(
+      charges.map((c) => [
+        `${c.subscriptionId}:${c.month}`,
+        {
+          subscriptionId: c.subscriptionId,
+          month: c.month,
+          transactionId: c.transactionId,
+          ownerPaid: c.ownerPaid,
+          partnerPaid: c.partnerPaid,
+          ownerPaidByName: c.ownerPaidBy?.name ?? null,
+          partnerPaidByName: c.partnerPaidBy?.name ?? null,
+        },
+      ]),
+    );
+
+    const dues = computeDues(infos, chargeMap);
+    const subs: SubFull[] = infos.map((s) => ({
+      ...s,
+      history: monthHistory(s, chargeMap).map((h) => ({ ...h })),
+    }));
+
+    return { subs, dues };
+  } catch {
+    return { subs: [], dues: [] };
+  }
+}
+
+
+

@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import {
   Dialog,
@@ -100,6 +101,14 @@ export function SubscriptionForm({
   const preview =
     shareMode === "pct" ? (totalNum * sharePct) / 100 : Number(shareAmt) || 0;
 
+  const shareLabel = !shared
+    ? "Compartir"
+    : shareMode === "pct"
+      ? `${sharePct}%`
+      : shareAmt
+        ? `$${fmtDisplay(shareAmt)}`
+        : "Compartir";
+
   // Catálogo de gasto (tabla + creadas en sesión); la elegida va primera.
   const expenseCats = useMemo(() => {
     const all = [...cats, ...localRows].filter((c) =>
@@ -175,14 +184,6 @@ export function SubscriptionForm({
   const [shareOpen, setShareOpen] = useState(false);
   const accountName =
     accountOptions.find((a) => a.id === accountId)?.name ?? "Cuenta";
-
-  const shareLabel = !shared
-    ? "Compartir"
-    : shareMode === "pct"
-      ? `${sharePct}%`
-      : shareAmt
-        ? `$${fmtDisplay(shareAmt)}`
-        : "Compartir";
 
   function fmtDisplay(s: string) {
     if (!s) return "0";
@@ -478,7 +479,7 @@ export function SubscriptionForm({
         </DialogContent>
       </Dialog>
 
-      {/* Modal: compartir (porcentaje o cantidad fija) */}
+      {/* Modal: compartir (referencia visual del reparto) */}
       <Dialog open={shareOpen} onOpenChange={setShareOpen}>
         <DialogContent>
           <DialogHeader>
@@ -488,7 +489,7 @@ export function SubscriptionForm({
             <div>
               <p className="text-sm font-semibold">Compartir con mi pareja</p>
               <p className="text-xs text-(--muted-foreground)">
-                Cada cargo genera su split
+                Cada cargo genera su parte en Pareja
               </p>
             </div>
             <Switch
