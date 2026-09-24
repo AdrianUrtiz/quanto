@@ -8,9 +8,6 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
-  // Si usas pooling (Neon/Vercel con PgBouncer), agrega:
-  // directUrl = env("DIRECT_URL")
 }
 
 enum AccountType {
@@ -36,13 +33,13 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  accounts     Account[]
-  transactions Transaction[]      @relation("CreatedBy")
-  debts        TransactionShare[] @relation("Debtor")
-  subscriptions Subscription[]
-  categories   Category[]
-  paymentsRegistered DebtPayment[] @relation("PaymentRegistrar")
-  paymentsConfirmed  DebtPayment[] @relation("PaymentConfirmer")
+  accounts           Account[]
+  transactions       Transaction[]      @relation("CreatedBy")
+  debts              TransactionShare[] @relation("Debtor")
+  subscriptions      Subscription[]
+  categories         Category[]
+  paymentsRegistered DebtPayment[]      @relation("PaymentRegistrar")
+  paymentsConfirmed  DebtPayment[]      @relation("PaymentConfirmer")
 }
 
 model Account {
@@ -54,7 +51,7 @@ model Account {
 
   lastFour String?
   expiry   String? // vencimiento MM/AA
-  color    String?  @default("#6366f1")
+  color    String? @default("#6366f1")
   isActive Boolean @default(true)
 
   // — Débito: solo saldo inicial; los ingresos se registran manual —
@@ -70,7 +67,7 @@ model Account {
   //  - CREDIT → deuda dispuesta acumulada (disponible = limit - balance).
   balance Decimal @default(0) @db.Decimal(12, 2)
 
-  transactions Transaction[]
+  transactions  Transaction[]
   subscriptions Subscription[]
 
   createdAt DateTime @default(now())
@@ -82,13 +79,13 @@ model Account {
 }
 
 model Transaction {
-  id          String          @id @default(cuid())
-  type        TransactionType @default(EXPENSE)
-  amount      Decimal         @db.Decimal(12, 2) // monto TOTAL de la compra
-  concept     String
-  category    String        @default("OTRO")
-  date        DateTime        @default(now())
-  notes       String?
+  id       String          @id @default(cuid())
+  type     TransactionType @default(EXPENSE)
+  amount   Decimal         @db.Decimal(12, 2) // monto TOTAL de la compra
+  concept  String
+  category String          @default("OTRO")
+  date     DateTime        @default(now())
+  notes    String?
 
   accountId String
   account   Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
@@ -101,7 +98,7 @@ model Transaction {
   installments Int @default(1)
 
   // Gasto compartido en pareja (por defecto 50/50 vía TransactionShare).
-  isShared Boolean @default(false)
+  isShared Boolean            @default(false)
   shares   TransactionShare[]
 
   // Solo para TRANSFER: cuenta destino.
@@ -158,12 +155,12 @@ model Subscription {
 
   chargeDay Int // día de cobro 1-31 (se ajusta al último día del mes si no existe)
 
-  isShared Boolean @default(false)
+  isShared    Boolean  @default(false)
   // Reparto: porcentaje del deudor o cantidad fija total (igual que el formulario).
   sharePct    Float    @default(50)
   shareAmount Decimal? @db.Decimal(12, 2)
 
-  isActive Boolean @default(true) // false = pausada
+  isActive   Boolean @default(true) // false = pausada
   // Primer mes a generar, "YYYY-MM" (por defecto el mes de creación).
   startMonth String
 
@@ -176,7 +173,7 @@ model Subscription {
 }
 
 model TransactionShare {
-  id            String @id @default(cuid())
+  id            String      @id @default(cuid())
   transactionId String
   transaction   Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
 
@@ -215,7 +212,7 @@ enum PaymentStatus {
 // - Si registra el DEUDOR (paga): PENDING hasta que el acreedor confirma.
 // El movimiento de dinero siempre lo crea el dueño de la cuenta.
 model DebtPayment {
-  id      String        @id @default(cuid())
+  id      String           @id @default(cuid())
   shareId String
   share   TransactionShare @relation(fields: [shareId], references: [id], onDelete: Cascade)
 
