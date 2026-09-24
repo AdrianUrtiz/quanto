@@ -8,6 +8,7 @@ import {
   LayoutGrid,
   Plus,
   Repeat,
+  Users,
   Wallet,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -166,8 +167,17 @@ export function SubscriptionForm({
   }, [category]);
   const [accOpen, setAccOpen] = useState(false);
   const [gridOpen, setGridOpen] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
   const accountName =
     accountOptions.find((a) => a.id === accountId)?.name ?? "Cuenta";
+
+  const shareLabel = !shared
+    ? "Compartir"
+    : shareMode === "pct"
+      ? `${sharePct}%`
+      : shareAmt
+        ? `$${fmtDisplay(shareAmt)}`
+        : "Compartir";
 
   function fmtDisplay(s: string) {
     if (!s) return "0";
@@ -237,7 +247,7 @@ export function SubscriptionForm({
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-5 pb-6">
+    <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-5 pb-6">
       {/* Monto mensual */}
       <div className="flex items-center justify-center gap-1.5 py-12">
         <span className="text-2xl font-bold text-(--muted-foreground)">$</span>
@@ -266,8 +276,8 @@ export function SubscriptionForm({
         className="h-12 text-base"
       />
 
-      {/* Pills: día · cuenta */}
-      <div className="no-scrollbar -mx-5 flex gap-2 overflow-x-auto px-5 pb-1">
+      {/* Pills: día · cuenta · compartir */}
+      <div className="no-scrollbar -mx-5 flex gap-2 overflow-x-auto px-5">
         <DayPill day={day} onPick={setDay} />
         <button
           type="button"
@@ -276,6 +286,18 @@ export function SubscriptionForm({
         >
           <Wallet className="size-3.5" />
           <span className="truncate">{accountName}</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => setShareOpen(true)}
+          className={cn(
+            "flex shrink-0 items-center gap-1.5 rounded-full border px-4 py-2 text-xs font-semibold",
+            shared
+              ? "border-transparent bg-(--foreground) text-(--background)"
+              : "border-(--border) bg-(--muted)/60",
+          )}
+        >
+          <Users className="size-3.5" /> {shareLabel}
         </button>
       </div>
 
@@ -310,7 +332,7 @@ export function SubscriptionForm({
       </Dialog>
 
       {/* Categorías: slider ~85% + botón fijo al grid */}
-      <div className="mt-2 flex items-center gap-2">
+      <div className="flex items-center gap-2">
         <div
           ref={sliderRef}
           className="no-scrollbar flex min-w-0 flex-1 gap-2 overflow-x-auto items-center pb-1"
@@ -439,71 +461,91 @@ export function SubscriptionForm({
         </DialogContent>
       </Dialog>
 
-      {/* Compartir */}
-      <div className="flex items-center justify-between rounded-2xl border border-(--border) px-4 py-2.5">
-        <div>
-          <p className="text-xs font-semibold">Compartir con mi pareja</p>
-          <p className="text-[11px] text-(--muted-foreground)">
-            Cada cargo genera su split
-          </p>
-        </div>
-        <Switch
-          checked={shared}
-          onCheckedChange={setShared}
-          aria-label="Compartir suscripción"
-        />
-      </div>
-
-      {shared && (
-        <div className="space-y-3 rounded-3xl border border-(--border) p-4">
-          <div className="mx-auto grid w-fit grid-cols-2 gap-2 rounded-full bg-(--muted) p-1">
-            {(["pct", "amount"] as const).map((m) => (
-              <button
-                key={m}
-                type="button"
-                onClick={() => setShareMode(m)}
-                className={cn(
-                  "rounded-full px-5 py-1.5 text-xs font-semibold",
-                  shareMode === m
-                    ? "bg-(--card) shadow"
-                    : "text-(--muted-foreground)",
-                )}
-              >
-                {m === "pct" ? "Porcentaje" : "Cantidad"}
-              </button>
-            ))}
-          </div>
-          {shareMode === "pct" ? (
-            <>
-              <p className="text-center text-3xl font-extrabold tabular-nums">
-                {sharePct}%
+      {/* Modal: compartir (porcentaje o cantidad fija) */}
+      <Dialog open={shareOpen} onOpenChange={setShareOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Compartir suscripción</DialogTitle>
+          </DialogHeader>
+          <div className="flex items-center justify-between rounded-2xl border border-(--border) px-4 py-3">
+            <div>
+              <p className="text-sm font-semibold">Compartir con mi pareja</p>
+              <p className="text-xs text-(--muted-foreground)">
+                Cada cargo genera su split
               </p>
-              <input
-                type="range"
-                min={1}
-                max={99}
-                value={sharePct}
-                onChange={(e) => setSharePct(Number(e.target.value))}
-                aria-label="Porcentaje que aporta tu pareja"
-                className="w-full accent-(--primary)"
-              />
-            </>
-          ) : (
-            <Input
-              type="number"
-              min={0.01}
-              step={0.01}
-              value={shareAmt}
-              onChange={(e) => setShareAmt(e.target.value)}
-              placeholder="Aportación fija ($)"
-              inputMode="decimal"
+            </div>
+            <Switch
+              checked={shared}
+              onCheckedChange={setShared}
+              aria-label="Compartir suscripción"
             />
+          </div>
+
+          {shared && (
+            <>
+              <div className="mx-auto grid w-fit grid-cols-2 gap-2 rounded-full bg-(--muted) p-1">
+                {(["pct", "amount"] as const).map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => setShareMode(m)}
+                    className={cn(
+                      "rounded-full px-5 py-1.5 text-xs font-semibold",
+                      shareMode === m
+                        ? "bg-(--card) shadow"
+                        : "text-(--muted-foreground)",
+                    )}
+                  >
+                    {m === "pct" ? "Porcentaje" : "Cantidad"}
+                  </button>
+                ))}
+              </div>
+              {shareMode === "pct" ? (
+                <div className="space-y-2 rounded-3xl border border-(--border) p-4">
+                  <p className="text-center text-3xl font-extrabold tabular-nums">
+                    {sharePct}%
+                  </p>
+                  <input
+                    type="range"
+                    min={1}
+                    max={99}
+                    value={sharePct}
+                    onChange={(e) => setSharePct(Number(e.target.value))}
+                    aria-label="Porcentaje que aporta tu pareja"
+                    className="w-full accent-(--primary)"
+                  />
+                  <p className="text-center text-xs text-(--muted-foreground)">
+                    Tu pareja aporta <b>{formatMoney(preview)}/mes</b>
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-2 rounded-3xl border border-(--border) p-4">
+                  <Input
+                    type="number"
+                    min={0.01}
+                    step={0.01}
+                    value={shareAmt}
+                    onChange={(e) => setShareAmt(e.target.value)}
+                    placeholder="Aportación fija ($)"
+                    inputMode="decimal"
+                  />
+                  <p className="text-center text-xs text-(--muted-foreground)">
+                    Tu pareja aporta <b>{formatMoney(preview)}/mes</b>
+                  </p>
+                </div>
+              )}
+
+              <Button
+                type="button"
+                className="w-full"
+                onClick={() => setShareOpen(false)}
+              >
+                Listo
+              </Button>
+            </>
           )}
-          <p className="text-center text-xs text-(--muted-foreground)">
-            Tu pareja aporta <b>{formatMoney(preview)}/mes</b>
-          </p>
-        </div>
-      )}
+        </DialogContent>
+      </Dialog>
 
       {msg && (
         <p className="text-center text-sm font-medium text-red-500">{msg}</p>
