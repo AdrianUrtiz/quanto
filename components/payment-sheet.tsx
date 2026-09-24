@@ -58,9 +58,11 @@ export function PaymentSheet({
   accountOptions: AccountOpt[];
   onDone?: () => void;
 }) {
-  const firstOpen = lines.find((l) => lineRemaining(l) > 0) ?? lines[0];
+  // Las líneas ya liquidadas (todo CONFIRMED) no ofrecen acciones.
+  const openLines = mode === "confirm" ? lines : lines.filter((l) => lineRemaining(l) > 0.005);
+  const firstOpen = openLines.find((l) => lineRemaining(l) > 0) ?? openLines[0] ?? null;
   const [selId, setSelId] = useState(firstOpen?.shareId ?? "");
-  const sel = lines.find((l) => l.shareId === selId) ?? firstOpen;
+  const sel = openLines.find((l) => l.shareId === selId) ?? firstOpen;
   const [amount, setAmount] = useState(
     sel ? String(Math.round(lineRemaining(sel) * 100) / 100) : "",
   );
@@ -129,6 +131,7 @@ export function PaymentSheet({
 
   const title =
     mode === "receive" ? "Registrar cobro" : mode === "pay" ? "Registrar pago" : "Confirmar pago";
+  const hasOpen = mode === "confirm" || openLines.length > 0;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-5 pb-6">
@@ -144,11 +147,39 @@ export function PaymentSheet({
             Lo registró <b className="text-(--foreground)">{payment.registeredByName}</b>
           </p>
         </div>
+      ) : openLines.length === 0 ? (
+        <p className="rounded-3xl border border-emerald-500/40 bg-emerald-500/10 p-6 text-center text-sm font-semibold text-emerald-500">
+          Todo liquidado ✓
+        </p>
       ) : (
         <ul className="space-y-2">
           {lines.map((l) => {
             const rest = lineRemaining(l);
+            const settled = rest <= 0.005;
             const active = l.shareId === sel?.shareId;
+            if (settled) {
+              return (
+                <li
+                  key={`${l.shareId}:${l.month}`}
+                  className="rounded-3xl border border-(--border) p-4 opacity-70"
+                >
+                  <span className="flex items-center justify-between gap-2">
+                    <span className="truncate text-sm font-semibold">
+                      {l.concept}{" "}
+                      <span className="font-medium text-(--muted-foreground)">
+                        ({l.installments > 1 ? `${l.installment}/${l.installments}` : "único"})
+                      </span>
+                    </span>
+                    <span className="flex shrink-0 items-center gap-1 text-xs font-bold text-emerald-500">
+                      <Check className="size-3.5" /> Liquidado
+                    </span>
+                  </span>
+                  <span className="mt-1 block text-xs text-(--muted-foreground)">
+                    Abonado {formatMoney(l.paid)} de {formatMoney(l.monthly)}
+                  </span>
+                </li>
+              );
+            }
             return (
               <li key={`${l.shareId}:${l.month}`}>
                 <button
@@ -180,7 +211,7 @@ export function PaymentSheet({
         </ul>
       )}
 
-      {mode !== "confirm" && (
+      {mode !== "confirm" && hasOpen && (
         <div className="space-y-1.5">
           <Label htmlFor="pay-amount">Monto del abono</Label>
           <div className="flex items-center gap-1.5">
@@ -200,7 +231,7 @@ export function PaymentSheet({
         </div>
       )}
 
-      {(mode === "receive" || mode === "confirm" || (mode === "pay" && !noMovement)) && (
+      {(mode === "receive" || mode === "confirm" || (mode === "pay" && !noMovement)) && hasOpen && (
         <div className="space-y-1.5">
           <Label>{mode === "pay" ? "Cuenta de origen" : "Cuenta donde recibiste"}</Label>
           {accountOptions.length === 0 ? (
@@ -229,7 +260,7 @@ export function PaymentSheet({
         </div>
       )}
 
-      {mode === "pay" && (
+      {mode === "pay" && hasOpen && (
         <button
           type="button"
           onClick={() => setNoMovement((v) => !v)}
@@ -243,6 +274,7 @@ export function PaymentSheet({
       )}
 
       {msg && <p className="text-center text-sm font-medium text-red-500">{msg}</p>}
+      {hasOpen && (
       <Button
         type="button"
         className="h-12 w-full rounded-2xl text-base"
@@ -251,6 +283,7 @@ export function PaymentSheet({
       >
         {pending ? "Guardando…" : mode === "confirm" ? "Confirmar y registrar ingreso" : mode === "receive" ? "Confirmar cobro" : "Registrar (queda por confirmar)"}
       </Button>
+      )}
       {mode === "confirm" && (
         <button
           type="button"
@@ -266,7 +299,7 @@ export function PaymentSheet({
           Al registrarlo tú, queda confirmado y crea el ingreso al instante
         </p>
       )}
-      {mode === "pay" && (
+      {mode === "pay" && hasOpen && (
         <p className="text-center text-[11px] text-(--muted-foreground)">
           Tu pareja deberá confirmarlo en su app
         </p>
