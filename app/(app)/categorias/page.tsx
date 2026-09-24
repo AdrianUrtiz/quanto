@@ -1,4 +1,5 @@
-import { AppHeader } from "@/components/app-header";
+import Link from "next/link";
+import { ChevronLeft } from "lucide-react";
 import { CategoryManager } from "@/components/category-manager";
 import { auth } from "@/auth";
 import { getCatalog } from "@/lib/catalog";
@@ -13,7 +14,14 @@ export default async function CategoriasPage() {
 
   return (
     <>
-      <AppHeader title="Categorías" />
+      <div className="px-5 pt-4">
+        <Link
+          href="/ajustes"
+          className="inline-flex items-center gap-1 text-sm font-semibold text-(--muted-foreground)"
+        >
+          <ChevronLeft className="size-4" /> Ajustes
+        </Link>
+      </div>
       <CategoryManager cats={cats} />
     </>
   );

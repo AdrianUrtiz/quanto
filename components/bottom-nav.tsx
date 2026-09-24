@@ -2,13 +2,14 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutList, PieChart, Wallet } from "lucide-react";
+import { LayoutList, PieChart, Settings, Wallet } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const ITEMS = [
   { href: "/actividad", label: "Actividad", icon: LayoutList },
-  { href: "/resumen", label: "Resumen", icon: PieChart },
   { href: "/cuentas", label: "Cuentas", icon: Wallet },
+  { href: "/resumen", label: "Resumen", icon: PieChart },
+  { href: "/ajustes", label: "Ajustes", icon: Settings },
 ];
 
 export function BottomNav() {

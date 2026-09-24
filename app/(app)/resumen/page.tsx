@@ -1,4 +1,3 @@
-import { AppHeader } from "@/components/app-header";
 import { ResumenClient } from "@/components/resumen-client";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
@@ -98,7 +97,6 @@ export default async function ResumenPage() {
 
   return (
     <>
-      <AppHeader title="Resumen" />
       <ResumenClient total={total} byCategory={byCategory} settlement={settlement} monthLabel={monthLabelEs(now)} />
     </>
   );

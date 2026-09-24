@@ -24,8 +24,13 @@ type FabProps = {
 export function Fab({ accountOptions, cats }: FabProps) {
   const pathname = usePathname();
 
-  // Resumen: sin botón flotante.
-  if (pathname.startsWith("/resumen")) return null;
+  // Resumen, Ajustes y Categorías: sin botón flotante.
+  if (
+    pathname.startsWith("/resumen") ||
+    pathname.startsWith("/ajustes") ||
+    pathname.startsWith("/categorias")
+  )
+    return null;
 
   // Cuentas: speed-dial con dos acciones (cuenta / suscripción).
   // `key` por ruta: al navegar y volver, el menú se remonta y arranca cerrado.

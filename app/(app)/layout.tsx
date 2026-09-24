@@ -45,7 +45,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const catalog = await getCatalog(meId);
   return (
     <div className="mx-auto flex min-h-dvh w-full max-w-md flex-col">
-      <main className="flex-1 pb-44">{children}</main>
+      <main className="pt-safe flex-1 pb-44">{children}</main>
       <Fab accountOptions={accounts} cats={catalog} />
       <BottomNav />
     </div>

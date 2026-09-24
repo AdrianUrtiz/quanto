@@ -1,4 +1,3 @@
-import { AppHeader } from "@/components/app-header";
 import { ActivityClient, type MonthOpt } from "@/components/activity-client";
 import { DueSubscriptions } from "@/components/due-subscriptions";
 import type { TxRow } from "@/components/transaction-list";
@@ -164,7 +163,6 @@ export default async function ActividadPage() {
 
   return (
     <>
-      <AppHeader title="Actividad" />
       <DueSubscriptions dues={dues} />
       <ActivityClient txs={txs} months={months} cats={catalog} />
     </>

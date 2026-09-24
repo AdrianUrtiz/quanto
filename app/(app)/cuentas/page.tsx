@@ -1,4 +1,3 @@
-import { AppHeader } from "@/components/app-header";
 import { CuentasClient, type PartnerDebt } from "@/components/cuentas-client";
 import type { AccountRow } from "@/components/account-card";
 import { auth } from "@/auth";
@@ -282,7 +281,6 @@ export default async function CuentasPage() {
 
   return (
     <>
-      <AppHeader title="Cuentas" />
       <CuentasClient accounts={accounts} meId={meId} debts={debts} owed={owed} subs={subs} dues={dues} cats={catalog} />
     </>
   );
