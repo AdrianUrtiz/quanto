@@ -52,7 +52,6 @@ export async function createAccount(formData: FormData) {
       creditLimit: v.type === "CREDIT" ? v.creditLimit ?? null : null,
       statementDay: v.type === "CREDIT" ? v.statementDay ?? null : null,
       dueDay: v.type === "CREDIT" ? v.dueDay ?? null : null,
-      balance: v.type === "DEBIT" ? v.initialBalance : 0,
     },
   });
 
@@ -71,8 +70,8 @@ const UpdateAccountSchema = z.object({
   dueDay: z.coerce.number().min(1).max(31).optional(),
 });
 
-// Edición solo del dueño. No se toca type, initialBalance ni balance
-// (el saldo se mueve únicamente con movimientos).
+// Edición solo del dueño. No se toca type ni initialBalance
+// (el saldo se deriva de los movimientos, lib/balances.ts).
 export async function updateAccount(formData: FormData) {
   const session = await auth();
   const userId = (session?.user as { id?: string } | undefined)?.id;
@@ -129,59 +128,6 @@ export async function deleteAccount(id: string) {
   return { ok: true };
 }
 
-// Mueve el saldo en la dirección indicada. dir=1 aplica el efecto,
-// dir=-1 lo revierte. Réplica exacta de la lógica de createTransaction.
-export async function moveBalance(accountId: string, accType: string, txType: string, amount: number, dir: 1 | -1) {
-  if (txType === "EXPENSE" && accType === "CREDIT") {
-    await prisma.account.update({
-      where: { id: accountId },
-      data: dir === 1 ? { balance: { increment: amount } } : { balance: { decrement: amount } },
-    });
-  } else if (txType === "EXPENSE" && accType === "DEBIT") {
-    await prisma.account.update({
-      where: { id: accountId },
-      data: dir === 1 ? { balance: { decrement: amount } } : { balance: { increment: amount } },
-    });
-  } else if (txType === "INCOME" && accType === "DEBIT") {
-    await prisma.account.update({
-      where: { id: accountId },
-      data: dir === 1 ? { balance: { increment: amount } } : { balance: { decrement: amount } },
-    });
-  } else if (txType === "INCOME" && accType === "CREDIT") {
-    // Abono a tarjeta: reduce la deuda (libera línea); revertir la regresa.
-    await prisma.account.update({
-      where: { id: accountId },
-      data: dir === 1 ? { balance: { decrement: amount } } : { balance: { increment: amount } },
-    });
-  }
-}
-
-// Traspaso entre cuentas propias. dir=1 aplica, dir=-1 revierte.
-// Destino débito: suma saldo · destino crédito: reduce deuda (libera línea).
-async function moveTransfer(
-  origin: { id: string; type: string },
-  dest: { id: string; type: string },
-  amount: number,
-  dir: 1 | -1,
-) {
-  const out = dir === 1;
-  await prisma.account.update({
-    where: { id: origin.id },
-    data: out ? { balance: { decrement: amount } } : { balance: { increment: amount } },
-  });
-  await prisma.account.update({
-    where: { id: dest.id },
-    data:
-      dest.type === "CREDIT"
-        ? out
-          ? { balance: { decrement: amount } }
-          : { balance: { increment: amount } }
-        : out
-          ? { balance: { increment: amount } }
-          : { balance: { decrement: amount } },
-  });
-}
-
 const UpdateTxSchema = z.object({
   id: z.string().min(1),
   amount: z.coerce.number().positive("Monto debe ser mayor a 0"),
@@ -216,7 +162,7 @@ export async function updateTransaction(formData: FormData) {
   const newAcc = await prisma.account.findFirst({ where: { id: v.accountId, userId } });
   if (!newAcc) return { error: "Cuenta no encontrada" };
 
-  // Traspaso: revierte origen/destino anteriores y aplica los nuevos.
+  // Traspaso: solo se reescribe la fila (el saldo se deriva por suma).
   if (tx.type === "TRANSFER") {
     const newDestId = v.transferToAccountId;
     if (!newDestId || newDestId === v.accountId) return { error: "Elige una cuenta destino distinta" };
@@ -224,23 +170,7 @@ export async function updateTransaction(formData: FormData) {
     if (!newDest) return { error: "Cuenta destino no encontrada" };
     if (newAcc.type !== "DEBIT") return { error: "El traspaso debe salir de una cuenta de débito" };
     if (!tx.transferToAccountId) return { error: "Este movimiento no tiene destino registrado" };
-    const oldDest = await prisma.account.findFirst({
-      where: { id: tx.transferToAccountId, userId },
-      select: { id: true, type: true },
-    });
 
-    await moveTransfer(
-      { id: tx.accountId, type: tx.account.type },
-      { id: tx.transferToAccountId, type: oldDest?.type ?? "CREDIT" },
-      Number(tx.amount),
-      -1,
-    );
-    await moveTransfer(
-      { id: v.accountId, type: newAcc.type },
-      { id: newDestId, type: newDest.type },
-      v.amount,
-      1,
-    );
     await prisma.transaction.update({
       where: { id: v.id },
       data: {
@@ -257,10 +187,6 @@ export async function updateTransaction(formData: FormData) {
     revalidatePath("/cuentas");
     return { ok: true };
   }
-
-  // Revierte el efecto anterior y aplica el nuevo (puede cambiar de cuenta).
-  await moveBalance(tx.accountId, tx.account.type, tx.type, Number(tx.amount), -1);
-  await moveBalance(v.accountId, newAcc.type, tx.type, v.amount, 1);
 
   await prisma.transaction.update({
     where: { id: v.id },
@@ -289,8 +215,9 @@ export async function updateTransaction(formData: FormData) {
   return { ok: true };
 }
 
-// Borrado físico con reversión del saldo. Solo el creador. Los shares
-// compartidos se eliminan en cascada.
+// Borrado físico. El saldo se deriva por suma, así que basta borrar la fila.
+// Solo el creador. Bloquea si el movimiento es ingreso/egreso de un pago de
+// pareja o cargo de suscripción (primero cancela el pago/cargo).
 export async function deleteTransaction(id: string) {
   const session = await auth();
   const userId = (session?.user as { id?: string } | undefined)?.id;
@@ -299,25 +226,25 @@ export async function deleteTransaction(id: string) {
 
   const tx = await prisma.transaction.findFirst({
     where: { id, createdById: userId },
-    include: { account: true },
+    include: {
+      account: true,
+      debtPayment: true,
+      debtorSourcePayment: true,
+      charges: { select: { id: true } },
+    },
   });
   if (!tx) return { error: "Movimiento no encontrado" };
 
-  if (tx.type === "TRANSFER") {
-    if (!tx.transferToAccountId) return { error: "Este movimiento no tiene destino registrado" };
-    const dest = await prisma.account.findFirst({
-      where: { id: tx.transferToAccountId, userId },
-      select: { id: true, type: true },
-    });
-    await moveTransfer(
-      { id: tx.accountId, type: tx.account.type },
-      { id: tx.transferToAccountId, type: dest?.type ?? "CREDIT" },
-      Number(tx.amount),
-      -1,
-    );
-  } else {
-    await moveBalance(tx.accountId, tx.account.type, tx.type, Number(tx.amount), -1);
+  if (tx.debtPayment || tx.debtorSourcePayment) {
+    return { error: "Este movimiento es parte de un pago de pareja: cancélalo en Pareja" };
   }
+  if (tx.charges.length > 0) {
+    return { error: "Este movimiento es un cargo de suscripción confirmado" };
+  }
+  if (tx.subscriptionId) {
+    return { error: "Este movimiento es un cargo de suscripción confirmado" };
+  }
+
   await prisma.transaction.delete({ where: { id } });
 
   revalidatePath("/actividad");
@@ -369,18 +296,17 @@ export async function createTransaction(formData: FormData) {
     await prisma.transaction.create({
       data: {
         type: "TRANSFER",
-      amount: v.amount,
-      concept: v.concept,
-      category: v.category,
-      date: new Date(v.date),
-      accountId: v.accountId,
+        amount: v.amount,
+        concept: v.concept,
+        category: v.category,
+        date: new Date(v.date),
+        accountId: v.accountId,
         transferToAccountId: destId,
         createdById: userId,
         installments: 1,
         isShared: false,
       },
     });
-    await moveTransfer({ id: v.accountId, type: account.type }, { id: destId, type: dest.type }, v.amount, 1);
 
     revalidatePath("/actividad");
     revalidatePath("/resumen");
@@ -404,51 +330,37 @@ export async function createTransaction(formData: FormData) {
     return { error: "La aportación debe ser menor al total" };
   }
 
-  const tx = await prisma.transaction.create({
-    data: {
-      type: v.type as "EXPENSE" | "INCOME" | "TRANSFER",
-      amount: v.amount,
-      concept: v.concept,
-      category: v.category,
-      date: new Date(v.date),
-      accountId: v.accountId,
-      createdById: userId,
-      installments: v.type === "EXPENSE" ? Math.round(v.installments) : 1,
-      isShared: v.type === "EXPENSE" && v.isShared,
-    },
-  });
-
-  if (v.type === "EXPENSE" && v.isShared && debtorId) {
-    // Cantidad fija pactada (ej. $125 de $400) o porcentaje (50/50 por defecto).
-    const n = Math.max(1, Math.round(v.installments));
-    await prisma.transactionShare.create({
+  // El saldo se deriva por suma (lib/balances.ts): solo se crean filas.
+  // Movimiento + share en una transacción para no dejar mitades.
+  await prisma.$transaction(async (db) => {
+    const tx = await db.transaction.create({
       data: {
-        transactionId: tx.id,
-        debtorId,
-        sharePct: v.shareAmount ? (v.shareAmount / v.amount) * 100 : v.sharePct,
-        monthlyAmount: v.shareAmount ? v.shareAmount / n : debtorMonthlyAmount(v.amount, v.installments, v.sharePct),
-        isFixedAmount: Boolean(v.shareAmount),
+        type: v.type as "EXPENSE" | "INCOME" | "TRANSFER",
+        amount: v.amount,
+        concept: v.concept,
+        category: v.category,
+        date: new Date(v.date),
+        accountId: v.accountId,
+        createdById: userId,
+        installments: v.type === "EXPENSE" ? Math.round(v.installments) : 1,
+        isShared: v.type === "EXPENSE" && v.isShared,
       },
     });
-  }
 
-  // Actualiza saldo / deuda
-  if (v.type === "EXPENSE") {
-    await prisma.account.update({
-      where: { id: v.accountId },
-      data: account.type === "CREDIT"
-        ? { balance: { increment: v.amount } }
-        : { balance: { decrement: v.amount } },
-    });
-  } else if (v.type === "INCOME") {
-    // Abono: en débito suma saldo; en crédito reduce deuda (libera línea).
-    await prisma.account.update({
-      where: { id: v.accountId },
-      data: account.type === "CREDIT"
-        ? { balance: { decrement: v.amount } }
-        : { balance: { increment: v.amount } },
-    });
-  }
+    if (v.type === "EXPENSE" && v.isShared && debtorId) {
+      // Cantidad fija pactada (ej. $125 de $400) o porcentaje (50/50 por defecto).
+      const n = Math.max(1, Math.round(v.installments));
+      await db.transactionShare.create({
+        data: {
+          transactionId: tx.id,
+          debtorId,
+          sharePct: v.shareAmount ? (v.shareAmount / v.amount) * 100 : v.sharePct,
+          monthlyAmount: v.shareAmount ? v.shareAmount / n : debtorMonthlyAmount(v.amount, v.installments, v.sharePct),
+          isFixedAmount: Boolean(v.shareAmount),
+        },
+      });
+    }
+  });
 
   revalidatePath("/actividad");
   revalidatePath("/resumen");

@@ -64,10 +64,9 @@ model Account {
   statementDay Int? // día de corte 1-31
   dueDay       Int? // día límite de pago 1-31
 
-  // Saldo almacenado (fuente de verdad simple):
-  //  - DEBIT  → saldo disponible.
-  //  - CREDIT → deuda dispuesta acumulada (disponible = limit - balance).
-  balance Decimal @default(0) @db.Decimal(12, 2)
+  // Saldo calculado desde movimientos (lib/balances.ts):
+  //  - DEBIT  → initialBalance + ingresos - gastos - traspasos fuera + traspasos dentro.
+  //  - CREDIT → deuda = gastos - abonos + traspasos fuera - pagos recibidos.
 
   transactions  Transaction[]
   subscriptions Subscription[]
