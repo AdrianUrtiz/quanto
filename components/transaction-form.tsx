@@ -362,6 +362,11 @@ export function TransactionForm({
               setDesc(e.target.value);
               setDescTouched(true);
             }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                setEditingDesc(false);
+              }
+            }}
             placeholder="Descripción"
             maxLength={60}
             autoFocus

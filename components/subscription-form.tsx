@@ -265,7 +265,7 @@ export function SubscriptionForm({
         <span className="min-w-24 text-center text-5xl font-extrabold tabular-nums">
           {fmtDisplay(amount)}
         </span>
-        <button
+        <button 
           type="button"
           aria-label="Borrar último dígito"
           onClick={() => press("back")}
@@ -281,6 +281,12 @@ export function SubscriptionForm({
       <Input
         value={name}
         onChange={(e) => setName(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.currentTarget.blur();
+            submit();
+          }
+        }}
         placeholder="Spotify, Netflix, gimnasio…"
         maxLength={60}
         aria-label="Nombre"
