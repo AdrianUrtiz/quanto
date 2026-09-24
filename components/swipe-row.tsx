@@ -3,14 +3,16 @@
 import { useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 
-// Contenedor deslizable genérico: al arrastrar a la izquierda revela las
-// acciones de abajo. Mismo gesto y estilo en cuentas y suscripciones.
+// Contenedor deslizable genérico: al arrastrar revela las acciones de abajo.
+// direction="left" (defecto): desliza a la izquierda, acciones a la derecha.
+// direction="right": desliza a la derecha, acciones a la izquierda (dinero).
 export function SwipeRow({
   open,
   onOpenChange,
   actions,
   actionsWidth = 152,
   disabled,
+  direction = "left",
   children,
 }: {
   open: boolean;
@@ -18,6 +20,7 @@ export function SwipeRow({
   actions: React.ReactNode;
   actionsWidth?: number;
   disabled?: boolean;
+  direction?: "left" | "right";
   children: React.ReactNode;
 }) {
   const [x, setX] = useState(0);
@@ -26,6 +29,7 @@ export function SwipeRow({
   const start = useRef<{ x: number; base: number } | null>(null);
   const moved = useRef(false);
   const THRESHOLD = 48;
+  const sign = direction === "right" ? 1 : -1;
 
   // Si se abre otra fila, esta se cierra.
   useEffect(() => {
@@ -55,14 +59,15 @@ export function SwipeRow({
     if (!s) return;
     const dx = e.clientX - s.x;
     if (Math.abs(dx) > 8) moved.current = true;
-    setX(Math.max(-actionsWidth, Math.min(0, s.base + dx)));
+    const raw = s.base + dx;
+    setX(sign === 1 ? Math.max(0, Math.min(actionsWidth, raw)) : Math.max(-actionsWidth, Math.min(0, raw)));
   }
 
   function onPointerUp() {
     start.current = null;
     setDragging(false);
-    if (x <= -THRESHOLD) {
-      setX(-actionsWidth);
+    if (sign * x >= THRESHOLD) {
+      setX(sign * actionsWidth);
       onOpenChange(true);
     } else {
       setX(0);
@@ -84,7 +89,8 @@ export function SwipeRow({
       {/* Acciones debajo */}
       <div
         className={cn(
-          "absolute inset-y-0 right-0 flex items-center justify-end gap-2 p-2 transition-opacity duration-150",
+          "absolute inset-y-0 flex items-center gap-2 p-2 transition-opacity duration-150",
+          direction === "right" ? "left-0 justify-start" : "right-0 justify-end",
           isClosed && "pointer-events-none opacity-0",
         )}
         style={{ width: actionsWidth }}
