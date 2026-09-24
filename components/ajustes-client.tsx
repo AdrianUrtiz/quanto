@@ -19,7 +19,7 @@ const THEMES: { value: Theme; label: string; icon: typeof Sun }[] = [
   { value: "system", label: "Sistema", icon: MonitorSmartphone },
 ];
 
-export function AjustesClient({ email }: { email?: string }) {
+export function AjustesClient({ username }: { username?: string }) {
   const { theme, setTheme } = useTheme();
 
   return (
@@ -29,9 +29,9 @@ export function AjustesClient({ email }: { email?: string }) {
         <p className="truncate text-4xl font-extrabold tracking-tight">
           Tu cuenta
         </p>
-        {email && (
+        {username && (
           <p className="mt-1 truncate text-xs font-medium text-(--muted-foreground)">
-            {email}
+            @{username}
           </p>
         )}
       </div>

@@ -458,10 +458,10 @@ export async function createTransaction(formData: FormData) {
 
 export async function loginAction(formData: FormData) {
   const { signIn } = await import("@/auth");
-  const email = String(formData.get("email") ?? "");
+  const username = String(formData.get("username") ?? "");
   const password = String(formData.get("password") ?? "");
   try {
-    await signIn("credentials", { email, password, redirectTo: "/actividad" });
+    await signIn("credentials", { username, password, redirectTo: "/actividad" });
   } catch (e) {
     // NextAuth lanza NEXT_REDIRECT en éxito — se propaga solo.
     throw e;

@@ -8,11 +8,9 @@ import { z } from "zod";
 // El acceso a DB se hace con import dinámico dentro de authorize().
 
 const LoginSchema = z.object({
-  email: z.string().email(),
+  username: z.string().trim().toLowerCase().min(1),
   password: z.string().min(1),
 });
-
-const hasDb = Boolean(process.env.DATABASE_URL);
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   session: { strategy: "jwt" },
@@ -20,34 +18,22 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   pages: { signIn: "/login" },
   providers: [
     Credentials({
-      name: "Email y contraseña",
+      name: "Usuario y contraseña",
       credentials: {
-        email: { label: "Email", type: "email" },
+        username: { label: "Usuario", type: "text" },
         password: { label: "Contraseña", type: "password" },
       },
       async authorize(raw) {
         const parsed = LoginSchema.safeParse(raw);
         if (!parsed.success) return null;
-        const { email, password } = parsed.data;
-
-        // Sin DB (demo local): acepta las cuentas semilla en memoria.
-        if (!hasDb) {
-          const demo = [
-            { id: "u-adrian", email: "adrian@quanto.app", name: "Adrián", pass: "quanto123" },
-            { id: "u-pareja", email: "pareja@quanto.app", name: "Pareja", pass: "quanto123" },
-          ].find((u) => u.email.toLowerCase() === email.toLowerCase());
-          if (demo && password === demo.pass) {
-            return { id: demo.id, email: demo.email, name: demo.name };
-          }
-          return null;
-        }
+        const { username, password } = parsed.data;
 
         const { prisma } = await import("@/lib/prisma");
-        const user = await prisma.user.findUnique({ where: { email } });
+        const user = await prisma.user.findUnique({ where: { username } });
         if (!user) return null;
         const ok = await bcrypt.compare(password, user.password);
         if (!ok) return null;
-        return { id: user.id, email: user.email, name: user.name, image: user.avatar ?? undefined };
+        return { id: user.id, name: user.name };
       },
     }),
   ],

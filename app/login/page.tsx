@@ -20,7 +20,7 @@ export default function LoginPage() {
       await loginAction(new FormData(e.currentTarget));
     } catch {
       // NEXT_REDIRECT = éxito; si seguimos aquí, fueron credenciales malas
-      setError("Revisa tu email y contraseña");
+      setError("Revisa tu usuario y contraseña");
     } finally {
       setPending(false);
     }
@@ -41,20 +41,17 @@ export default function LoginPage() {
         <CardContent>
           <form onSubmit={onSubmit} className="space-y-4">
             <div className="space-y-1.5">
-              <Label htmlFor="email">Email</Label>
-              <Input id="email" name="email" type="email" placeholder="adrian@quanto.app" required />
+              <Label htmlFor="username">Usuario</Label>
+              <Input id="username" name="username" type="text" placeholder="adrian" autoComplete="username" required />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="password">Contraseña</Label>
-              <Input id="password" name="password" type="password" placeholder="••••••••" required />
+              <Input id="password" name="password" type="password" placeholder="••••••••" autoComplete="current-password" required />
             </div>
             {error && <p className="text-sm font-medium text-red-500">{error}</p>}
             <Button className="w-full" disabled={pending}>
               {pending ? "Entrando…" : "Entrar"}
             </Button>
-            <p className="text-center text-xs text-(--muted-foreground)">
-              Demo: adrian@quanto.app / pareja@quanto.app · quanto123
-            </p>
           </form>
         </CardContent>
       </Card>
