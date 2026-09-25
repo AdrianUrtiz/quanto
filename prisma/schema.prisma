@@ -194,6 +194,10 @@ model SubscriptionCharge {
   transactionId String?      @unique
   transaction   Transaction? @relation(fields: [transactionId], references: [id], onDelete: SetNull)
 
+  // Mes omitido por el dueño ("no se cobró"): sin movimiento ni deuda.
+  // Excluye el mes de pendientes e historial como no cobrado.
+  skipped Boolean @default(false)
+
   // Checks: el dueño cubrió lo suyo (nace true al confirmar) / la pareja pagó su parte.
   ownerPaid   Boolean @default(false)
   partnerPaid Boolean @default(false)

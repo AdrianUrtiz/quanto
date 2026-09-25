@@ -172,9 +172,18 @@ export async function confirmSubscriptionCharge(subscriptionId: string, month: s
 
   const existing = await prisma.subscriptionCharge.findUnique({
     where: { subscriptionId_month: { subscriptionId, month } },
-    select: { id: true },
+    select: { id: true, skipped: true },
   });
-  if (existing) return { error: "Este cargo ya fue confirmado" };
+  if (existing) {
+    return { error: existing.skipped ? "Este mes se marcó como no cobrado" : "Este cargo ya fue confirmado" };
+  }
+
+  // El mes en curso solo se confirma desde su fecha de cobro.
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const charge = chargeDate(month, sub.chargeDay);
+  const chargeDayStart = new Date(charge.getFullYear(), charge.getMonth(), charge.getDate());
+  if (chargeDayStart > today) return { error: `El cobro llega el día ${sub.chargeDay}` };
 
   const amount = Number(sub.amount);
   // Todo indivisible en una transacción: gasto + share + cargo.
@@ -232,6 +241,65 @@ export async function confirmSubscriptionCharge(subscriptionId: string, month: s
   return { ok: true };
 }
 
+/**
+ * Marcar "no se cobró" (solo el dueño): el cargo de ese mes no ocurrió,
+ * no genera movimiento ni deuda de pareja. El mes sale de pendientes.
+ */
+export async function skipSubscriptionCharge(subscriptionId: string, month: string) {
+  const userId = authedUser(await auth());
+  if (!userId) return { error: "No autenticado" };
+  if (!process.env.DATABASE_URL) return { error: "Configura DATABASE_URL" };
+  if (!MONTH_RE.test(month)) return { error: "Mes inválido" };
+
+  const sub = await prisma.subscription.findFirst({ where: { id: subscriptionId, userId } });
+  if (!sub) return { error: "Suscripción no encontrada" };
+  if (!sub.isActive) return { error: "La suscripción está pausada" };
+
+  const existing = await prisma.subscriptionCharge.findUnique({
+    where: { subscriptionId_month: { subscriptionId, month } },
+    select: { id: true, skipped: true },
+  });
+  if (existing) {
+    return { error: existing.skipped ? "Este mes ya se marcó como no cobrado" : "Este cargo ya fue confirmado" };
+  }
+
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const charge = chargeDate(month, sub.chargeDay);
+  const chargeDayStart = new Date(charge.getFullYear(), charge.getMonth(), charge.getDate());
+  if (chargeDayStart > today) return { error: `El cobro llega el día ${sub.chargeDay}` };
+
+  await prisma.subscriptionCharge.create({
+    data: { subscriptionId: sub.id, month, skipped: true },
+  });
+
+  revalidateAll();
+  return { ok: true };
+}
+
+/** Deshacer "no se cobró": el mes vuelve a pendientes. Solo el dueño. */
+export async function unskipSubscriptionCharge(subscriptionId: string, month: string) {
+  const userId = authedUser(await auth());
+  if (!userId) return { error: "No autenticado" };
+  if (!process.env.DATABASE_URL) return { error: "Configura DATABASE_URL" };
+  if (!MONTH_RE.test(month)) return { error: "Mes inválido" };
+
+  const sub = await prisma.subscription.findFirst({ where: { id: subscriptionId, userId } });
+  if (!sub) return { error: "Suscripción no encontrada" };
+
+  const existing = await prisma.subscriptionCharge.findUnique({
+    where: { subscriptionId_month: { subscriptionId, month } },
+    select: { id: true, skipped: true, transactionId: true },
+  });
+  if (!existing || !existing.skipped || existing.transactionId) {
+    return { error: "Ese mes no está marcado como no cobrado" };
+  }
+  await prisma.subscriptionCharge.delete({ where: { id: existing.id } });
+
+  revalidateAll();
+  return { ok: true };
+}
+
 export type SubFull = {
   id: string;
   name: string;
@@ -250,7 +318,7 @@ export type SubFull = {
   ownerName: string;
   isMine: boolean;
   partnerName: string | null;
-  history: { monthKey: string; short: string; confirmed: boolean; partnerPaid: boolean; isShared: boolean }[];
+  history: { monthKey: string; short: string; confirmed: boolean; partnerPaid: boolean; skipped: boolean; isShared: boolean }[];
 };
 
 /**
@@ -336,6 +404,7 @@ export async function getSubscriptionData(userId: string): Promise<{ subs: SubFu
           subscriptionId: c.subscriptionId,
           month: c.month,
           transactionId: c.transactionId,
+          skipped: c.skipped,
           ownerPaid: c.ownerPaid,
           partnerPaid: c.partnerPaid,
           ownerPaidByName: c.ownerPaidBy?.name ?? null,

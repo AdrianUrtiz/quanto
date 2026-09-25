@@ -27,6 +27,7 @@ export type ChargeRow = {
   subscriptionId: string;
   month: string;
   transactionId: string | null;
+  skipped: boolean;
   ownerPaid: boolean;
   partnerPaid: boolean;
   ownerPaidByName: string | null;
@@ -52,6 +53,7 @@ export type MonthMark = {
   short: string; // "sep"
   confirmed: boolean;
   partnerPaid: boolean;
+  skipped: boolean;
   isShared: boolean;
 };
 
@@ -94,6 +96,8 @@ function eachMonth(fromKey: string, toKey: string): string[] {
 /**
  * Pendientes de una suscripción: meses sin fila de cargo (por confirmar) +
  * meses confirmados de compartidas sin el check de la pareja.
+ * El mes en curso solo entra cuando ya pasó su fecha de cobro (chargeDay);
+ * los meses omitidos ("no se cobró") no generan pendiente.
  */
 export function computeDues(
   subs: SubInfo[],
@@ -105,6 +109,7 @@ export function computeDues(
   const curKey = monthKeyOf(now.getFullYear(), now.getMonth());
   const minD = new Date(now.getFullYear(), now.getMonth() - lookbackMonths + 1, 1);
   const minKey = monthKeyOf(minD.getFullYear(), minD.getMonth());
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
   for (const s of subs) {
     if (!s.isActive) continue;
@@ -114,8 +119,14 @@ export function computeDues(
       : null;
     for (const key of eachMonth(from, curKey)) {
       const ch = charges.get(`${s.id}:${key}`);
+      if (ch?.skipped) continue;
       if (!ch) {
         const date = chargeDate(key, s.chargeDay);
+        // El mes en curso avisa solo desde su fecha de cobro (inclusive).
+        if (key === curKey) {
+          const dayStart = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+          if (dayStart > today) continue;
+        }
         dues.push({
           ...s,
           monthKey: key,
@@ -167,8 +178,9 @@ export function monthHistory(
     out.push({
       monthKey: key,
       short: monthShortOf(key),
-      confirmed: Boolean(ch),
+      confirmed: Boolean(ch && !ch.skipped),
       partnerPaid: ch?.partnerPaid ?? false,
+      skipped: ch?.skipped ?? false,
       isShared: sub.isShared,
     });
   }
