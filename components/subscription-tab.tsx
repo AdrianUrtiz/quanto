@@ -7,6 +7,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { BottomSheet } from "@/components/bottom-sheet";
 import { SubscriptionForm, type SubEditData } from "@/components/subscription-form";
 import { DueSubscriptions } from "@/components/due-subscriptions";
+import { SubscriptionHistorySheet } from "@/components/subscription-history-sheet";
 import { SubscriptionSwipeRow } from "@/components/subscription-swipe-row";
 import { deleteSubscription, toggleSubscription, type SubFull } from "@/lib/subscription-actions";
 import { formatMoney } from "@/lib/utils";
@@ -26,12 +27,15 @@ export function SubscriptionTab({
 }) {
   const [editing, setEditing] = useState<SubRow | null>(null);
   const [deleting, setDeleting] = useState<SubRow | null>(null);
+  const [historySub, setHistorySub] = useState<SubRow | null>(null);
   const [openRow, setOpenRow] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const mine = subs.filter((s) => s.isMine);
   const partner = subs.filter((s) => !s.isMine);
   const monthly = mine.filter((s) => s.isActive).reduce((a, s) => a + s.amount, 0);
+  // El sheet refleja datos frescos tras cada router.refresh().
+  const historyData = historySub ? (subs.find((s) => s.id === historySub.id) ?? historySub) : null;
 
   async function toggle(s: SubRow) {
     setBusy(true);
@@ -73,6 +77,7 @@ export function SubscriptionTab({
             onToggle={() => !busy && toggle(s)}
             onEdit={() => setEditing(s)}
             onDelete={() => setDeleting(s)}
+            onHistory={() => setHistorySub(s)}
           />
         ))}
       </div>
@@ -89,6 +94,7 @@ export function SubscriptionTab({
               cats={cats}
               open={openRow === s.id}
               onOpenChange={(o) => setOpenRow(o ? s.id : null)}
+              onHistory={() => setHistorySub(s)}
               readOnly
             />
           ))}
@@ -108,6 +114,10 @@ export function SubscriptionTab({
               onDone={() => setEditing(null)}
             />
           )}
+      </BottomSheet>
+
+      <BottomSheet open={historyData !== null} onOpenChange={(o) => !o && setHistorySub(null)}>
+        {historyData && <SubscriptionHistorySheet sub={historyData} />}
       </BottomSheet>
 
       <Dialog open={deleting !== null} onOpenChange={(o) => !o && setDeleting(null)}>

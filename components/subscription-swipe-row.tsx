@@ -1,6 +1,6 @@
 "use client";
 
-import { Pause, Pencil, Play, Repeat, Trash2 } from "lucide-react";
+import { History, Pause, Pencil, Play, Repeat, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { SwipeRow } from "@/components/swipe-row";
 import { formatMoney } from "@/lib/utils";
@@ -23,14 +23,14 @@ function HistoryStrip({ s }: { s: SubRow }) {
         const done = h.confirmed && (!h.isShared || h.partnerPaid);
         const waiting = h.confirmed && h.isShared && !h.partnerPaid;
         return (
-          <span key={h.monthKey} title={h.monthKey} className="flex flex-col items-center gap-0.5">
+          <span key={h.monthKey} title={h.skipped ? `${h.monthKey} · sin cobro` : h.monthKey} className="flex flex-col items-center gap-0.5">
             <span
               className={cn(
                 "size-1.5 rounded-full",
-                done ? "bg-emerald-500" : waiting ? "bg-amber-500" : "bg-(--border)",
+                h.skipped ? "bg-transparent ring-1 ring-(--muted-foreground)" : done ? "bg-emerald-500" : waiting ? "bg-amber-500" : "bg-(--border)",
               )}
             />
-            <span className="text-[8px] leading-none text-(--muted-foreground)">{h.short}</span>
+            <span className={cn("text-[8px] leading-none text-(--muted-foreground)", h.skipped && "line-through")}>{h.short}</span>
           </span>
         );
       })}
@@ -77,8 +77,11 @@ function SubFront({ s, cats }: { s: SubRow; cats: CatalogRow[] }) {
 const actionCls =
   "flex h-full flex-1 flex-col items-center justify-center gap-1.5 rounded-2xl border border-(--border) bg-(--card) text-xs font-semibold text-(--foreground) shadow-xs transition-all hover:bg-(--muted) active:scale-95";
 
+const historyCls =
+  "flex h-full w-full flex-col items-center justify-center gap-1.5 rounded-2xl border border-(--border) bg-(--card) text-xs font-semibold text-(--foreground) shadow-xs transition-all hover:bg-(--muted) active:scale-95";
+
 export function SubscriptionSwipeRow({
-  s, cats, open, onOpenChange, onToggle, onEdit, onDelete, readOnly,
+  s, cats, open, onOpenChange, onToggle, onEdit, onDelete, onHistory, readOnly,
 }: {
   s: SubRow;
   cats: CatalogRow[];
@@ -87,16 +90,34 @@ export function SubscriptionSwipeRow({
   onToggle?: () => void;
   onEdit?: () => void;
   onDelete?: () => void;
+  onHistory?: () => void;
   readOnly?: boolean;
 }) {
+  const historyAction = (
+    <button type="button" onClick={() => { onOpenChange(false); onHistory?.(); }} className={historyCls}>
+      <History className="size-4 text-(--foreground)" />
+      <span>Historial</span>
+    </button>
+  );
   if (readOnly) {
-    return <SubFront s={s} cats={cats} />;
+    return (
+      <SwipeRow
+        open={open}
+        onOpenChange={onOpenChange}
+        leftActions={historyAction}
+        leftActionsWidth={104}
+      >
+        <SubFront s={s} cats={cats} />
+      </SwipeRow>
+    );
   }
   return (
     <SwipeRow
       open={open}
       onOpenChange={onOpenChange}
       actionsWidth={224}
+      leftActions={historyAction}
+      leftActionsWidth={104}
       actions={
         <>
           <button type="button" onClick={() => { onOpenChange(false); onToggle?.(); }} className={actionCls}>
