@@ -3,10 +3,11 @@ import { ResumenClient } from "@/components/resumen-client";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { monthKey, monthLabelEs } from "@/lib/utils";
-import { lookupCategory } from "@/lib/categories";
 import { getCatalog } from "@/lib/catalog";
 import { getLineSums } from "@/lib/debt-payments";
-import { settleMonth } from "@/lib/calculations";
+import { getAccountBalances } from "@/lib/balances";
+import { activePeriods, type StatementTx } from "@/lib/statements";
+import type { CreditStatementView } from "@/components/credit-statements";
 
 export const metadata = { title: "Resumen" };
 export const dynamic = "force-dynamic";
@@ -16,30 +17,26 @@ export default async function ResumenPage() {
   const meId = (session?.user as { id?: string } | undefined)?.id;
   if (!meId) redirect("/login");
   const now = new Date();
-  const key = monthKey(now);
-  const start = new Date(now.getFullYear(), now.getMonth(), 1);
-  const end = new Date(now.getFullYear(), now.getMonth() + 1, 1);
   // Ventana amplia para compartidos: un MSI comprado hace meses sigue
   // generando parcialidad este mes.
   const sharedStart = new Date(now.getFullYear(), now.getMonth() - 24, 1);
 
-  type Full = {
-    id: string; concept: string; category: string; amount: number; date: Date;
-    type: string; installments: number; isShared: boolean;
-    createdById: string; creatorName: string;
-    shares: { id: string; debtorId: string; debtorName: string; sharePct: number; monthlyAmount: number }[];
-  };
-
   // Privacidad: el donut/categorías solo con MIS gastos. La liquidación solo
   // con compartidos donde estoy involucrado (soy quien compra o quien debe).
+  // Se trae ventana amplia y el mes se filtra en cliente (como Actividad).
   const [mineRows, sharedRows] = await Promise.all([
     prisma.transaction.findMany({
-      where: { date: { gte: start, lt: end }, type: "EXPENSE", createdById: meId },
+      where: {
+        date: { gte: sharedStart },
+        type: { in: ["EXPENSE", "INCOME"] },
+        createdById: meId,
+      },
+      include: { account: { select: { name: true } } },
       orderBy: { date: "desc" },
     }),
     prisma.transaction.findMany({
       where: {
-        date: { gte: sharedStart, lt: end },
+        date: { gte: sharedStart },
         type: "EXPENSE",
         isShared: true,
         OR: [{ createdById: meId }, { shares: { some: { debtorId: meId } } }],
@@ -48,41 +45,128 @@ export default async function ResumenPage() {
       orderBy: { date: "desc" },
     }),
   ]);
-  const slim = (t: (typeof mineRows)[number]): Full => ({
-    id: t.id, concept: t.concept, category: t.category, amount: Number(t.amount),
-    date: t.date, type: t.type, installments: t.installments, isShared: t.isShared,
-    createdById: t.createdById, creatorName: "",
-    shares: [],
-  });
-  const mine: Full[] = mineRows.map(slim);
-  const involved: Full[] = sharedRows.map((t) => ({
-    ...slim(t),
+  // Donut: MIS movimientos (fecha ISO para filtrar en cliente, como Actividad).
+  const mine = mineRows.map((t) => ({
+    id: t.id,
+    type: t.type as "EXPENSE" | "INCOME",
+    category: t.category,
+    amount: Number(t.amount),
+    date: t.date.toISOString(),
+    accountName: t.account.name,
+  }));
+  const involved = sharedRows.map((t) => ({
+    id: t.id,
+    concept: t.concept,
+    amount: Number(t.amount),
+    installments: t.installments,
+    date: t.date.toISOString(),
+    isShared: t.isShared,
+    createdById: t.createdById,
     creatorName: t.createdBy.name,
     shares: t.shares.map((s) => ({
-      id: s.id, debtorId: s.debtor.id, debtorName: s.debtor.name,
-      sharePct: s.sharePct, monthlyAmount: Number(s.monthlyAmount),
+      id: s.id,
+      debtorId: s.debtor.id,
+      debtorName: s.debtor.name,
+      sharePct: s.sharePct,
+      monthlyAmount: Number(s.monthlyAmount),
     })),
   }));
 
-  const total = mine.reduce((a, t) => a + t.amount, 0);
-  const byCat = new Map<string, number>();
-  for (const t of mine) byCat.set(t.category, (byCat.get(t.category) ?? 0) + t.amount);
-  const catalog = await getCatalog(meId);
-  const byCategory = [...byCat.entries()]
-    .map(([code, value]) => {
-      const c = lookupCategory(code, catalog);
-      return { label: c.label, value, color: c.color };
-    })
-    .sort((a, b) => b.value - a.value);
+  // Meses con registro (solo gastos suman al total del selector).
+  const totals = new Map<string, number>();
+  for (const t of mine) {
+    if (t.type !== "EXPENSE") continue;
+    const k = monthKey(new Date(t.date));
+    totals.set(k, (totals.get(k) ?? 0) + t.amount);
+  }
+  const current = monthKey(new Date());
+  if (!totals.has(current)) totals.set(current, 0);
+  const months = [...totals.entries()]
+    .sort((a, b) => (a[0] < b[0] ? 1 : -1))
+    .map(([key, total]) => {
+      const [y, m] = key.split("-").map(Number);
+      return { key, label: monthLabelEs(new Date(y, m - 1, 1)), total };
+    });
 
-  // Lo ya liquidado no suma al "por liquidar".
+  // Lo ya liquidado no suma al "por liquidar" (mapa serializado).
   const sums = await getLineSums(involved.flatMap((t) => t.shares.map((s) => s.id)));
-  const confirmedMap = new Map([...sums.entries()].map(([k, s]) => [k, s.confirmed]));
-  const settlement = settleMonth(involved, key, confirmedMap);
+  const confirmed = [...sums.entries()].map(([k, s]) => ({ key: k, amount: s.confirmed }));
+
+  // Estados de cuenta: tarjetas de crédito propias + sus movimientos.
+  // Ventana amplia para no perder MSI largos en la siembra de saldos.
+  const stmtStart = new Date(now.getFullYear(), now.getMonth() - 30, 1);
+  const [cards, debitRows, balances] = await Promise.all([
+    prisma.account.findMany({
+      where: { userId: meId, isActive: true, type: "CREDIT" },
+      orderBy: { createdAt: "asc" },
+    }),
+    prisma.account.findMany({
+      where: { userId: meId, isActive: true, type: "DEBIT" },
+      select: { id: true, name: true },
+      orderBy: { createdAt: "asc" },
+    }),
+    getAccountBalances(meId),
+  ]);
+  const cardIds = cards.map((c) => c.id);
+  const cardTxs = cardIds.length
+    ? await prisma.transaction.findMany({
+        where: {
+          date: { gte: stmtStart },
+          OR: [
+            { accountId: { in: cardIds } },
+            { transferToAccountId: { in: cardIds } },
+          ],
+        },
+        orderBy: { date: "desc" },
+      })
+    : [];
+
+  const catalog = await getCatalog(meId);
+
+  const statements: CreditStatementView[] = cards.map((c) => {
+    const txs: StatementTx[] = cardTxs
+      .filter((t) => t.accountId === c.id || t.transferToAccountId === c.id)
+      .map((t) => ({
+        id: t.id,
+        type: t.type as "EXPENSE" | "INCOME" | "TRANSFER",
+        amount: Number(t.amount),
+        concept: t.concept,
+        date: t.date,
+        accountId: t.accountId,
+        transferToAccountId: t.transferToAccountId,
+        installments: t.installments,
+      }));
+    const opts = { statementDay: c.statementDay, dueDay: c.dueDay };
+    const { statements: stmts, currentKey } = activePeriods(c.id, txs, opts, now);
+    const debt = balances.get(c.id) ?? 0;
+    const limit = c.creditLimit != null ? Number(c.creditLimit) : null;
+    return {
+      card: {
+        id: c.id,
+        name: c.name,
+        lastFour: c.lastFour,
+        color: c.color ?? "#6366f1",
+        creditLimit: limit,
+        statementDay: c.statementDay,
+        dueDay: c.dueDay,
+        currentDebt: debt,
+        available: limit != null ? limit - debt : null,
+      },
+      currentKey,
+      debitOpts: debitRows.map((d) => ({ id: d.id, name: d.name })),
+      periods: stmts.map((p) => ({
+        ...p,
+        start: p.start.toISOString(),
+        end: p.end.toISOString(),
+        dueDate: p.dueDate?.toISOString() ?? null,
+        moves: p.moves.map((m) => ({ ...m, date: m.date.toISOString() })),
+      })),
+    };
+  });
 
   return (
     <>
-      <ResumenClient total={total} byCategory={byCategory} settlement={settlement} monthLabel={monthLabelEs(now)} />
+      <ResumenClient months={months} mine={mine} involved={involved} confirmed={confirmed} cats={catalog} statements={statements} />
     </>
   );
 }
