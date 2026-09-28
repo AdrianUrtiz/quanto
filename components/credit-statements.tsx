@@ -91,6 +91,9 @@ function StatementPanel({
 
   const [nowRef] = useState(() => Date.now());
   const isFuture = new Date(period.start).getTime() > nowRef;
+  // Ya pagado si los abonos cubren el cierre (tolerancia de centavos).
+  // Cierre en 0 (sin cargos) también cuenta como nada por pagar.
+  const paid = period.closing - period.payments <= 0.005;
   const chart = useMemo(() => [...periods].reverse(), [periods]);
   const maxCharges = Math.max(1, ...periods.map((p) => p.charges));
 
@@ -184,7 +187,7 @@ function StatementPanel({
         ))}
       </ul>
 
-      {!isFuture && (
+      {!isFuture && !paid && (
         <Button
           type="button"
           className="h-12 w-full rounded-full text-base"
@@ -193,6 +196,11 @@ function StatementPanel({
         >
           Pagar
         </Button>
+      )}
+      {!isFuture && paid && (
+        <p className="rounded-full bg-emerald-500/10 py-2.5 text-center text-sm font-semibold text-emerald-500">
+          Periodo pagado
+        </p>
       )}
 
       <BottomSheet open={payOpen} onOpenChange={(o) => !o && setPayOpen(false)}>
