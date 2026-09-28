@@ -1,4 +1,4 @@
-@import "tailwindcss";
+@import 'tailwindcss';
 
 @custom-variant dark (&:where(.dark, .dark *));
 
@@ -42,7 +42,13 @@ body {
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: var(--font-sans, system-ui, -apple-system, "SF Pro Text", sans-serif);
+  font-family: var(
+    --font-sans,
+    system-ui,
+    -apple-system,
+    'SF Pro Text',
+    sans-serif
+  );
   -webkit-tap-highlight-color: transparent;
   overscroll-behavior-y: none;
 }
@@ -72,12 +78,18 @@ body {
 .debt-owe {
   border-color: rgb(245 158 11 / 0.3);
   background-color: var(--card);
-  background-image: linear-gradient(rgb(245 158 11 / 0.08), rgb(245 158 11 / 0.08));
+  background-image: linear-gradient(
+    rgb(245 158 11 / 0.08),
+    rgb(245 158 11 / 0.08)
+  );
 }
 .debt-owed {
   border-color: rgb(16 185 129 / 0.3);
   background-color: var(--card);
-  background-image: linear-gradient(rgb(16 185 129 / 0.08), rgb(16 185 129 / 0.08));
+  background-image: linear-gradient(
+    rgb(16 185 129 / 0.08),
+    rgb(16 185 129 / 0.08)
+  );
 }
 .debt-owe-solid {
   background: #f59e0b;

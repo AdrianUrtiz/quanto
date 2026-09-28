@@ -3,94 +3,97 @@
 // Sin TransactionShare ni DebtPayment para suscripciones.
 
 export type SubInfo = {
-  id: string;
-  name: string;
-  amount: number;
-  category: string;
-  accountId: string;
-  accountName: string;
-  accountType: "DEBIT" | "CREDIT";
-  chargeDay: number;
-  isShared: boolean;
-  sharePct: number;
-  shareAmount: number | null;
-  isActive: boolean;
-  startMonth: string; // "YYYY-MM"
-  ownerId: string;
-  ownerName: string;
-  isMine: boolean;
+  id: string
+  name: string
+  amount: number
+  category: string
+  accountId: string
+  accountName: string
+  accountType: 'DEBIT' | 'CREDIT'
+  chargeDay: number
+  isShared: boolean
+  sharePct: number
+  shareAmount: number | null
+  isActive: boolean
+  startMonth: string // "YYYY-MM"
+  ownerId: string
+  ownerName: string
+  isMine: boolean
   /** Nombre del otro miembro (para "¿Te pagó X?"). En las suyas = la dueña. */
-  partnerName: string | null;
-};
+  partnerName: string | null
+}
 
 export type ChargeRow = {
-  subscriptionId: string;
-  month: string;
-  transactionId: string | null;
-  skipped: boolean;
-  ownerPaid: boolean;
-  partnerPaid: boolean;
-  ownerPaidByName: string | null;
-  partnerPaidByName: string | null;
-};
+  subscriptionId: string
+  month: string
+  transactionId: string | null
+  skipped: boolean
+  ownerPaid: boolean
+  partnerPaid: boolean
+  ownerPaidByName: string | null
+  partnerPaidByName: string | null
+}
 
 export type DueCharge = SubInfo & {
-  monthKey: string;
-  monthLabel: string;
-  dateISO: string; // fecha del cargo (día ajustado al mes)
-  overdue: boolean;
-  confirmed: boolean;
-  ownerPaid: boolean;
-  partnerPaid: boolean;
-  ownerPaidByName: string | null;
-  partnerPaidByName: string | null;
+  monthKey: string
+  monthLabel: string
+  dateISO: string // fecha del cargo (día ajustado al mes)
+  overdue: boolean
+  confirmed: boolean
+  ownerPaid: boolean
+  partnerPaid: boolean
+  ownerPaidByName: string | null
+  partnerPaidByName: string | null
   /** Parte de la pareja ese mes (referencia para el check). */
-  monthlyShare: number | null;
-};
+  monthlyShare: number | null
+}
 
 export type MonthMark = {
-  monthKey: string;
-  short: string; // "sep"
-  confirmed: boolean;
-  partnerPaid: boolean;
-  skipped: boolean;
-  isShared: boolean;
-};
+  monthKey: string
+  short: string // "sep"
+  confirmed: boolean
+  partnerPaid: boolean
+  skipped: boolean
+  isShared: boolean
+}
 
 export function monthKeyOf(y: number, m0: number) {
-  return `${y}-${String(m0 + 1).padStart(2, "0")}`;
+  return `${y}-${String(m0 + 1).padStart(2, '0')}`
 }
 
 export function monthLabelOf(key: string) {
-  const [y, m] = key.split("-").map(Number);
-  return new Date(y, m - 1, 1).toLocaleDateString("es-MX", { month: "long", year: "numeric" });
+  const [y, m] = key.split('-').map(Number)
+  return new Date(y, m - 1, 1).toLocaleDateString('es-MX', {
+    month: 'long',
+    year: 'numeric',
+  })
 }
 
 export function monthShortOf(key: string) {
-  const [y, m] = key.split("-").map(Number);
+  const [y, m] = key.split('-').map(Number)
   return new Date(y, m - 1, 1)
-    .toLocaleDateString("es-MX", { month: "short" })
-    .replace(".", "");
+    .toLocaleDateString('es-MX', { month: 'short' })
+    .replace('.', '')
 }
 
 /** Fecha del cargo: chargeDay ajustado al último día si el mes es más corto. */
 export function chargeDate(monthKey: string, chargeDay: number): Date {
-  const [y, m] = monthKey.split("-").map(Number);
-  const last = new Date(y, m, 0).getDate();
-  return new Date(y, m - 1, Math.min(Math.max(1, chargeDay), last), 12, 0, 0);
+  const [y, m] = monthKey.split('-').map(Number)
+  const last = new Date(y, m, 0).getDate()
+  return new Date(y, m - 1, Math.min(Math.max(1, chargeDay), last), 12, 0, 0)
 }
 
 function eachMonth(fromKey: string, toKey: string): string[] {
-  const [fy, fm] = fromKey.split("-").map(Number);
-  const [ty, tm] = toKey.split("-").map(Number);
-  const out: string[] = [];
-  const d = new Date(fy, fm - 1, 1);
-  const end = new Date(ty, tm - 1, 1);
+  const [fy, fm] = fromKey.split('-').map(Number)
+  const [ty, tm] = toKey.split('-').map(Number)
+  const out: string[] = []
+  const d = new Date(fy, fm - 1, 1)
+  const end = new Date(ty, tm - 1, 1)
   while (d <= end) {
-    out.push(monthKeyOf(d.getFullYear(), d.getMonth()));
-    d.setMonth(d.getMonth() + 1);
+    out.push(monthKeyOf(d.getFullYear(), d.getMonth()))
+    d.setMonth(d.getMonth() + 1)
   }
-  return out;
+  return out
 }
 
 /**
@@ -105,27 +108,35 @@ export function computeDues(
   now = new Date(),
   lookbackMonths = 6,
 ): DueCharge[] {
-  const dues: DueCharge[] = [];
-  const curKey = monthKeyOf(now.getFullYear(), now.getMonth());
-  const minD = new Date(now.getFullYear(), now.getMonth() - lookbackMonths + 1, 1);
-  const minKey = monthKeyOf(minD.getFullYear(), minD.getMonth());
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const dues: DueCharge[] = []
+  const curKey = monthKeyOf(now.getFullYear(), now.getMonth())
+  const minD = new Date(
+    now.getFullYear(),
+    now.getMonth() - lookbackMonths + 1,
+    1,
+  )
+  const minKey = monthKeyOf(minD.getFullYear(), minD.getMonth())
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
 
   for (const s of subs) {
-    if (!s.isActive) continue;
-    const from = s.startMonth > minKey ? s.startMonth : minKey;
+    if (!s.isActive) continue
+    const from = s.startMonth > minKey ? s.startMonth : minKey
     const monthlyShare = s.isShared
       ? (s.shareAmount ?? (s.amount * s.sharePct) / 100)
-      : null;
+      : null
     for (const key of eachMonth(from, curKey)) {
-      const ch = charges.get(`${s.id}:${key}`);
-      if (ch?.skipped) continue;
+      const ch = charges.get(`${s.id}:${key}`)
+      if (ch?.skipped) continue
       if (!ch) {
-        const date = chargeDate(key, s.chargeDay);
+        const date = chargeDate(key, s.chargeDay)
         // El mes en curso avisa solo desde su fecha de cobro (inclusive).
         if (key === curKey) {
-          const dayStart = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-          if (dayStart > today) continue;
+          const dayStart = new Date(
+            date.getFullYear(),
+            date.getMonth(),
+            date.getDate(),
+          )
+          if (dayStart > today) continue
         }
         dues.push({
           ...s,
@@ -139,9 +150,9 @@ export function computeDues(
           ownerPaidByName: null,
           partnerPaidByName: null,
           monthlyShare,
-        });
+        })
       } else if (s.isShared && !ch.partnerPaid) {
-        const date = chargeDate(key, s.chargeDay);
+        const date = chargeDate(key, s.chargeDay)
         dues.push({
           ...s,
           monthKey: key,
@@ -154,12 +165,12 @@ export function computeDues(
           ownerPaidByName: ch.ownerPaidByName,
           partnerPaidByName: null,
           monthlyShare,
-        });
+        })
       }
     }
   }
 
-  return dues.sort((a, b) => (a.monthKey < b.monthKey ? -1 : 1));
+  return dues.sort((a, b) => (a.monthKey < b.monthKey ? -1 : 1))
 }
 
 /** Historial reciente (tira de meses) para la fila de cada suscripción. */
@@ -169,12 +180,12 @@ export function monthHistory(
   now = new Date(),
   count = 6,
 ): MonthMark[] {
-  const out: MonthMark[] = [];
-  const d = new Date(now.getFullYear(), now.getMonth(), 1);
+  const out: MonthMark[] = []
+  const d = new Date(now.getFullYear(), now.getMonth(), 1)
   for (let i = count - 1; i >= 0; i--) {
-    const dt = new Date(d.getFullYear(), d.getMonth() - i, 1);
-    const key = monthKeyOf(dt.getFullYear(), dt.getMonth());
-    const ch = charges.get(`${sub.id}:${key}`);
+    const dt = new Date(d.getFullYear(), d.getMonth() - i, 1)
+    const key = monthKeyOf(dt.getFullYear(), dt.getMonth())
+    const ch = charges.get(`${sub.id}:${key}`)
     out.push({
       monthKey: key,
       short: monthShortOf(key),
@@ -182,7 +193,7 @@ export function monthHistory(
       partnerPaid: ch?.partnerPaid ?? false,
       skipped: ch?.skipped ?? false,
       isShared: sub.isShared,
-    });
+    })
   }
-  return out;
+  return out
 }

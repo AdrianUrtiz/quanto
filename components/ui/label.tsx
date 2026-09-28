@@ -1,9 +1,22 @@
-"use client";
+'use client'
 
-import * as React from "react";
-import * as LabelPrimitive from "@radix-ui/react-label";
-import { cn } from "@/lib/utils";
+import * as React from 'react'
 
-export function Label({ className, ...props }: React.ComponentProps<typeof LabelPrimitive.Root>) {
-  return <LabelPrimitive.Root className={cn("text-xs font-semibold text-(--muted-foreground) uppercase tracking-wide", className)} {...props} />;
+import * as LabelPrimitive from '@radix-ui/react-label'
+
+import { cn } from '@/lib/utils'
+
+export function Label({
+  className,
+  ...props
+}: React.ComponentProps<typeof LabelPrimitive.Root>) {
+  return (
+    <LabelPrimitive.Root
+      className={cn(
+        'text-xs font-semibold tracking-wide text-(--muted-foreground) uppercase',
+        className,
+      )}
+      {...props}
+    />
+  )
 }

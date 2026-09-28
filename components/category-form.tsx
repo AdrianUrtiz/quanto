@@ -1,92 +1,91 @@
-"use client";
+'use client'
 
-import { useState } from "react";
-import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { createCategory, updateCategory } from "@/lib/category-actions";
-import { CATEGORY_COLORS, ICONS, ICON_PRESETS } from "@/lib/categories";
-import type { CatKind } from "@/lib/categories";
-import { cn } from "@/lib/utils";
+import { useState } from 'react'
+
+import { toast } from 'sonner'
+
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+
+import { CATEGORY_COLORS, ICONS, ICON_PRESETS } from '@/lib/categories'
+import type { CatKind } from '@/lib/categories'
+import { createCategory, updateCategory } from '@/lib/category-actions'
+import { cn } from '@/lib/utils'
 
 export type CategoryEditData = {
-  id: string;
-  name: string;
-  iconName: string;
-  color: string;
-  kind: CatKind;
-};
+  id: string
+  name: string
+  iconName: string
+  color: string
+  kind: CatKind
+}
 
 const KINDS: { value: CatKind; label: string }[] = [
-  { value: "expense", label: "Gasto" },
-  { value: "income", label: "Ingreso" },
-  { value: "both", label: "Ambos" },
-];
+  { value: 'expense', label: 'Gasto' },
+  { value: 'income', label: 'Ingreso' },
+  { value: 'both', label: 'Ambos' },
+]
 
 export function CategoryForm({
   initial,
   onDone,
 }: {
-  initial?: CategoryEditData;
-  onDone?: () => void;
+  initial?: CategoryEditData
+  onDone?: () => void
 }) {
-  const editing = Boolean(initial);
-  const [name, setName] = useState(initial?.name ?? "");
-  const [iconName, setIconName] = useState(
-    initial?.iconName ?? ICON_PRESETS[0],
-  );
-  const [color, setColor] = useState(initial?.color ?? "#fb923c");
-  const [kind, setKind] = useState<CatKind>(initial?.kind ?? "expense");
-  const [msg, setMsg] = useState<string | null>(null);
-  const [pending, setPending] = useState(false);
+  const editing = Boolean(initial)
+  const [name, setName] = useState(initial?.name ?? '')
+  const [iconName, setIconName] = useState(initial?.iconName ?? ICON_PRESETS[0])
+  const [color, setColor] = useState(initial?.color ?? '#fb923c')
+  const [kind, setKind] = useState<CatKind>(initial?.kind ?? 'expense')
+  const [msg, setMsg] = useState<string | null>(null)
+  const [pending, setPending] = useState(false)
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
+    e.preventDefault()
     if (name.trim().length < 2) {
-      setMsg("Nombre muy corto");
-      return;
+      setMsg('Nombre muy corto')
+      return
     }
-    setMsg(null);
-    setPending(true);
-    const fd = new FormData();
-    if (editing) fd.set("id", initial!.id);
-    fd.set("name", name.trim());
-    fd.set("iconName", iconName);
-    fd.set("color", color);
-    fd.set("kind", kind);
-    const res = editing ? await updateCategory(fd) : await createCategory(fd);
-    setPending(false);
-    if ("error" in res && res.error) {
-      setMsg(res.error);
-      toast.error(res.error);
+    setMsg(null)
+    setPending(true)
+    const fd = new FormData()
+    if (editing) fd.set('id', initial!.id)
+    fd.set('name', name.trim())
+    fd.set('iconName', iconName)
+    fd.set('color', color)
+    fd.set('kind', kind)
+    const res = editing ? await updateCategory(fd) : await createCategory(fd)
+    setPending(false)
+    if ('error' in res && res.error) {
+      setMsg(res.error)
+      toast.error(res.error)
     } else {
-      setMsg(null);
-      toast.success(editing ? "Categoría actualizada" : "Categoría creada");
-      onDone?.();
+      setMsg(null)
+      toast.success(editing ? 'Categoría actualizada' : 'Categoría creada')
+      onDone?.()
     }
   }
 
   return (
     <form
       onSubmit={onSubmit}
-      className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-5 pb-6"
-    >
+      className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-5 pb-6">
       {editing && <input type="hidden" name="id" value={initial!.id} />}
 
       {/* Vista previa */}
       <div className="flex items-center gap-3 rounded-3xl border border-(--border) p-4">
         <span
           className="flex size-12 items-center justify-center rounded-2xl"
-          style={{ backgroundColor: `${color}22`, color }}
-        >
+          style={{ backgroundColor: `${color}22`, color }}>
           {(() => {
-            const Icon = ICONS[iconName] ?? ICONS.Shapes;
-            return <Icon className="size-6" />;
+            const Icon = ICONS[iconName] ?? ICONS.Shapes
+            return <Icon className="size-6" />
           })()}
         </span>
         <p className="flex-1 truncate text-lg font-bold">
-          {name.trim() || "Nombre"}
+          {name.trim() || 'Nombre'}
         </p>
       </div>
 
@@ -112,12 +111,11 @@ export function CategoryForm({
             type="button"
             onClick={() => setKind(k.value)}
             className={cn(
-              "rounded-full py-2 text-sm font-semibold transition",
+              'rounded-full py-2 text-sm font-semibold transition',
               kind === k.value
-                ? "bg-(--card) shadow"
-                : "text-(--muted-foreground)",
-            )}
-          >
+                ? 'bg-(--card) shadow'
+                : 'text-(--muted-foreground)',
+            )}>
             {k.label}
           </button>
         ))}
@@ -127,7 +125,7 @@ export function CategoryForm({
         <Label>Icono</Label>
         <div className="flex flex-wrap gap-1.5">
           {ICON_PRESETS.map((n) => {
-            const Icon = ICONS[n] ?? ICONS.Shapes;
+            const Icon = ICONS[n] ?? ICONS.Shapes
             return (
               <button
                 key={n}
@@ -135,15 +133,14 @@ export function CategoryForm({
                 onClick={() => setIconName(n)}
                 aria-label={n}
                 className={cn(
-                  "flex size-11 items-center justify-center rounded-2xl border transition active:scale-95",
+                  'flex size-11 items-center justify-center rounded-2xl border transition active:scale-95',
                   iconName === n
-                    ? "border-(--primary) bg-(--primary)/10"
-                    : "border-(--border)",
-                )}
-              >
+                    ? 'border-(--primary) bg-(--primary)/10'
+                    : 'border-(--border)',
+                )}>
                 <Icon className="size-5" style={{ color }} />
               </button>
-            );
+            )
           })}
         </div>
       </div>
@@ -158,10 +155,10 @@ export function CategoryForm({
               onClick={() => setColor(hex)}
               aria-label={`Color ${hex}`}
               className={cn(
-                "flex size-8 items-center justify-center rounded-full border-2 ring-1 ring-inset ring-black/10 transition active:scale-95",
+                'flex size-8 items-center justify-center rounded-full border-2 ring-1 ring-black/10 transition ring-inset active:scale-95',
                 color.toLowerCase() === hex
-                  ? "border-(--foreground)"
-                  : "border-transparent",
+                  ? 'border-(--foreground)'
+                  : 'border-transparent',
               )}
               style={{ backgroundColor: hex }}
             />
@@ -175,14 +172,13 @@ export function CategoryForm({
       <Button
         type="submit"
         className="h-12 w-full rounded-2xl text-base"
-        disabled={pending}
-      >
+        disabled={pending}>
         {pending
-          ? "Guardando…"
+          ? 'Guardando…'
           : editing
-            ? "Guardar cambios"
-            : "Crear categoría"}
+            ? 'Guardar cambios'
+            : 'Crear categoría'}
       </Button>
     </form>
-  );
+  )
 }

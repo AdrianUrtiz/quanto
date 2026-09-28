@@ -1,25 +1,28 @@
-import { redirect } from "next/navigation";
-import { ResumenClient } from "@/components/resumen-client";
-import { auth } from "@/auth";
-import { prisma } from "@/lib/prisma";
-import { monthKey, monthLabelEs } from "@/lib/utils";
-import { getCatalog } from "@/lib/catalog";
-import { getLineSums } from "@/lib/debt-payments";
-import { getAccountBalances } from "@/lib/balances";
-import { activePeriods, type StatementTx } from "@/lib/statements";
-import type { CreditStatementView } from "@/components/credit-statements";
+import { redirect } from 'next/navigation'
 
-export const metadata = { title: "Resumen" };
-export const dynamic = "force-dynamic";
+import type { CreditStatementView } from '@/components/credit-statements'
+import { ResumenClient } from '@/components/resumen-client'
+
+import { getAccountBalances } from '@/lib/balances'
+import { getCatalog } from '@/lib/catalog'
+import { getLineSums } from '@/lib/debt-payments'
+import { prisma } from '@/lib/prisma'
+import { type StatementTx, activePeriods } from '@/lib/statements'
+import { monthKey, monthLabelEs } from '@/lib/utils'
+
+import { auth } from '@/auth'
+
+export const metadata = { title: 'Resumen' }
+export const dynamic = 'force-dynamic'
 
 export default async function ResumenPage() {
-  const session = await auth();
-  const meId = (session?.user as { id?: string } | undefined)?.id;
-  if (!meId) redirect("/login");
-  const now = new Date();
+  const session = await auth()
+  const meId = (session?.user as { id?: string } | undefined)?.id
+  if (!meId) redirect('/login')
+  const now = new Date()
   // Ventana amplia para compartidos: un MSI comprado hace meses sigue
   // generando parcialidad este mes.
-  const sharedStart = new Date(now.getFullYear(), now.getMonth() - 24, 1);
+  const sharedStart = new Date(now.getFullYear(), now.getMonth() - 24, 1)
 
   // Privacidad: el donut/categorías solo con MIS gastos. La liquidación solo
   // con compartidos donde estoy involucrado (soy quien compra o quien debe).
@@ -28,32 +31,32 @@ export default async function ResumenPage() {
     prisma.transaction.findMany({
       where: {
         date: { gte: sharedStart },
-        type: { in: ["EXPENSE", "INCOME"] },
+        type: { in: ['EXPENSE', 'INCOME'] },
         createdById: meId,
       },
       include: { account: { select: { name: true } } },
-      orderBy: { date: "desc" },
+      orderBy: { date: 'desc' },
     }),
     prisma.transaction.findMany({
       where: {
         date: { gte: sharedStart },
-        type: "EXPENSE",
+        type: 'EXPENSE',
         isShared: true,
         OR: [{ createdById: meId }, { shares: { some: { debtorId: meId } } }],
       },
       include: { createdBy: true, shares: { include: { debtor: true } } },
-      orderBy: { date: "desc" },
+      orderBy: { date: 'desc' },
     }),
-  ]);
+  ])
   // Donut: MIS movimientos (fecha ISO para filtrar en cliente, como Actividad).
   const mine = mineRows.map((t) => ({
     id: t.id,
-    type: t.type as "EXPENSE" | "INCOME",
+    type: t.type as 'EXPENSE' | 'INCOME',
     category: t.category,
     amount: Number(t.amount),
     date: t.date.toISOString(),
     accountName: t.account.name,
-  }));
+  }))
   const involved = sharedRows.map((t) => ({
     id: t.id,
     concept: t.concept,
@@ -70,44 +73,49 @@ export default async function ResumenPage() {
       sharePct: s.sharePct,
       monthlyAmount: Number(s.monthlyAmount),
     })),
-  }));
+  }))
 
   // Meses con registro (solo gastos suman al total del selector).
-  const totals = new Map<string, number>();
+  const totals = new Map<string, number>()
   for (const t of mine) {
-    if (t.type !== "EXPENSE") continue;
-    const k = monthKey(new Date(t.date));
-    totals.set(k, (totals.get(k) ?? 0) + t.amount);
+    if (t.type !== 'EXPENSE') continue
+    const k = monthKey(new Date(t.date))
+    totals.set(k, (totals.get(k) ?? 0) + t.amount)
   }
-  const current = monthKey(new Date());
-  if (!totals.has(current)) totals.set(current, 0);
+  const current = monthKey(new Date())
+  if (!totals.has(current)) totals.set(current, 0)
   const months = [...totals.entries()]
     .sort((a, b) => (a[0] < b[0] ? 1 : -1))
     .map(([key, total]) => {
-      const [y, m] = key.split("-").map(Number);
-      return { key, label: monthLabelEs(new Date(y, m - 1, 1)), total };
-    });
+      const [y, m] = key.split('-').map(Number)
+      return { key, label: monthLabelEs(new Date(y, m - 1, 1)), total }
+    })
 
   // Lo ya liquidado no suma al "por liquidar" (mapa serializado).
-  const sums = await getLineSums(involved.flatMap((t) => t.shares.map((s) => s.id)));
-  const confirmed = [...sums.entries()].map(([k, s]) => ({ key: k, amount: s.confirmed }));
+  const sums = await getLineSums(
+    involved.flatMap((t) => t.shares.map((s) => s.id)),
+  )
+  const confirmed = [...sums.entries()].map(([k, s]) => ({
+    key: k,
+    amount: s.confirmed,
+  }))
 
   // Estados de cuenta: tarjetas de crédito propias + sus movimientos.
   // Ventana amplia para no perder MSI largos en la siembra de saldos.
-  const stmtStart = new Date(now.getFullYear(), now.getMonth() - 30, 1);
+  const stmtStart = new Date(now.getFullYear(), now.getMonth() - 30, 1)
   const [cards, debitRows, balances] = await Promise.all([
     prisma.account.findMany({
-      where: { userId: meId, isActive: true, type: "CREDIT" },
-      orderBy: { createdAt: "asc" },
+      where: { userId: meId, isActive: true, type: 'CREDIT' },
+      orderBy: { createdAt: 'asc' },
     }),
     prisma.account.findMany({
-      where: { userId: meId, isActive: true, type: "DEBIT" },
+      where: { userId: meId, isActive: true, type: 'DEBIT' },
       select: { id: true, name: true },
-      orderBy: { createdAt: "asc" },
+      orderBy: { createdAt: 'asc' },
     }),
     getAccountBalances(meId),
-  ]);
-  const cardIds = cards.map((c) => c.id);
+  ])
+  const cardIds = cards.map((c) => c.id)
   const cardTxs = cardIds.length
     ? await prisma.transaction.findMany({
         where: {
@@ -117,35 +125,40 @@ export default async function ResumenPage() {
             { transferToAccountId: { in: cardIds } },
           ],
         },
-        orderBy: { date: "desc" },
+        orderBy: { date: 'desc' },
       })
-    : [];
+    : []
 
-  const catalog = await getCatalog(meId);
+  const catalog = await getCatalog(meId)
 
   const statements: CreditStatementView[] = cards.map((c) => {
     const txs: StatementTx[] = cardTxs
       .filter((t) => t.accountId === c.id || t.transferToAccountId === c.id)
       .map((t) => ({
         id: t.id,
-        type: t.type as "EXPENSE" | "INCOME" | "TRANSFER",
+        type: t.type as 'EXPENSE' | 'INCOME' | 'TRANSFER',
         amount: Number(t.amount),
         concept: t.concept,
         date: t.date,
         accountId: t.accountId,
         transferToAccountId: t.transferToAccountId,
         installments: t.installments,
-      }));
-    const opts = { statementDay: c.statementDay, dueDay: c.dueDay };
-    const { statements: stmts, currentKey } = activePeriods(c.id, txs, opts, now);
-    const debt = balances.get(c.id) ?? 0;
-    const limit = c.creditLimit != null ? Number(c.creditLimit) : null;
+      }))
+    const opts = { statementDay: c.statementDay, dueDay: c.dueDay }
+    const { statements: stmts, currentKey } = activePeriods(
+      c.id,
+      txs,
+      opts,
+      now,
+    )
+    const debt = balances.get(c.id) ?? 0
+    const limit = c.creditLimit != null ? Number(c.creditLimit) : null
     return {
       card: {
         id: c.id,
         name: c.name,
         lastFour: c.lastFour,
-        color: c.color ?? "#6366f1",
+        color: c.color ?? '#6366f1',
         creditLimit: limit,
         statementDay: c.statementDay,
         dueDay: c.dueDay,
@@ -161,12 +174,19 @@ export default async function ResumenPage() {
         dueDate: p.dueDate?.toISOString() ?? null,
         moves: p.moves.map((m) => ({ ...m, date: m.date.toISOString() })),
       })),
-    };
-  });
+    }
+  })
 
   return (
     <>
-      <ResumenClient months={months} mine={mine} involved={involved} confirmed={confirmed} cats={catalog} statements={statements} />
+      <ResumenClient
+        months={months}
+        mine={mine}
+        involved={involved}
+        confirmed={confirmed}
+        cats={catalog}
+        statements={statements}
+      />
     </>
-  );
+  )
 }

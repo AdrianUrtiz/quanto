@@ -1,70 +1,83 @@
-"use server";
+'use server'
 
-import { revalidatePath } from "next/cache";
-import { z } from "zod";
-import type { Session } from "next-auth";
-import { auth } from "@/auth";
-import { prisma } from "@/lib/prisma";
-import { debtorMonthlyAmount } from "@/lib/calculations";
-import { checkCategory } from "@/lib/catalog";
+import type { Session } from 'next-auth'
+import { revalidatePath } from 'next/cache'
+import { z } from 'zod'
+
+import { debtorMonthlyAmount } from '@/lib/calculations'
+import { checkCategory } from '@/lib/catalog'
+import { prisma } from '@/lib/prisma'
 import {
-  chargeDate,
-  computeDues,
-  monthHistory,
   type ChargeRow,
   type DueCharge,
   type SubInfo,
-} from "@/lib/subscriptions";
+  chargeDate,
+  computeDues,
+  monthHistory,
+} from '@/lib/subscriptions'
 
-const MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
+import { auth } from '@/auth'
+
+const MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/
 
 const SubSchema = z.object({
-  name: z.string().min(2, "Ponle un nombre"),
-  amount: z.coerce.number().positive("Monto debe ser mayor a 0"),
-  category: z.string().default("SUSCRIPCIONES"),
-  accountId: z.string().min(1, "Elige una cuenta"),
-  chargeDay: z.coerce.number().min(1, "Día 1-31").max(31, "Día 1-31"),
+  name: z.string().min(2, 'Ponle un nombre'),
+  amount: z.coerce.number().positive('Monto debe ser mayor a 0'),
+  category: z.string().default('SUSCRIPCIONES'),
+  accountId: z.string().min(1, 'Elige una cuenta'),
+  chargeDay: z.coerce.number().min(1, 'Día 1-31').max(31, 'Día 1-31'),
   isShared: z.coerce.boolean().default(false),
   sharePct: z.coerce.number().min(1).max(99).default(50),
   shareAmount: z.coerce.number().positive().optional(),
-});
+})
 
 function authedUser(session: Session | null) {
-  return (session?.user as { id?: string } | undefined)?.id;
+  return (session?.user as { id?: string } | undefined)?.id
 }
 
 function revalidateAll() {
-  revalidatePath("/actividad");
-  revalidatePath("/resumen");
-  revalidatePath("/cuentas");
+  revalidatePath('/actividad')
+  revalidatePath('/resumen')
+  revalidatePath('/cuentas')
 }
 
-function partsOf(v: { amount: number; isShared: boolean; sharePct?: number; shareAmount?: number }) {
-  if (!v.isShared) return { sharePct: 50, shareAmount: null as number | null };
+function partsOf(v: {
+  amount: number
+  isShared: boolean
+  sharePct?: number
+  shareAmount?: number
+}) {
+  if (!v.isShared) return { sharePct: 50, shareAmount: null as number | null }
   if (v.shareAmount != null && v.shareAmount >= v.amount) {
-    return { error: "La aportación debe ser menor al total" };
+    return { error: 'La aportación debe ser menor al total' }
   }
-  return { sharePct: v.sharePct ?? 50, shareAmount: v.shareAmount ?? null };
+  return { sharePct: v.sharePct ?? 50, shareAmount: v.shareAmount ?? null }
 }
 
 export async function createSubscription(formData: FormData) {
-  const userId = authedUser(await auth());
-  if (!userId) return { error: "No autenticado" };
-  if (!process.env.DATABASE_URL) return { error: "Configura DATABASE_URL" };
+  const userId = authedUser(await auth())
+  if (!userId) return { error: 'No autenticado' }
+  if (!process.env.DATABASE_URL) return { error: 'Configura DATABASE_URL' }
 
-  const raw = Object.fromEntries(formData);
-  const parsed = SubSchema.safeParse({ ...raw, isShared: raw.isShared === "on" || raw.isShared === "true" });
-  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Datos inválidos" };
-  const v = parsed.data;
-  const catError = await checkCategory(userId, v.category, "EXPENSE");
-  if (catError) return { error: catError };
+  const raw = Object.fromEntries(formData)
+  const parsed = SubSchema.safeParse({
+    ...raw,
+    isShared: raw.isShared === 'on' || raw.isShared === 'true',
+  })
+  if (!parsed.success)
+    return { error: parsed.error.issues[0]?.message ?? 'Datos inválidos' }
+  const v = parsed.data
+  const catError = await checkCategory(userId, v.category, 'EXPENSE')
+  if (catError) return { error: catError }
 
-  const account = await prisma.account.findFirst({ where: { id: v.accountId, userId } });
-  if (!account) return { error: "Cuenta no encontrada" };
-  const parts = partsOf(v);
-  if ("error" in parts) return { error: parts.error };
+  const account = await prisma.account.findFirst({
+    where: { id: v.accountId, userId },
+  })
+  if (!account) return { error: 'Cuenta no encontrada' }
+  const parts = partsOf(v)
+  if ('error' in parts) return { error: parts.error }
 
-  const now = new Date();
+  const now = new Date()
   await prisma.subscription.create({
     data: {
       userId,
@@ -76,35 +89,40 @@ export async function createSubscription(formData: FormData) {
       isShared: v.isShared,
       sharePct: parts.sharePct,
       shareAmount: parts.shareAmount,
-      startMonth: `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`,
+      startMonth: `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`,
     },
-  });
+  })
 
-  revalidateAll();
-  return { ok: true };
+  revalidateAll()
+  return { ok: true }
 }
 
 export async function updateSubscription(formData: FormData) {
-  const userId = authedUser(await auth());
-  if (!userId) return { error: "No autenticado" };
-  if (!process.env.DATABASE_URL) return { error: "Configura DATABASE_URL" };
+  const userId = authedUser(await auth())
+  if (!userId) return { error: 'No autenticado' }
+  if (!process.env.DATABASE_URL) return { error: 'Configura DATABASE_URL' }
 
-  const raw = Object.fromEntries(formData);
+  const raw = Object.fromEntries(formData)
   const parsed = SubSchema.extend({ id: z.string().min(1) }).safeParse({
     ...raw,
-    isShared: raw.isShared === "on" || raw.isShared === "true",
-  });
-  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Datos inválidos" };
-  const v = parsed.data;
-  const catError = await checkCategory(userId, v.category, "EXPENSE");
-  if (catError) return { error: catError };
+    isShared: raw.isShared === 'on' || raw.isShared === 'true',
+  })
+  if (!parsed.success)
+    return { error: parsed.error.issues[0]?.message ?? 'Datos inválidos' }
+  const v = parsed.data
+  const catError = await checkCategory(userId, v.category, 'EXPENSE')
+  if (catError) return { error: catError }
 
-  const sub = await prisma.subscription.findFirst({ where: { id: v.id, userId } });
-  if (!sub) return { error: "Suscripción no encontrada" };
-  const account = await prisma.account.findFirst({ where: { id: v.accountId, userId } });
-  if (!account) return { error: "Cuenta no encontrada" };
-  const parts = partsOf(v);
-  if ("error" in parts) return { error: parts.error };
+  const sub = await prisma.subscription.findFirst({
+    where: { id: v.id, userId },
+  })
+  if (!sub) return { error: 'Suscripción no encontrada' }
+  const account = await prisma.account.findFirst({
+    where: { id: v.accountId, userId },
+  })
+  if (!account) return { error: 'Cuenta no encontrada' }
+  const parts = partsOf(v)
+  if ('error' in parts) return { error: parts.error }
 
   // Solo afecta cargos futuros: lo ya confirmado es inmutable.
   await prisma.subscription.update({
@@ -119,37 +137,40 @@ export async function updateSubscription(formData: FormData) {
       sharePct: parts.sharePct,
       shareAmount: parts.shareAmount,
     },
-  });
+  })
 
-  revalidateAll();
-  return { ok: true };
+  revalidateAll()
+  return { ok: true }
 }
 
 export async function toggleSubscription(id: string, active: boolean) {
-  const userId = authedUser(await auth());
-  if (!userId) return { error: "No autenticado" };
-  if (!process.env.DATABASE_URL) return { error: "Configura DATABASE_URL" };
+  const userId = authedUser(await auth())
+  if (!userId) return { error: 'No autenticado' }
+  if (!process.env.DATABASE_URL) return { error: 'Configura DATABASE_URL' }
 
-  const sub = await prisma.subscription.findFirst({ where: { id, userId } });
-  if (!sub) return { error: "Suscripción no encontrada" };
+  const sub = await prisma.subscription.findFirst({ where: { id, userId } })
+  if (!sub) return { error: 'Suscripción no encontrada' }
 
-  await prisma.subscription.update({ where: { id }, data: { isActive: active } });
-  revalidateAll();
-  return { ok: true };
+  await prisma.subscription.update({
+    where: { id },
+    data: { isActive: active },
+  })
+  revalidateAll()
+  return { ok: true }
 }
 
 export async function deleteSubscription(id: string) {
-  const userId = authedUser(await auth());
-  if (!userId) return { error: "No autenticado" };
-  if (!process.env.DATABASE_URL) return { error: "Configura DATABASE_URL" };
+  const userId = authedUser(await auth())
+  if (!userId) return { error: 'No autenticado' }
+  if (!process.env.DATABASE_URL) return { error: 'Configura DATABASE_URL' }
 
-  const sub = await prisma.subscription.findFirst({ where: { id, userId } });
-  if (!sub) return { error: "Suscripción no encontrada" };
+  const sub = await prisma.subscription.findFirst({ where: { id, userId } })
+  if (!sub) return { error: 'Suscripción no encontrada' }
 
   // Los cargos ya confirmados se conservan como movimientos normales.
-  await prisma.subscription.delete({ where: { id } });
-  revalidateAll();
-  return { ok: true };
+  await prisma.subscription.delete({ where: { id } })
+  revalidateAll()
+  return { ok: true }
 }
 
 /**
@@ -157,42 +178,54 @@ export async function deleteSubscription(id: string) {
  * en la tarjeta — y SI genera la deuda de la pareja (split), visible en Pareja.
  * Nace ownerPaid=true. Los pagos de esa deuda se registran en Pareja, no aquí.
  */
-export async function confirmSubscriptionCharge(subscriptionId: string, month: string) {
-  const userId = authedUser(await auth());
-  if (!userId) return { error: "No autenticado" };
-  if (!process.env.DATABASE_URL) return { error: "Configura DATABASE_URL" };
-  if (!MONTH_RE.test(month)) return { error: "Mes inválido" };
+export async function confirmSubscriptionCharge(
+  subscriptionId: string,
+  month: string,
+) {
+  const userId = authedUser(await auth())
+  if (!userId) return { error: 'No autenticado' }
+  if (!process.env.DATABASE_URL) return { error: 'Configura DATABASE_URL' }
+  if (!MONTH_RE.test(month)) return { error: 'Mes inválido' }
 
   const sub = await prisma.subscription.findFirst({
     where: { id: subscriptionId, userId },
     include: { account: true },
-  });
-  if (!sub) return { error: "Suscripción no encontrada" };
-  if (!sub.isActive) return { error: "La suscripción está pausada" };
+  })
+  if (!sub) return { error: 'Suscripción no encontrada' }
+  if (!sub.isActive) return { error: 'La suscripción está pausada' }
 
   const existing = await prisma.subscriptionCharge.findUnique({
     where: { subscriptionId_month: { subscriptionId, month } },
     select: { id: true, skipped: true },
-  });
+  })
   if (existing) {
-    return { error: existing.skipped ? "Este mes se marcó como no cobrado" : "Este cargo ya fue confirmado" };
+    return {
+      error: existing.skipped
+        ? 'Este mes se marcó como no cobrado'
+        : 'Este cargo ya fue confirmado',
+    }
   }
 
   // El mes en curso solo se confirma desde su fecha de cobro.
-  const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const charge = chargeDate(month, sub.chargeDay);
-  const chargeDayStart = new Date(charge.getFullYear(), charge.getMonth(), charge.getDate());
-  if (chargeDayStart > today) return { error: `El cobro llega el día ${sub.chargeDay}` };
+  const now = new Date()
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  const charge = chargeDate(month, sub.chargeDay)
+  const chargeDayStart = new Date(
+    charge.getFullYear(),
+    charge.getMonth(),
+    charge.getDate(),
+  )
+  if (chargeDayStart > today)
+    return { error: `El cobro llega el día ${sub.chargeDay}` }
 
-  const amount = Number(sub.amount);
+  const amount = Number(sub.amount)
   // Todo indivisible en una transacción: gasto + share + cargo.
   // El saldo se deriva por suma (lib/balances.ts).
   try {
     await prisma.$transaction(async (db) => {
       const tx = await db.transaction.create({
         data: {
-          type: "EXPENSE",
+          type: 'EXPENSE',
           amount,
           concept: sub.name,
           category: sub.category,
@@ -203,22 +236,27 @@ export async function confirmSubscriptionCharge(subscriptionId: string, month: s
           isShared: sub.isShared,
           subscriptionId: sub.id,
         },
-      });
+      })
 
       if (sub.isShared) {
-        const other = await db.user.findFirst({ where: { id: { not: userId } }, select: { id: true } });
-        const debtorId = other?.id;
-        if (!debtorId || debtorId === userId) throw new Error("No se pudo determinar quién debe aportar");
-        const fixed = sub.shareAmount ? Number(sub.shareAmount) : null;
+        const other = await db.user.findFirst({
+          where: { id: { not: userId } },
+          select: { id: true },
+        })
+        const debtorId = other?.id
+        if (!debtorId || debtorId === userId)
+          throw new Error('No se pudo determinar quién debe aportar')
+        const fixed = sub.shareAmount ? Number(sub.shareAmount) : null
         await db.transactionShare.create({
           data: {
             transactionId: tx.id,
             debtorId,
             sharePct: fixed ? (fixed / amount) * 100 : sub.sharePct,
-            monthlyAmount: fixed ?? debtorMonthlyAmount(amount, 1, sub.sharePct),
+            monthlyAmount:
+              fixed ?? debtorMonthlyAmount(amount, 1, sub.sharePct),
             isFixedAmount: Boolean(fixed),
           },
-        });
+        })
       }
 
       await db.subscriptionCharge.create({
@@ -231,110 +269,143 @@ export async function confirmSubscriptionCharge(subscriptionId: string, month: s
           ownerPaidAt: new Date(),
           partnerPaid: false,
         },
-      });
-    });
+      })
+    })
   } catch (e) {
-    return { error: e instanceof Error ? e.message : "No se pudo confirmar el cargo" };
+    return {
+      error: e instanceof Error ? e.message : 'No se pudo confirmar el cargo',
+    }
   }
 
-  revalidateAll();
-  return { ok: true };
+  revalidateAll()
+  return { ok: true }
 }
 
 /**
  * Marcar "no se cobró" (solo el dueño): el cargo de ese mes no ocurrió,
  * no genera movimiento ni deuda de pareja. El mes sale de pendientes.
  */
-export async function skipSubscriptionCharge(subscriptionId: string, month: string) {
-  const userId = authedUser(await auth());
-  if (!userId) return { error: "No autenticado" };
-  if (!process.env.DATABASE_URL) return { error: "Configura DATABASE_URL" };
-  if (!MONTH_RE.test(month)) return { error: "Mes inválido" };
+export async function skipSubscriptionCharge(
+  subscriptionId: string,
+  month: string,
+) {
+  const userId = authedUser(await auth())
+  if (!userId) return { error: 'No autenticado' }
+  if (!process.env.DATABASE_URL) return { error: 'Configura DATABASE_URL' }
+  if (!MONTH_RE.test(month)) return { error: 'Mes inválido' }
 
-  const sub = await prisma.subscription.findFirst({ where: { id: subscriptionId, userId } });
-  if (!sub) return { error: "Suscripción no encontrada" };
-  if (!sub.isActive) return { error: "La suscripción está pausada" };
+  const sub = await prisma.subscription.findFirst({
+    where: { id: subscriptionId, userId },
+  })
+  if (!sub) return { error: 'Suscripción no encontrada' }
+  if (!sub.isActive) return { error: 'La suscripción está pausada' }
 
   const existing = await prisma.subscriptionCharge.findUnique({
     where: { subscriptionId_month: { subscriptionId, month } },
     select: { id: true, skipped: true },
-  });
+  })
   if (existing) {
-    return { error: existing.skipped ? "Este mes ya se marcó como no cobrado" : "Este cargo ya fue confirmado" };
+    return {
+      error: existing.skipped
+        ? 'Este mes ya se marcó como no cobrado'
+        : 'Este cargo ya fue confirmado',
+    }
   }
 
-  const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const charge = chargeDate(month, sub.chargeDay);
-  const chargeDayStart = new Date(charge.getFullYear(), charge.getMonth(), charge.getDate());
-  if (chargeDayStart > today) return { error: `El cobro llega el día ${sub.chargeDay}` };
+  const now = new Date()
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  const charge = chargeDate(month, sub.chargeDay)
+  const chargeDayStart = new Date(
+    charge.getFullYear(),
+    charge.getMonth(),
+    charge.getDate(),
+  )
+  if (chargeDayStart > today)
+    return { error: `El cobro llega el día ${sub.chargeDay}` }
 
   await prisma.subscriptionCharge.create({
     data: { subscriptionId: sub.id, month, skipped: true },
-  });
+  })
 
-  revalidateAll();
-  return { ok: true };
+  revalidateAll()
+  return { ok: true }
 }
 
 /** Deshacer "no se cobró": el mes vuelve a pendientes. Solo el dueño. */
-export async function unskipSubscriptionCharge(subscriptionId: string, month: string) {
-  const userId = authedUser(await auth());
-  if (!userId) return { error: "No autenticado" };
-  if (!process.env.DATABASE_URL) return { error: "Configura DATABASE_URL" };
-  if (!MONTH_RE.test(month)) return { error: "Mes inválido" };
+export async function unskipSubscriptionCharge(
+  subscriptionId: string,
+  month: string,
+) {
+  const userId = authedUser(await auth())
+  if (!userId) return { error: 'No autenticado' }
+  if (!process.env.DATABASE_URL) return { error: 'Configura DATABASE_URL' }
+  if (!MONTH_RE.test(month)) return { error: 'Mes inválido' }
 
-  const sub = await prisma.subscription.findFirst({ where: { id: subscriptionId, userId } });
-  if (!sub) return { error: "Suscripción no encontrada" };
+  const sub = await prisma.subscription.findFirst({
+    where: { id: subscriptionId, userId },
+  })
+  if (!sub) return { error: 'Suscripción no encontrada' }
 
   const existing = await prisma.subscriptionCharge.findUnique({
     where: { subscriptionId_month: { subscriptionId, month } },
     select: { id: true, skipped: true, transactionId: true },
-  });
+  })
   if (!existing || !existing.skipped || existing.transactionId) {
-    return { error: "Ese mes no está marcado como no cobrado" };
+    return { error: 'Ese mes no está marcado como no cobrado' }
   }
-  await prisma.subscriptionCharge.delete({ where: { id: existing.id } });
+  await prisma.subscriptionCharge.delete({ where: { id: existing.id } })
 
-  revalidateAll();
-  return { ok: true };
+  revalidateAll()
+  return { ok: true }
 }
 
 export type SubFull = {
-  id: string;
-  name: string;
-  amount: number;
-  category: string;
-  accountId: string;
-  accountName: string;
-  accountType: "DEBIT" | "CREDIT";
-  chargeDay: number;
-  isShared: boolean;
-  sharePct: number;
-  shareAmount: number | null;
-  isActive: boolean;
-  startMonth: string;
-  ownerId: string;
-  ownerName: string;
-  isMine: boolean;
-  partnerName: string | null;
-  history: { monthKey: string; short: string; confirmed: boolean; partnerPaid: boolean; skipped: boolean; isShared: boolean }[];
-};
+  id: string
+  name: string
+  amount: number
+  category: string
+  accountId: string
+  accountName: string
+  accountType: 'DEBIT' | 'CREDIT'
+  chargeDay: number
+  isShared: boolean
+  sharePct: number
+  shareAmount: number | null
+  isActive: boolean
+  startMonth: string
+  ownerId: string
+  ownerName: string
+  isMine: boolean
+  partnerName: string | null
+  history: {
+    monthKey: string
+    short: string
+    confirmed: boolean
+    partnerPaid: boolean
+    skipped: boolean
+    isShared: boolean
+  }[]
+}
 
 /**
  * Todo lo de suscripciones para un usuario en una sola llamada: plantillas
  * propias + compartidas de la pareja (sin saldos ajenos) y cargos pendientes.
  */
-export async function getSubscriptionData(userId: string): Promise<{ subs: SubFull[]; dues: DueCharge[] }> {
-  if (!process.env.DATABASE_URL || !userId) return { subs: [], dues: [] };
+export async function getSubscriptionData(
+  userId: string,
+): Promise<{ subs: SubFull[]; dues: DueCharge[] }> {
+  if (!process.env.DATABASE_URL || !userId) return { subs: [], dues: [] }
   try {
     const [me, partner, mySubs, partnerSubs] = await Promise.all([
       prisma.user.findUnique({ where: { id: userId }, select: { name: true } }),
-      prisma.user.findFirst({ where: { id: { not: userId } }, select: { id: true, name: true } }),
+      prisma.user.findFirst({
+        where: { id: { not: userId } },
+        select: { id: true, name: true },
+      }),
       prisma.subscription.findMany({
         where: { userId },
         include: { account: true, user: { select: { name: true } } },
-        orderBy: { createdAt: "asc" },
+        orderBy: { createdAt: 'asc' },
       }),
       prisma.subscription.findMany({
         where: { userId: { not: userId }, isShared: true },
@@ -342,12 +413,12 @@ export async function getSubscriptionData(userId: string): Promise<{ subs: SubFu
           account: { select: { id: true, type: true } },
           user: { select: { name: true } },
         },
-        orderBy: { createdAt: "asc" },
+        orderBy: { createdAt: 'asc' },
       }),
-    ]);
-    if (!me) return { subs: [], dues: [] };
+    ])
+    if (!me) return { subs: [], dues: [] }
     // Nombre del otro miembro (para "¿Te pagó X?"). En las suyas es la dueña.
-    const partnerName = partner?.name ?? null;
+    const partnerName = partner?.name ?? null
 
     const infos: SubInfo[] = [
       ...mySubs.map((s) => ({
@@ -357,7 +428,7 @@ export async function getSubscriptionData(userId: string): Promise<{ subs: SubFu
         category: s.category,
         accountId: s.accountId,
         accountName: s.account.name,
-        accountType: s.account.type as "DEBIT" | "CREDIT",
+        accountType: s.account.type as 'DEBIT' | 'CREDIT',
         chargeDay: s.chargeDay,
         isShared: s.isShared,
         sharePct: s.sharePct,
@@ -376,19 +447,19 @@ export async function getSubscriptionData(userId: string): Promise<{ subs: SubFu
         category: s.category,
         accountId: s.accountId,
         accountName: `Tarjeta de ${s.user.name}`,
-        accountType: s.account.type as "DEBIT" | "CREDIT",
+        accountType: s.account.type as 'DEBIT' | 'CREDIT',
         chargeDay: s.chargeDay,
         isShared: s.isShared,
         sharePct: s.sharePct,
         shareAmount: s.shareAmount ? Number(s.shareAmount) : null,
         isActive: s.isActive,
         startMonth: s.startMonth,
-        ownerId: "",
+        ownerId: '',
         ownerName: s.user.name,
         isMine: false,
         partnerName: s.user.name,
       })),
-    ];
+    ]
 
     const charges = await prisma.subscriptionCharge.findMany({
       where: { subscriptionId: { in: infos.map((s) => s.id) } },
@@ -396,7 +467,7 @@ export async function getSubscriptionData(userId: string): Promise<{ subs: SubFu
         ownerPaidBy: { select: { name: true } },
         partnerPaidBy: { select: { name: true } },
       },
-    });
+    })
     const chargeMap = new Map<string, ChargeRow>(
       charges.map((c) => [
         `${c.subscriptionId}:${c.month}`,
@@ -411,19 +482,16 @@ export async function getSubscriptionData(userId: string): Promise<{ subs: SubFu
           partnerPaidByName: c.partnerPaidBy?.name ?? null,
         },
       ]),
-    );
+    )
 
-    const dues = computeDues(infos, chargeMap);
+    const dues = computeDues(infos, chargeMap)
     const subs: SubFull[] = infos.map((s) => ({
       ...s,
       history: monthHistory(s, chargeMap).map((h) => ({ ...h })),
-    }));
+    }))
 
-    return { subs, dues };
+    return { subs, dues }
   } catch {
-    return { subs: [], dues: [] };
+    return { subs: [], dues: [] }
   }
 }
-
-
-

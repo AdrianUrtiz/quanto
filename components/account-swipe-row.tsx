@@ -1,50 +1,62 @@
-"use client";
+'use client'
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
-import { toast } from "sonner";
-import { ArrowDownLeft, ArrowUpRight, Pencil, Trash2 } from "lucide-react";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { BottomSheet } from "@/components/bottom-sheet";
-import { Button } from "@/components/ui/button";
-import { AccountForm } from "@/components/account-form";
-import { AccountMoneySheet } from "@/components/account-money-sheet";
-import { AccountCard, type AccountRow } from "@/components/account-card";
-import { SwipeRow } from "@/components/swipe-row";
-import { deleteAccount } from "@/lib/actions";
-import type { AccountOpt } from "@/components/transaction-form";
+import { useState } from 'react'
+
+import { ArrowDownLeft, ArrowUpRight, Pencil, Trash2 } from 'lucide-react'
+import { useRouter } from 'next/navigation'
+import { toast } from 'sonner'
+
+import { AccountCard, type AccountRow } from '@/components/account-card'
+import { AccountForm } from '@/components/account-form'
+import { AccountMoneySheet } from '@/components/account-money-sheet'
+import { BottomSheet } from '@/components/bottom-sheet'
+import { SwipeRow } from '@/components/swipe-row'
+import type { AccountOpt } from '@/components/transaction-form'
+import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+
+import { deleteAccount } from '@/lib/actions'
 
 export function AccountSwipeRow({
-  a, open, onOpenChange, debitOptions = [],
+  a,
+  open,
+  onOpenChange,
+  debitOptions = [],
 }: {
-  a: AccountRow;
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  debitOptions?: AccountOpt[];
+  a: AccountRow
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  debitOptions?: AccountOpt[]
 }) {
-  const router = useRouter();
-  const [editOpen, setEditOpen] = useState(false);
-  const [confirmOpen, setConfirmOpen] = useState(false);
-  const [payOpen, setPayOpen] = useState(false);
-  const [delError, setDelError] = useState<string | null>(null);
-  const [deleting, setDeleting] = useState(false);
+  const router = useRouter()
+  const [editOpen, setEditOpen] = useState(false)
+  const [confirmOpen, setConfirmOpen] = useState(false)
+  const [payOpen, setPayOpen] = useState(false)
+  const [delError, setDelError] = useState<string | null>(null)
+  const [deleting, setDeleting] = useState(false)
 
   function close() {
-    onOpenChange(false);
+    onOpenChange(false)
   }
 
   async function doDelete() {
-    setDelError(null);
-    setDeleting(true);
-    const res = await deleteAccount(a.id);
-    setDeleting(false);
-    if ("error" in res && res.error) {
-      setDelError(res.error);
-      toast.error(res.error);
+    setDelError(null)
+    setDeleting(true)
+    const res = await deleteAccount(a.id)
+    setDeleting(false)
+    if ('error' in res && res.error) {
+      setDelError(res.error)
+      toast.error(res.error)
     } else {
-      setConfirmOpen(false);
-      toast.success("Cuenta eliminada");
-      router.refresh();
+      setConfirmOpen(false)
+      toast.success('Cuenta eliminada')
+      router.refresh()
     }
   }
 
@@ -56,15 +68,14 @@ export function AccountSwipeRow({
         disabled={editOpen || confirmOpen || payOpen}
         leftActionsWidth={80}
         leftActions={
-          a.type === "CREDIT" ? (
+          a.type === 'CREDIT' ? (
             <button
               type="button"
               onClick={() => {
-                close();
-                setPayOpen(true);
+                close()
+                setPayOpen(true)
               }}
-              className="flex h-full flex-1 flex-col items-center justify-center gap-1.5 rounded-2xl bg-(--foreground) text-xs font-semibold text-(--background) shadow-xs transition-all active:scale-95"
-            >
+              className="flex h-full flex-1 flex-col items-center justify-center gap-1.5 rounded-2xl bg-(--foreground) text-xs font-semibold text-(--background) shadow-xs transition-all active:scale-95">
               <ArrowUpRight className="size-4" />
               <span>Pagar</span>
             </button>
@@ -72,11 +83,10 @@ export function AccountSwipeRow({
             <button
               type="button"
               onClick={() => {
-                close();
-                setPayOpen(true);
+                close()
+                setPayOpen(true)
               }}
-              className="flex h-full flex-1 flex-col items-center justify-center gap-1.5 rounded-2xl bg-emerald-500 text-xs font-semibold text-white shadow-xs transition-all active:scale-95"
-            >
+              className="flex h-full flex-1 flex-col items-center justify-center gap-1.5 rounded-2xl bg-emerald-500 text-xs font-semibold text-white shadow-xs transition-all active:scale-95">
               <ArrowDownLeft className="size-4" />
               <span>Abonar</span>
             </button>
@@ -87,29 +97,26 @@ export function AccountSwipeRow({
             <button
               type="button"
               onClick={() => {
-                close();
-                setEditOpen(true);
+                close()
+                setEditOpen(true)
               }}
-              className="flex h-full flex-1 flex-col items-center justify-center gap-1.5 rounded-2xl border border-(--border) bg-(--card) text-xs font-semibold text-(--foreground) shadow-xs transition-all hover:bg-(--muted) active:scale-95"
-            >
+              className="flex h-full flex-1 flex-col items-center justify-center gap-1.5 rounded-2xl border border-(--border) bg-(--card) text-xs font-semibold text-(--foreground) shadow-xs transition-all hover:bg-(--muted) active:scale-95">
               <Pencil className="size-4 text-(--foreground)" />
               <span>Editar</span>
             </button>
             <button
               type="button"
               onClick={() => {
-                close();
-                setDelError(null);
-                setConfirmOpen(true);
+                close()
+                setDelError(null)
+                setConfirmOpen(true)
               }}
-              className="flex h-full flex-1 flex-col items-center justify-center gap-1.5 rounded-2xl bg-red-500 text-xs font-semibold text-white shadow-xs transition-all hover:bg-red-600 active:scale-95"
-            >
+              className="flex h-full flex-1 flex-col items-center justify-center gap-1.5 rounded-2xl bg-red-500 text-xs font-semibold text-white shadow-xs transition-all hover:bg-red-600 active:scale-95">
               <Trash2 className="size-4" />
               <span>Eliminar</span>
             </button>
           </>
-        }
-      >
+        }>
         <AccountCard a={a} />
       </SwipeRow>
 
@@ -123,8 +130,8 @@ export function AccountSwipeRow({
           account={a}
           sourceOptions={debitOptions.filter((d) => d.id !== a.id)}
           onDone={() => {
-            setPayOpen(false);
-            router.refresh();
+            setPayOpen(false)
+            router.refresh()
           }}
         />
       </BottomSheet>
@@ -134,20 +141,30 @@ export function AccountSwipeRow({
           <DialogHeader>
             <DialogTitle>¿Eliminar {a.name}?</DialogTitle>
             <DialogDescription>
-              Se ocultará de tus cuentas, pero se conserva el historial de movimientos.
+              Se ocultará de tus cuentas, pero se conserva el historial de
+              movimientos.
             </DialogDescription>
           </DialogHeader>
-          {delError && <p className="text-sm font-medium text-red-500">{delError}</p>}
+          {delError && (
+            <p className="text-sm font-medium text-red-500">{delError}</p>
+          )}
           <div className="flex gap-2">
-            <Button variant="secondary" className="flex-1" onClick={() => setConfirmOpen(false)}>
+            <Button
+              variant="secondary"
+              className="flex-1"
+              onClick={() => setConfirmOpen(false)}>
               Cancelar
             </Button>
-            <Button variant="destructive" className="flex-1" disabled={deleting} onClick={doDelete}>
-              {deleting ? "Eliminando…" : "Sí, eliminar"}
+            <Button
+              variant="destructive"
+              className="flex-1"
+              disabled={deleting}
+              onClick={doDelete}>
+              {deleting ? 'Eliminando…' : 'Sí, eliminar'}
             </Button>
           </div>
         </DialogContent>
       </Dialog>
     </>
-  );
+  )
 }
