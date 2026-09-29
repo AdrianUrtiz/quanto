@@ -4,7 +4,6 @@ import type { AccountRow } from '@/components/account-card'
 import {
   CuentasClient,
   type MyPendingItem,
-  type PartnerDebt,
   type SourceConfirmItem,
   type ToConfirmItem,
 } from '@/components/cuentas-client'
@@ -13,75 +12,16 @@ import type { SubRow } from '@/components/subscription-tab'
 import { getAccountBalances } from '@/lib/balances'
 import { installmentMonths } from '@/lib/calculations'
 import { getCatalog } from '@/lib/catalog'
-import { type LineSums, getLineSums } from '@/lib/debt-payments'
+import { getLineSums } from '@/lib/debt-payments'
+import { type DebtItemInput, buildDebts } from '@/lib/partner-debts'
 import { prisma } from '@/lib/prisma'
-import { type SubFull, getSubscriptionData } from '@/lib/subscription-actions'
+import { getSubscriptionData } from '@/lib/subscription-actions'
 import type { DueCharge } from '@/lib/subscriptions'
 import { monthKey, monthLabelEs } from '@/lib/utils'
 
 import { auth } from '@/auth'
 
 export const metadata = { title: 'Cuentas' }
-
-type DebtItem = {
-  shareId: string
-  accountId: string
-  accountName: string
-  accountType: 'DEBIT' | 'CREDIT'
-  dueDay?: number
-  debtorId: string
-  debtorName: string
-  creditorName: string
-  concept: string
-  monthly: number
-  installments: number
-  date: Date
-}
-
-/**
- * Agrupa por cuenta+deudor solo lo exigible en el mes `key`.
- * Si la compra fue a MSI, únicamente cae la parcialidad del periodo actual.
- */
-function buildDebts(
-  items: DebtItem[],
-  key: string,
-  sums: Map<string, LineSums>,
-): PartnerDebt[] {
-  const byAcc = new Map<string, PartnerDebt>()
-  for (const it of items) {
-    const months = installmentMonths(new Date(it.date), it.installments)
-    const idx = months.indexOf(key)
-    if (idx === -1) continue // fuera del periodo actual
-    const gk = `${it.accountId}:${it.debtorId}`
-    const g = byAcc.get(gk) ?? {
-      accountId: it.accountId,
-      accountName: it.accountName,
-      accountType: it.accountType,
-      dueDay: it.dueDay,
-      debtorId: it.debtorId,
-      debtorName: it.debtorName,
-      creditorName: it.creditorName,
-      total: 0,
-      remaining: 0,
-      lines: [],
-    }
-    g.total += it.monthly
-    const s = sums.get(`${it.shareId}:${key}`) ?? { confirmed: 0, pending: 0 }
-    g.remaining += Math.max(0, it.monthly - s.confirmed)
-    g.lines.push({
-      concept: it.concept,
-      monthly: it.monthly,
-      installment: idx + 1,
-      installments: it.installments,
-      shareId: it.shareId || null,
-      month: key,
-      paid: s.confirmed,
-      pending: s.pending,
-    })
-    byAcc.set(gk, g)
-  }
-  return [...byAcc.values()].sort((a, b) => b.remaining - a.remaining)
-}
 
 export default async function CuentasPage() {
   const session = await auth()
@@ -223,46 +163,60 @@ export default async function CuentasPage() {
       creditorName: p.registeredBy.name,
     })
   }
-  const debts = buildDebts(
-    sharedRows.map((t) => ({
-      shareId: t.shares[0]?.id ?? '',
-      accountId: t.account.id,
-      accountName: t.account.name,
-      accountType: t.account.type as 'DEBIT' | 'CREDIT',
-      dueDay: t.account.dueDay ?? undefined,
-      debtorId: meId,
-      debtorName: me,
-      creditorName: t.createdBy.name,
-      concept: t.concept,
-      monthly: Number(t.shares[0]?.monthlyAmount ?? 0),
-      installments: t.installments,
-      date: t.date,
-    })),
-    key,
-    sums,
+  // Pareja: entradas serializables; el mes se agrupa en cliente (buildDebts)
+  // para poder cambiar de periodo. `sums` cubre todos los meses (sin filtro).
+  const debtItems: DebtItemInput[] = sharedRows.map((t) => ({
+    shareId: t.shares[0]?.id ?? '',
+    accountId: t.account.id,
+    accountName: t.account.name,
+    accountType: t.account.type as 'DEBIT' | 'CREDIT',
+    dueDay: t.account.dueDay ?? undefined,
+    debtorId: meId,
+    debtorName: me,
+    creditorName: t.createdBy.name,
+    concept: t.concept,
+    monthly: Number(t.shares[0]?.monthlyAmount ?? 0),
+    installments: t.installments,
+    date: t.date.toISOString(),
+  }))
+  const owedItems: DebtItemInput[] = sharedOwedRows.flatMap((t) =>
+    t.shares
+      .filter((s) => s.debtorId !== meId)
+      .map((s) => ({
+        shareId: s.id,
+        accountId: t.account.id,
+        accountName: t.account.name,
+        accountType: t.account.type as 'DEBIT' | 'CREDIT',
+        dueDay: t.account.dueDay ?? undefined,
+        debtorId: s.debtorId,
+        debtorName: s.debtor.name,
+        creditorName: t.createdBy.name,
+        concept: t.concept,
+        monthly: Number(s.monthlyAmount ?? 0),
+        installments: t.installments,
+        date: t.date.toISOString(),
+      })),
   )
-  const owed = buildDebts(
-    sharedOwedRows.flatMap((t) =>
-      t.shares
-        .filter((s) => s.debtorId !== meId)
-        .map((s) => ({
-          shareId: s.id,
-          accountId: t.account.id,
-          accountName: t.account.name,
-          accountType: t.account.type as 'DEBIT' | 'CREDIT',
-          dueDay: t.account.dueDay ?? undefined,
-          debtorId: s.debtorId,
-          debtorName: s.debtor.name,
-          creditorName: t.createdBy.name,
-          concept: t.concept,
-          monthly: Number(s.monthlyAmount ?? 0),
-          installments: t.installments,
-          date: t.date,
-        })),
-    ),
-    key,
-    sums,
-  )
+  const sumsArr = [...sums.entries()].map(([k, s]) => ({
+    key: k,
+    confirmed: s.confirmed,
+    pending: s.pending,
+  }))
+
+  // Meses con parcialidades exigibles (debo + me deben) para el selector.
+  const monthKeys = new Set<string>([key])
+  for (const it of [...debtItems, ...owedItems])
+    for (const m of installmentMonths(new Date(it.date), it.installments))
+      monthKeys.add(m)
+  const partnerMonths = [...monthKeys]
+    .sort((a, b) => (a < b ? 1 : -1))
+    .map((k) => {
+      const [y, mo] = k.split('-').map(Number)
+      const total =
+        buildDebts(debtItems, k, sums).reduce((a, d) => a + d.remaining, 0) +
+        buildDebts(owedItems, k, sums).reduce((a, d) => a + d.remaining, 0)
+      return { key: k, label: monthLabelEs(new Date(y, mo - 1, 1)), total }
+    })
   // Suscripciones (mías + compartidas de mi pareja) y sus pendientes.
   const subData = await getSubscriptionData(meId)
   subs = subData.subs
@@ -275,8 +229,10 @@ export default async function CuentasPage() {
       <CuentasClient
         accounts={accounts}
         meId={meId}
-        debts={debts}
-        owed={owed}
+        debtItems={debtItems}
+        owedItems={owedItems}
+        sums={sumsArr}
+        partnerMonths={partnerMonths}
         subs={subs}
         dues={dues}
         cats={catalog}

@@ -8,6 +8,7 @@ import { toast } from 'sonner'
 
 import type { AccountRow } from '@/components/account-card'
 import { AccountSwipeRow } from '@/components/account-swipe-row'
+import type { MonthOpt } from '@/components/activity-client'
 import { BottomSheet } from '@/components/bottom-sheet'
 import { FilterOptions, FilterPill } from '@/components/filter-dialog'
 import { PaymentSheet } from '@/components/payment-sheet'
@@ -24,20 +25,15 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
 import type { CatalogRow } from '@/lib/catalog'
+import { useCuentasFilters } from '@/lib/cuentas-filters'
+import {
+  buildDebts,
+  type DebtItemInput,
+  type PartnerDebt,
+} from '@/lib/partner-debts'
 import { cancelPayment, confirmPaymentSource } from '@/lib/payment-actions'
 import type { DueCharge } from '@/lib/subscriptions'
-import { formatMoney } from '@/lib/utils'
-
-export type DebtLine = {
-  concept: string
-  monthly: number
-  installment: number // parcialidad que cae este mes (1-based)
-  installments: number // total de parcialidades
-  shareId: string | null // null en modo demo (sin pagos)
-  month: string // "YYYY-MM" de la parcialidad
-  paid: number // suma CONFIRMED
-  pending: number // suma PENDING
-}
+import { formatMoney, monthKey } from '@/lib/utils'
 
 /** Pago pendiente que mi pareja registró y yo debo confirmar (soy el acreedor). */
 export type ToConfirmItem = {
@@ -73,26 +69,13 @@ export type SourceConfirmItem = {
   creditorName: string
 }
 
-/** Deuda entre pareja este mes, agrupada por cuenta. Si debtorId soy yo, la debo;
- * si no, me la deben. `total` = mensualidades originales; `remaining` = por pagar. */
-export type PartnerDebt = {
-  accountId: string
-  accountName: string
-  accountType: 'DEBIT' | 'CREDIT'
-  dueDay?: number
-  debtorId: string
-  debtorName: string
-  creditorName: string
-  total: number
-  remaining: number
-  lines: DebtLine[]
-}
-
 export function CuentasClient({
   accounts,
   meId,
-  debts,
-  owed,
+  debtItems,
+  owedItems,
+  sums,
+  partnerMonths,
   subs,
   dues,
   cats,
@@ -102,8 +85,10 @@ export function CuentasClient({
 }: {
   accounts: AccountRow[]
   meId: string
-  debts: PartnerDebt[]
-  owed: PartnerDebt[]
+  debtItems: DebtItemInput[]
+  owedItems: DebtItemInput[]
+  sums: { key: string; confirmed: number; pending: number }[]
+  partnerMonths: MonthOpt[]
   subs: SubRow[]
   dues: DueCharge[]
   cats: CatalogRow[]
@@ -112,7 +97,8 @@ export function CuentasClient({
   toConfirmSource?: SourceConfirmItem[]
 }) {
   const router = useRouter()
-  const [tab, setTab] = useState('todas')
+  const tab = useCuentasFilters((s) => s.tab)
+  const setTab = useCuentasFilters((s) => s.setTab)
   const [openRow, setOpenRow] = useState<string | null>(null)
   const [paySheet, setPaySheet] = useState<{
     d: PartnerDebt
@@ -128,6 +114,39 @@ export function CuentasClient({
   const mine = useMemo(
     () => accounts.filter((a) => a.ownerId === meId),
     [accounts, meId],
+  )
+
+  // Mes de Pareja (persistido): el mes puede no existir, se usa el más
+  // reciente sin sobrescribir el store hasta que el usuario elija otro.
+  const storedPartnerMonth = useCuentasFilters((s) => s.partnerMonth)
+  const setPartnerMonth = useCuentasFilters((s) => s.setPartnerMonth)
+  const partnerMonth =
+    partnerMonths.some((m) => m.key === storedPartnerMonth) &&
+    storedPartnerMonth
+      ? storedPartnerMonth
+      : (partnerMonths[0]?.key ?? storedPartnerMonth)
+  const partnerLabel =
+    partnerMonths.find((m) => m.key === partnerMonth)?.label ?? partnerMonth
+  const isCurrentMonth = partnerMonth === monthKey(new Date())
+
+  // Deudas del mes seleccionado (MSI: solo cae la parcialidad del periodo).
+  const sumsMap = useMemo(
+    () =>
+      new Map(
+        sums.map((s) => [
+          s.key,
+          { confirmed: s.confirmed, pending: s.pending },
+        ]),
+      ),
+    [sums],
+  )
+  const debts = useMemo(
+    () => buildDebts(debtItems, partnerMonth, sumsMap),
+    [debtItems, partnerMonth, sumsMap],
+  )
+  const owed = useMemo(
+    () => buildDebts(owedItems, partnerMonth, sumsMap),
+    [owedItems, partnerMonth, sumsMap],
   )
 
   const swipe = (a: AccountRow) => (
@@ -170,13 +189,18 @@ export function CuentasClient({
     [mine],
   )
 
-  // Filtros de la tab Cuentas: orden + tipo/estado.
-  const [accSort, setAccSort] = useState('default')
-  const [accType, setAccType] = useState('all')
+  // Filtros persistidos de cada tab + mes de Pareja.
+  const accSort = useCuentasFilters((s) => s.accSort)
+  const setAccSort = useCuentasFilters((s) => s.setAccSort)
+  const accType = useCuentasFilters((s) => s.accType)
+  const setAccType = useCuentasFilters((s) => s.setAccType)
   const [accSheet, setAccSheet] = useState<null | 'sort' | 'type'>(null)
-  const [allSection, setAllSection] = useState('all')
-  const [allSort, setAllSort] = useState('default')
+  const allSection = useCuentasFilters((s) => s.allSection)
+  const setAllSection = useCuentasFilters((s) => s.setAllSection)
+  const allSort = useCuentasFilters((s) => s.allSort)
+  const setAllSort = useCuentasFilters((s) => s.setAllSort)
   const [allSheet, setAllSheet] = useState<null | 'section' | 'sort'>(null)
+  const [partnerSheet, setPartnerSheet] = useState<null | 'month'>(null)
 
   // Monto representativo: saldo en débito, disponible en crédito.
   const effValue = (a: AccountRow) =>
@@ -293,7 +317,12 @@ export function CuentasClient({
       : tab === 'subs'
         ? { label: 'Comprometido/mes', value: monthly }
         : tab === 'pareja'
-          ? { label: 'Le debes este mes', value: oweTotal }
+          ? {
+              label: isCurrentMonth
+                ? 'Le debes este mes'
+                : `Le debes en ${partnerLabel}`,
+              value: oweTotal,
+            }
           : { label: 'Saldo total', value: totalOf(mine) }
 
   return (
@@ -392,12 +421,25 @@ export function CuentasClient({
           {filteredMine.map(swipe)}
         </TabsContent>
         <TabsContent value="pareja" className="space-y-4">
+          <div className="flex items-center justify-center">
+            <button
+              onClick={() => setPartnerSheet('month')}
+              className="rounded-full bg-(--muted) px-4 py-1.5 text-xs font-semibold capitalize">
+              {partnerLabel} ▾
+            </button>
+          </div>
           {debts.length === 0 &&
             owed.length === 0 &&
             toConfirm.length === 0 &&
             myPending.length === 0 &&
             toConfirmSource.length === 0 && (
-              <Empty text="No hay cuentas pendientes con tu pareja este mes. 🎉" />
+              <Empty
+                text={
+                  isCurrentMonth
+                    ? 'No hay cuentas pendientes con tu pareja este mes. 🎉'
+                    : `No hay cuentas pendientes con tu pareja en ${partnerLabel}. 🎉`
+                }
+              />
             )}
           {toConfirmSource.length > 0 && (
             <section className="space-y-2">
@@ -623,6 +665,29 @@ export function CuentasClient({
               }}
             />
           )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={partnerSheet !== null}
+        onOpenChange={(o) => !o && setPartnerSheet(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Seleccionar mes</DialogTitle>
+          </DialogHeader>
+          <FilterOptions
+            items={partnerMonths.map((m) => ({
+              value: m.key,
+              label: m.label,
+              total: m.total,
+              cap: true,
+            }))}
+            value={partnerMonth}
+            onPick={(v) => {
+              setPartnerMonth(v)
+              setPartnerSheet(null)
+            }}
+          />
         </DialogContent>
       </Dialog>
     </div>
