@@ -18,20 +18,34 @@ import { cn } from '@/lib/utils'
 /**
  * Pagar tarjeta (TRANSFER desde débito propio) o abonar débito (INCOME).
  * Reutiliza createTransaction: saldos y validaciones ya cubiertos.
+ * Con `statementKey`, el pago a crédito se aplica a ese período
+ * ("YYYY-MM") aunque sea extemporáneo.
  */
 export function AccountMoneySheet({
   account,
   sourceOptions,
   onDone,
+  statementKey,
+  defaultAmount,
+  statementLabel,
 }: {
   account: AccountRow
   sourceOptions: AccountOpt[]
   onDone?: () => void
+  statementKey?: string | null
+  defaultAmount?: number | null
+  statementLabel?: string | null
 }) {
   const pay = account.type === 'CREDIT'
   const debt = pay ? account.balance : 0
+  const initial =
+    pay && defaultAmount != null && defaultAmount > 0
+      ? defaultAmount
+      : pay && debt > 0
+        ? debt
+        : null
   const [amount, setAmount] = useState(
-    pay && debt > 0 ? String(Math.round(debt * 100) / 100) : '',
+    initial != null ? String(Math.round(initial * 100) / 100) : '',
   )
   const [concept, setConcept] = useState(
     pay ? `Pago ${account.name}` : `Abono ${account.name}`,
@@ -51,6 +65,7 @@ export function AccountMoneySheet({
       fd.set('category', 'OTRO')
       fd.set('accountId', sourceId)
       fd.set('transferToAccountId', account.id)
+      if (statementKey) fd.set('statementKey', statementKey)
     } else {
       fd.set('type', 'INCOME')
       fd.set('amount', amount)
@@ -81,6 +96,15 @@ export function AccountMoneySheet({
             <>
               Deuda actual{' '}
               <b className="text-(--foreground)">{formatMoney(debt)}</b>
+              {statementKey && statementLabel && (
+                <>
+                  <br />
+                  Se aplicará al estado de{' '}
+                  <b className="text-(--foreground) capitalize">
+                    {statementLabel}
+                  </b>
+                </>
+              )}
             </>
           ) : (
             <>

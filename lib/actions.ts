@@ -351,6 +351,10 @@ const TxSchema = z.object({
   accountId: z.string().min(1, 'Elige una cuenta'),
   transferToAccountId: z.string().optional(),
   installments: z.coerce.number().min(1).max(24).default(1),
+  statementKey: z
+    .string()
+    .regex(/^\d{4}-\d{2}$/, 'Período inválido')
+    .optional(),
   isShared: z.coerce.boolean().default(false),
   sharePct: z.coerce.number().min(1).max(99).default(50),
   shareAmount: z.coerce.number().positive().optional(),
@@ -409,6 +413,10 @@ export async function createTransaction(formData: FormData) {
         createdById: userId,
         installments: 1,
         isShared: false,
+        // Pago a crédito desde su botón Pagar: se aplica a ese período
+        // aunque la fecha sea posterior al vencimiento.
+        statementKey:
+          dest.type === 'CREDIT' ? (v.statementKey ?? null) : null,
       },
     })
 
@@ -456,6 +464,11 @@ export async function createTransaction(formData: FormData) {
         createdById: userId,
         installments: v.type === 'EXPENSE' ? Math.round(v.installments) : 1,
         isShared: v.type === 'EXPENSE' && v.isShared,
+        // Abono directo a crédito desde su botón Pagar.
+        statementKey:
+          v.type === 'INCOME' && account.type === 'CREDIT'
+            ? (v.statementKey ?? null)
+            : null,
       },
     })
 

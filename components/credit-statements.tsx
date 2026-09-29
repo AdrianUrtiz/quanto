@@ -98,9 +98,9 @@ function StatementPanel({
 
   const [nowRef] = useState(() => Date.now())
   const isFuture = new Date(period.start).getTime() > nowRef
-  // Ya pagado si los abonos cubren el cierre (tolerancia de centavos).
-  // Cierre en 0 (sin cargos) también cuenta como nada por pagar.
-  const paid = period.closing - period.payments <= 0.005
+  // Ya pagado si el cierre quedó en cero (tolerancia de centavos).
+  // El cierre ya descuenta los pagos, así que basta con ver el cierre.
+  const paid = period.closing <= 0.005
   const chart = useMemo(() => [...periods].reverse(), [periods])
   const maxCharges = Math.max(1, ...periods.map((p) => p.charges))
 
@@ -265,8 +265,12 @@ function StatementPanel({
 
       <BottomSheet open={payOpen} onOpenChange={(o) => !o && setPayOpen(false)}>
         <AccountMoneySheet
+          key={period.key}
           account={account}
           sourceOptions={view.debitOpts}
+          statementKey={period.key}
+          statementLabel={period.label}
+          defaultAmount={period.closing > 0 ? period.closing : null}
           onDone={() => {
             setPayOpen(false)
             router.refresh()

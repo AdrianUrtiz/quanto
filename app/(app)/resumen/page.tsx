@@ -143,6 +143,7 @@ export default async function ResumenPage() {
         accountId: t.accountId,
         transferToAccountId: t.transferToAccountId,
         installments: t.installments,
+        statementKey: t.statementKey ?? null,
       }))
     const opts = { statementDay: c.statementDay, dueDay: c.dueDay }
     const { statements: stmts, currentKey } = activePeriods(
