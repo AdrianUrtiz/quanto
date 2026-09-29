@@ -105,7 +105,7 @@ export function TransactionForm({
     : 'cargo'
 
   const [mode, setMode] = useState<Mode>(initialMode)
-  const [amount, setAmount] = useState(entry ? String(entry.amount) : '0')
+  const [amount, setAmount] = useState(entry ? String(entry.amount) : '')
   const [dateYMD, setDateYMD] = useState(
     entry ? toYMD(new Date(entry.date)) : toYMD(new Date()),
   )
