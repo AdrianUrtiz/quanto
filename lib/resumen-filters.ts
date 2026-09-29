@@ -1,5 +1,4 @@
 import { create } from 'zustand'
-import { persist } from 'zustand/middleware'
 
 import type { ActivityKind, ActivityRange } from '@/lib/activity-filters'
 
@@ -22,25 +21,18 @@ function currentMonthKey() {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
 }
 
-export const useResumenFilters = create<ResumenFiltersState>()(
-  persist(
-    (set) => ({
-      month: currentMonthKey(),
-      kind: 'gastos',
-      range: 'mensual',
-      account: 'todas',
-      category: 'todas',
-      setMonth: (month) => set({ month }),
-      setKind: (kind) => set({ kind }),
-      setRange: (range) => set({ range }),
-      setAccount: (account) => set({ account }),
-      setCategory: (category) => set({ category }),
-    }),
-    {
-      name: 'quanto-resumen-filters',
-    },
-  ),
-)
+export const useResumenFilters = create<ResumenFiltersState>()((set) => ({
+  month: currentMonthKey(),
+  kind: 'gastos',
+  range: 'mensual',
+  account: 'todas',
+  category: 'todas',
+  setMonth: (month) => set({ month }),
+  setKind: (kind) => set({ kind }),
+  setRange: (range) => set({ range }),
+  setAccount: (account) => set({ account }),
+  setCategory: (category) => set({ category }),
+}))
 
 type StatementFiltersState = {
   /** Tarjeta seleccionada en "Estados de cuenta". Null = primera. */
@@ -51,19 +43,12 @@ type StatementFiltersState = {
   setPeriod: (cardId: string, periodKey: string) => void
 }
 
-export const useStatementFilters = create<StatementFiltersState>()(
-  persist(
-    (set) => ({
-      cardId: null,
-      periodByCard: {},
-      setCardId: (cardId) => set({ cardId }),
-      setPeriod: (cardId, periodKey) =>
-        set((s) => ({
-          periodByCard: { ...s.periodByCard, [cardId]: periodKey },
-        })),
-    }),
-    {
-      name: 'quanto-statement-filters',
-    },
-  ),
-)
+export const useStatementFilters = create<StatementFiltersState>()((set) => ({
+  cardId: null,
+  periodByCard: {},
+  setCardId: (cardId) => set({ cardId }),
+  setPeriod: (cardId, periodKey) =>
+    set((s) => ({
+      periodByCard: { ...s.periodByCard, [cardId]: periodKey },
+    })),
+}))

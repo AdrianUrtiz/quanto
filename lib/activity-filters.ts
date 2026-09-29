@@ -1,5 +1,4 @@
 import { create } from 'zustand'
-import { persist } from 'zustand/middleware'
 
 export type ActivityRange =
   'mensual' | 'semanal' | 'trimestral' | 'seis' | 'anio' | 'todo'
@@ -24,22 +23,15 @@ function currentMonthKey() {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
 }
 
-export const useActivityFilters = create<ActivityFiltersState>()(
-  persist(
-    (set) => ({
-      month: currentMonthKey(),
-      kind: 'gastos',
-      range: 'mensual',
-      account: 'todas',
-      category: 'todas',
-      setMonth: (month) => set({ month }),
-      setKind: (kind) => set({ kind }),
-      setRange: (range) => set({ range }),
-      setAccount: (account) => set({ account }),
-      setCategory: (category) => set({ category }),
-    }),
-    {
-      name: 'quanto-activity-filters',
-    },
-  ),
-)
+export const useActivityFilters = create<ActivityFiltersState>()((set) => ({
+  month: currentMonthKey(),
+  kind: 'gastos',
+  range: 'mensual',
+  account: 'todas',
+  category: 'todas',
+  setMonth: (month) => set({ month }),
+  setKind: (kind) => set({ kind }),
+  setRange: (range) => set({ range }),
+  setAccount: (account) => set({ account }),
+  setCategory: (category) => set({ category }),
+}))

@@ -1,5 +1,4 @@
 import { create } from 'zustand'
-import { persist } from 'zustand/middleware'
 
 type CuentasFiltersState = {
   /** Tab activa de Cuentas. */
@@ -25,24 +24,17 @@ function currentMonthKey() {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
 }
 
-export const useCuentasFilters = create<CuentasFiltersState>()(
-  persist(
-    (set) => ({
-      tab: 'todas',
-      allSection: 'all',
-      allSort: 'default',
-      accSort: 'default',
-      accType: 'all',
-      partnerMonth: currentMonthKey(),
-      setTab: (tab) => set({ tab }),
-      setAllSection: (allSection) => set({ allSection }),
-      setAllSort: (allSort) => set({ allSort }),
-      setAccSort: (accSort) => set({ accSort }),
-      setAccType: (accType) => set({ accType }),
-      setPartnerMonth: (partnerMonth) => set({ partnerMonth }),
-    }),
-    {
-      name: 'quanto-cuentas-filters',
-    },
-  ),
-)
+export const useCuentasFilters = create<CuentasFiltersState>()((set) => ({
+  tab: 'todas',
+  allSection: 'all',
+  allSort: 'default',
+  accSort: 'default',
+  accType: 'all',
+  partnerMonth: currentMonthKey(),
+  setTab: (tab) => set({ tab }),
+  setAllSection: (allSection) => set({ allSection }),
+  setAllSort: (allSort) => set({ allSort }),
+  setAccSort: (accSort) => set({ accSort }),
+  setAccType: (accType) => set({ accType }),
+  setPartnerMonth: (partnerMonth) => set({ partnerMonth }),
+}))
