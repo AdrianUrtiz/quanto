@@ -10,6 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 
 import {
   daysUntilExpiry,
+  dismissKeyFor,
   expiryMessage,
   shouldRemindExpiry,
 } from '@/lib/expiry'
@@ -25,11 +26,6 @@ export type ExpiryAccount = {
 
 const DISMISS_KEY = 'quanto:expiry-dismissed'
 
-/** Clave de descarte: por hito (90/75/…/15) o fija una vez vencida. */
-function dismissKey(id: string, expiry: string, days: number) {
-  return `${id}:${expiry}:${days <= 0 ? 'vencida' : days}`
-}
-
 function loadDismissed(): Set<string> {
   try {
     const raw = window.localStorage.getItem(DISMISS_KEY)
@@ -41,9 +37,10 @@ function loadDismissed(): Set<string> {
 }
 
 /**
- * Recordatorio de renovación: hitos 90/75/…/15 días y siempre si venció.
- * `onRenew` abre la edición directo (Cuentas); sin él navega a
- * /cuentas?editar=<id>. Cada aviso se puede descartar con la X.
+ * Recordatorio de renovación: visible a diario desde el tercer mes previo
+ * (incluyendo vencida). `onRenew` abre la edición directo (Cuentas); sin
+ * él navega a /cuentas?editar=<id>. La X lo oculta hasta el próximo corte
+ * (1/15, o cada 5 días si ya venció).
  */
 export function ExpiryReminders({
   accounts,
@@ -60,15 +57,21 @@ export function ExpiryReminders({
       .map((a) => ({ a, days: daysUntilExpiry(a.expiry, now) }))
       .filter(
         (it): it is { a: ExpiryAccount; days: number } =>
-          it.days != null && shouldRemindExpiry(it.days),
+          it.days != null && shouldRemindExpiry(it.a.expiry, now),
       )
-      .filter((it) => !dismissed.has(dismissKey(it.a.id, it.a.expiry!, it.days)))
+      .filter(
+        (it) =>
+          !dismissed.has(
+            dismissKeyFor(it.a.id, it.a.expiry!, now, it.days < 0),
+          ),
+      )
       .sort((x, y) => x.days - y.days)
   }, [accounts, dismissed])
 
   if (items.length === 0) return null
 
   function dismiss(id: string, expiry: string, days: number) {
+    const now = new Date()
     setDismissed((prev) => {
       const next = new Set(prev)
       // Poda: solo avisos de cuentas actuales.
@@ -76,7 +79,9 @@ export function ExpiryReminders({
       for (const k of next) {
         if (!ids.has(k.split(':')[0]!)) next.delete(k)
       }
-      next.add(dismissKey(id, expiry, days))
+      // Se oculta hasta el próximo corte (1/15, o cada 5 días si venció);
+      // siempre una sola fila por cuenta.
+      next.add(dismissKeyFor(id, expiry, now, days < 0))
       try {
         window.localStorage.setItem(DISMISS_KEY, JSON.stringify([...next]))
       } catch {
