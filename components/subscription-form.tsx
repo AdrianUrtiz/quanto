@@ -3,9 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import {
-  ArrowRight,
   Check,
-  Delete,
   LayoutGrid,
   Plus,
   Repeat,
@@ -38,7 +36,6 @@ import {
   createSubscription,
   updateSubscription,
 } from '@/lib/subscription-actions'
-import { useKeyboardOpen } from '@/lib/use-keyboard'
 import { formatMoney } from '@/lib/utils'
 import { cn } from '@/lib/utils'
 
@@ -68,8 +65,6 @@ export function SubscriptionForm({
   onDone?: () => void
 }) {
   const editing = Boolean(subscription)
-  // Teclado del teléfono abierto: se oculta el keypad propio (ver abajo).
-  const kbOpen = useKeyboardOpen()
   const [name, setName] = useState(subscription?.name ?? '')
   const [amount, setAmount] = useState(
     subscription ? String(subscription.amount) : '',
@@ -193,21 +188,19 @@ export function SubscriptionForm({
     return dec !== undefined ? `${int}.${dec}` : int
   }
 
-  function press(k: string) {
-    setMsg(null)
-    setAmount((prev) => {
-      if (k === 'back') return prev.length <= 1 ? '' : prev.slice(0, -1)
-      if (k === '.')
-        return prev.includes('.') ? prev : prev === '' ? '0.' : prev + '.'
-      let next = prev + k
-      if (next.includes('.')) {
-        const [, dec] = next.split('.')
-        if (dec.length > 2) return prev
-      }
-      next = next.replace(/^0+(?=\d)/, '')
-      if (next.replace('.', '').length > 9) return prev
-      return next
-    })
+  // Sanea lo que llega del teclado numérico nativo: dígitos y un punto
+  // con hasta 2 decimales. Devuelve null si supera los 9 dígitos.
+  function sanitizeAmount(v: string): string | null {
+    let next = v.replace(/[^0-9.]/g, '')
+    if (next === '') return ''
+    const parts = next.split('.')
+    if (parts.length > 2) next = parts[0] + '.' + parts.slice(1).join('')
+    if (next.startsWith('.')) next = '0' + next
+    const dot = next.indexOf('.')
+    if (dot !== -1) next = next.slice(0, dot + 1) + next.slice(dot + 1, dot + 3)
+    next = next.replace(/^0+(?=\d)/, '')
+    if (next.replace('.', '').length > 9) return null
+    return next
   }
 
   async function submit() {
@@ -263,21 +256,28 @@ export function SubscriptionForm({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-5 pb-6">
-      {/* Monto mensual */}
-      <div className="flex items-center justify-center gap-1.5 py-12">
+      {/* Monto mensual con teclado numérico nativo */}
+      <div className="flex items-center justify-center gap-1.5 pt-6">
         <span className="text-2xl font-bold text-(--muted-foreground)">$</span>
-        <span className="min-w-24 text-center text-5xl font-extrabold tabular-nums">
-          {fmtDisplay(amount)}
-        </span>
-        <button
-          type="button"
-          aria-label="Borrar último dígito"
-          onClick={() => press('back')}
-          className="flex size-8 items-center justify-center rounded-full bg-(--muted) text-(--muted-foreground)">
-          <Delete className="size-4" />
-        </button>
+        <input
+          value={amount}
+          onChange={(e) => {
+            setMsg(null)
+            const next = sanitizeAmount(e.target.value)
+            if (next !== null) setAmount(next)
+          }}
+          onFocus={(e) => e.target.select()}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') submit()
+          }}
+          placeholder="0"
+          inputMode="decimal"
+          autoComplete="off"
+          aria-label="Monto mensual"
+          className="w-full max-w-56 bg-transparent text-center text-5xl font-extrabold tabular-nums outline-none placeholder:text-(--muted-foreground)/40"
+        />
       </div>
-      <p className="-mt-12 text-center text-xs font-medium text-(--muted-foreground)">
+      <p className="text-center text-xs font-medium text-(--muted-foreground)">
         al mes
       </p>
 
@@ -559,46 +559,18 @@ export function SubscriptionForm({
         <p className="text-center text-sm font-medium text-red-500">{msg}</p>
       )}
 
-      {/* Keypad (se oculta si el teclado del teléfono está abierto;
-          en su lugar queda un botón Guardar de ancho completo) */}
-      {kbOpen ? (
-        <Button
-          type="button"
-          onClick={submit}
-          disabled={pending}
-          className="mt-1 h-12 w-full rounded-2xl text-base">
-          {pending
-            ? 'Guardando…'
-            : editing
-              ? 'Guardar cambios'
-              : 'Guardar suscripción'}
-        </Button>
-      ) : (
-        <div className="mt-1 grid grid-cols-3 gap-2">
-          {['1', '2', '3', '4', '5', '6', '7', '8', '9', '.', '0', 'go'].map(
-            (k) =>
-              k === 'go' ? (
-                <button
-                  key={k}
-                  type="button"
-                  onClick={submit}
-                  disabled={pending}
-                  aria-label="Guardar"
-                  className="flex h-14 items-center justify-center rounded-2xl bg-(--primary) text-xl font-bold text-(--primary-foreground) transition active:scale-95 disabled:opacity-50">
-                  <ArrowRight className="size-6" />
-                </button>
-              ) : (
-                <button
-                  key={k}
-                  type="button"
-                  onClick={() => press(k)}
-                  className="h-14 rounded-2xl bg-(--muted)/70 text-xl font-semibold transition active:scale-95 active:bg-(--muted)">
-                  {k}
-                </button>
-              ),
-          )}
-        </div>
-      )}
+      {/* Guardar (el monto usa el teclado numérico nativo) */}
+      <Button
+        type="button"
+        onClick={submit}
+        disabled={pending}
+        className="mt-1 h-12 w-full rounded-2xl text-base">
+        {pending
+          ? 'Guardando…'
+          : editing
+            ? 'Guardar cambios'
+            : 'Guardar suscripción'}
+      </Button>
     </div>
   )
 }
