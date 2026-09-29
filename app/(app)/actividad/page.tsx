@@ -106,7 +106,14 @@ export default async function ActividadPage() {
   const [mineAccounts, pendingRows, sourceRows] = await Promise.all([
     prisma.account.findMany({
       where: { isActive: true, userId: meId },
-      select: { id: true, name: true, type: true },
+      select: {
+        id: true,
+        name: true,
+        type: true,
+        lastFour: true,
+        expiry: true,
+        color: true,
+      },
       orderBy: { createdAt: 'asc' },
     }),
     prisma.debtPayment.findMany({
@@ -178,7 +185,18 @@ export default async function ActividadPage() {
         items={toConfirmSource}
         accountOptions={accountOptions}
       />
-      <ActivityClient txs={txs} months={months} cats={catalog} />
+      <ActivityClient
+        txs={txs}
+        months={months}
+        cats={catalog}
+        expiryAccounts={mineAccounts.map((a) => ({
+          id: a.id,
+          name: a.name,
+          lastFour: a.lastFour,
+          expiry: a.expiry,
+          color: a.color ?? '#6366f1',
+        }))}
+      />
     </>
   )
 }

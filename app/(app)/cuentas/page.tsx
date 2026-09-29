@@ -23,10 +23,16 @@ import { auth } from '@/auth'
 
 export const metadata = { title: 'Cuentas' }
 
-export default async function CuentasPage() {
+export default async function CuentasPage({
+  searchParams,
+}: {
+  searchParams?: Promise<{ editar?: string }>
+}) {
   const session = await auth()
   const meId = (session?.user as { id?: string } | undefined)?.id
   if (!meId) redirect('/login')
+  // Deep-link desde el recordatorio de renovación: abre la edición.
+  const editAccountId = (await searchParams)?.editar ?? null
   const me = session?.user?.name ?? 'Tú'
   const key = monthKey(new Date())
 
@@ -229,6 +235,7 @@ export default async function CuentasPage() {
       <CuentasClient
         accounts={accounts}
         meId={meId}
+        editAccountId={editAccountId}
         debtItems={debtItems}
         owedItems={owedItems}
         sums={sumsArr}

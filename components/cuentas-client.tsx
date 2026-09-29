@@ -7,9 +7,14 @@ import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 
 import type { AccountRow } from '@/components/account-card'
+import { AccountForm } from '@/components/account-form'
 import { AccountSwipeRow } from '@/components/account-swipe-row'
 import type { MonthOpt } from '@/components/activity-client'
 import { BottomSheet } from '@/components/bottom-sheet'
+import {
+  type ExpiryAccount,
+  ExpiryReminders,
+} from '@/components/expiry-reminders'
 import { FilterOptions, FilterPill } from '@/components/filter-dialog'
 import { PaymentSheet } from '@/components/payment-sheet'
 import { SubscriptionSummaryRow } from '@/components/subscription-swipe-row'
@@ -82,6 +87,7 @@ export function CuentasClient({
   toConfirm = [],
   myPending = [],
   toConfirmSource = [],
+  editAccountId = null,
 }: {
   accounts: AccountRow[]
   meId: string
@@ -95,6 +101,8 @@ export function CuentasClient({
   toConfirm?: ToConfirmItem[]
   myPending?: MyPendingItem[]
   toConfirmSource?: SourceConfirmItem[]
+  /** Deep-link ?editar=<id>: abre la edición (recordatorio de renovación). */
+  editAccountId?: string | null
 }) {
   const router = useRouter()
   const tab = useCuentasFilters((s) => s.tab)
@@ -108,6 +116,20 @@ export function CuentasClient({
   const [sourceTarget, setSourceTarget] = useState<SourceConfirmItem | null>(
     null,
   )
+  // Renovación: ?editar=<id> abre el formulario de esa cuenta.
+  const [prevEditId, setPrevEditId] = useState<string | null>(editAccountId)
+  const [renewId, setRenewId] = useState<string | null>(editAccountId)
+  if (editAccountId !== prevEditId) {
+    setPrevEditId(editAccountId)
+    setRenewId(editAccountId)
+  }
+  const renewAccount = renewId
+    ? (accounts.find((a) => a.id === renewId) ?? null)
+    : null
+  function closeRenew() {
+    setRenewId(null)
+    router.replace('/cuentas')
+  }
 
   const refresh = () => router.refresh()
 
@@ -115,6 +137,20 @@ export function CuentasClient({
     () => accounts.filter((a) => a.ownerId === meId),
     [accounts, meId],
   )
+
+  // Recordatorio de renovación (tabs Todas y Cuentas): abre la edición directo.
+  const expiryAccounts: ExpiryAccount[] = useMemo(
+    () =>
+      mine.map((a) => ({
+        id: a.id,
+        name: a.name,
+        lastFour: a.lastFour ?? null,
+        expiry: a.expiry ?? null,
+        color: a.color,
+      })),
+    [mine],
+  )
+  const openRenew = (id: string) => setRenewId(id)
 
   // Mes de Pareja (persistido): el mes puede no existir, se usa el más
   // reciente sin sobrescribir el store hasta que el usuario elija otro.
@@ -344,6 +380,7 @@ export function CuentasClient({
           <TabsTrigger value="pareja">Pareja</TabsTrigger>
         </TabsList>
         <TabsContent value="todas" className="space-y-2">
+          <ExpiryReminders accounts={expiryAccounts} onRenew={openRenew} />
           <div className="no-scrollbar -mx-5 flex gap-2 overflow-x-auto px-5 pb-1">
             <FilterPill
               label={SECTION_OPTS.find((o) => o.value === allSection)!.label}
@@ -397,6 +434,7 @@ export function CuentasClient({
           )}
         </TabsContent>
         <TabsContent value="mias" className="space-y-2">
+          <ExpiryReminders accounts={expiryAccounts} onRenew={openRenew} />
           <div className="no-scrollbar -mx-5 flex gap-2 overflow-x-auto px-5 pb-1">
             <FilterPill
               label={SORT_OPTS.find((o) => o.value === accSort)!.label}
@@ -593,6 +631,18 @@ export function CuentasClient({
             accountOptions={accountOpts}
             onDone={() => {
               setSourceTarget(null)
+              refresh()
+            }}
+          />
+        )}
+      </BottomSheet>
+      <BottomSheet open={renewAccount != null} onOpenChange={(o) => !o && closeRenew()}>
+        {renewAccount && (
+          <AccountForm
+            key={renewAccount.id}
+            account={renewAccount}
+            onDone={() => {
+              closeRenew()
               refresh()
             }}
           />

@@ -5,6 +5,10 @@ import { useMemo, useState } from 'react'
 import { Check, Search } from 'lucide-react'
 
 import { ActivityChart } from '@/components/activity-chart'
+import {
+  type ExpiryAccount,
+  ExpiryReminders,
+} from '@/components/expiry-reminders'
 import { TransactionRow, type TxRow } from '@/components/transaction-list'
 import { TransactionSwipeRow } from '@/components/transaction-swipe-row'
 import {
@@ -91,10 +95,12 @@ export function ActivityClient({
   txs,
   months,
   cats,
+  expiryAccounts = [],
 }: {
   txs: TxRow[]
   months: MonthOpt[]
   cats: CatalogRow[]
+  expiryAccounts?: ExpiryAccount[]
 }) {
   const [sheet, setSheet] = useState<Sheet>(null)
   const [openRow, setOpenRow] = useState<string | null>(null)
@@ -305,6 +311,7 @@ export function ActivityClient({
 
   return (
     <div className="space-y-4 px-5 pt-4">
+      <ExpiryReminders accounts={expiryAccounts} />
       {range === 'mensual' ? (
         <div className="flex items-center justify-center">
           <button
