@@ -14,17 +14,20 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 
+import {
+  useActivityFilters,
+  type ActivityKind,
+  type ActivityRange,
+} from '@/lib/activity-filters'
 import type { CatalogRow } from '@/lib/catalog'
 import { lookupCategory } from '@/lib/categories'
 import { formatMoney } from '@/lib/utils'
 
 export type MonthOpt = { key: string; label: string; total: number }
 
-type Range = 'mensual' | 'semanal' | 'trimestral' | 'seis' | 'anio' | 'todo'
-type Kind = 'gastos' | 'ingresos' | 'todos'
 type Sheet = null | 'kind' | 'range' | 'month' | 'account' | 'category'
 
-const RANGES: { value: Range; label: string }[] = [
+const RANGES: { value: ActivityRange; label: string }[] = [
   { value: 'mensual', label: 'Mensual' },
   { value: 'semanal', label: 'Semanal' },
   { value: 'trimestral', label: 'Trimestral' },
@@ -33,13 +36,13 @@ const RANGES: { value: Range; label: string }[] = [
   { value: 'todo', label: 'Todo el tiempo' },
 ]
 
-const KINDS: { value: Kind; label: string }[] = [
+const KINDS: { value: ActivityKind; label: string }[] = [
   { value: 'gastos', label: 'Gastos' },
   { value: 'ingresos', label: 'Ingresos' },
   { value: 'todos', label: 'Toda la actividad' },
 ]
 
-const RANGE_DESC: Record<Range, string> = {
+const RANGE_DESC: Record<ActivityRange, string> = {
   mensual: '',
   semanal: 'Por día · últimos 7 días',
   trimestral: `Por trimestre · ${new Date().getFullYear()}`,
@@ -65,7 +68,7 @@ function shortMonth(d: Date) {
 }
 
 /** Inicio del rango (el fin siempre es hoy). Null = mes seleccionado. */
-function rangeStart(range: Range): Date | null {
+function rangeStart(range: ActivityRange): Date | null {
   const now = new Date()
   const d = new Date(now.getFullYear(), now.getMonth(), now.getDate())
   switch (range) {
@@ -95,14 +98,24 @@ export function ActivityClient({
 }) {
   const [sheet, setSheet] = useState<Sheet>(null)
   const [openRow, setOpenRow] = useState<string | null>(null)
-  const [month, setMonth] = useState(
-    months[0]?.key ?? keyOf(new Date().toISOString()),
-  )
-  const [kind, setKind] = useState<Kind>('gastos')
-  const [range, setRange] = useState<Range>('mensual')
-  const [account, setAccount] = useState('todas')
-  const [category, setCategory] = useState('todas')
+  const storedMonth = useActivityFilters((s) => s.month)
+  const kind = useActivityFilters((s) => s.kind)
+  const range = useActivityFilters((s) => s.range)
+  const account = useActivityFilters((s) => s.account)
+  const category = useActivityFilters((s) => s.category)
+  const setMonth = useActivityFilters((s) => s.setMonth)
+  const setKind = useActivityFilters((s) => s.setKind)
+  const setRange = useActivityFilters((s) => s.setRange)
+  const setAccount = useActivityFilters((s) => s.setAccount)
+  const setCategory = useActivityFilters((s) => s.setCategory)
   const [q, setQ] = useState('')
+
+  // El mes persistido puede no existir (p. ej. datos nuevos): se usa el más
+  // reciente sin sobrescribir el store hasta que el usuario elija otro.
+  const month =
+    months.some((m) => m.key === storedMonth) && storedMonth
+      ? storedMonth
+      : (months[0]?.key ?? storedMonth)
 
   const monthLabel = months.find((m) => m.key === month)?.label ?? month
   const start = rangeStart(range)
@@ -393,7 +406,7 @@ export function ActivityClient({
               items={KINDS.map((k) => ({ value: k.value, label: k.label }))}
               value={kind}
               onPick={(v) => {
-                setKind(v as Kind)
+                setKind(v as ActivityKind)
                 close()
               }}
             />
@@ -403,7 +416,7 @@ export function ActivityClient({
               items={RANGES.map((r) => ({ value: r.value, label: r.label }))}
               value={range}
               onPick={(v) => {
-                setRange(v as Range)
+                setRange(v as ActivityRange)
                 close()
               }}
             />

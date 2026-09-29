@@ -18,6 +18,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 
+import { useStatementFilters } from '@/lib/resumen-filters'
 import { formatMoney } from '@/lib/utils'
 import { cn } from '@/lib/utils'
 
@@ -281,8 +282,10 @@ export function CreditStatements({
 }: {
   statements: CreditStatementView[]
 }) {
-  const [cardId, setCardId] = useState<string | null>(null)
-  const [periodByCard, setPeriodByCard] = useState<Record<string, string>>({})
+  const cardId = useStatementFilters((s) => s.cardId)
+  const periodByCard = useStatementFilters((s) => s.periodByCard)
+  const setCardId = useStatementFilters((s) => s.setCardId)
+  const setPeriod = useStatementFilters((s) => s.setPeriod)
   const [sheet, setSheet] = useState<Sheet>(null)
   if (!statements.length) return null
   const view = statements.find((s) => s.card.id === cardId) ?? statements[0]
@@ -325,9 +328,7 @@ export function CreditStatements({
           view={view}
           period={period}
           isCurrent={period.key === view.currentKey}
-          onPeriodChange={(k) =>
-            setPeriodByCard((m) => ({ ...m, [view.card.id]: k }))
-          }
+          onPeriodChange={(k) => setPeriod(view.card.id, k)}
         />
 
         <Dialog open={sheet !== null} onOpenChange={(o) => !o && close()}>
@@ -363,7 +364,7 @@ export function CreditStatements({
                 }))}
                 value={period.key}
                 onPick={(v) => {
-                  setPeriodByCard((m) => ({ ...m, [view.card.id]: v }))
+                  setPeriod(view.card.id, v)
                   close()
                 }}
               />

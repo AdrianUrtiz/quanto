@@ -18,9 +18,11 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 
+import type { ActivityKind, ActivityRange } from '@/lib/activity-filters'
 import { settleMonth } from '@/lib/calculations'
 import type { CatalogRow } from '@/lib/catalog'
 import { lookupCategory } from '@/lib/categories'
+import { useResumenFilters } from '@/lib/resumen-filters'
 import { formatMoney } from '@/lib/utils'
 
 export type ResumenMineTx = {
@@ -50,17 +52,15 @@ export type ResumenInvolvedTx = {
   }[]
 }
 
-type Kind = 'gastos' | 'ingresos' | 'todos'
-type Range = 'mensual' | 'semanal' | 'trimestral' | 'seis' | 'anio' | 'todo'
 type Sheet = null | 'kind' | 'range' | 'month' | 'account' | 'category'
 
-const KINDS: { value: Kind; label: string }[] = [
+const KINDS: { value: ActivityKind; label: string }[] = [
   { value: 'gastos', label: 'Gastos' },
   { value: 'ingresos', label: 'Ingresos' },
   { value: 'todos', label: 'Toda la actividad' },
 ]
 
-const RANGES: { value: Range; label: string }[] = [
+const RANGES: { value: ActivityRange; label: string }[] = [
   { value: 'mensual', label: 'Mensual' },
   { value: 'semanal', label: 'Semanal' },
   { value: 'trimestral', label: 'Trimestral' },
@@ -69,7 +69,7 @@ const RANGES: { value: Range; label: string }[] = [
   { value: 'todo', label: 'Todo el tiempo' },
 ]
 
-const RANGE_DESC: Record<Range, string> = {
+const RANGE_DESC: Record<ActivityRange, string> = {
   mensual: '',
   semanal: 'Por día · últimos 7 días',
   trimestral: `Por trimestre · ${new Date().getFullYear()}`,
@@ -84,7 +84,7 @@ function monthKeyOf(iso: string) {
 }
 
 /** Inicio del rango (el fin siempre es hoy). Null = mes seleccionado. */
-function rangeStart(range: Range): Date | null {
+function rangeStart(range: ActivityRange): Date | null {
   const now = new Date()
   const d = new Date(now.getFullYear(), now.getMonth(), now.getDate())
   switch (range) {
@@ -119,13 +119,23 @@ export function ResumenClient({
   statements?: CreditStatementView[]
 }) {
   const [sheet, setSheet] = useState<Sheet>(null)
-  const [month, setMonth] = useState(
-    months[0]?.key ?? monthKeyOf(new Date().toISOString()),
-  )
-  const [kind, setKind] = useState<Kind>('gastos')
-  const [range, setRange] = useState<Range>('mensual')
-  const [account, setAccount] = useState('todas')
-  const [category, setCategory] = useState('todas')
+  const storedMonth = useResumenFilters((s) => s.month)
+  const kind = useResumenFilters((s) => s.kind)
+  const range = useResumenFilters((s) => s.range)
+  const account = useResumenFilters((s) => s.account)
+  const category = useResumenFilters((s) => s.category)
+  const setMonth = useResumenFilters((s) => s.setMonth)
+  const setKind = useResumenFilters((s) => s.setKind)
+  const setRange = useResumenFilters((s) => s.setRange)
+  const setAccount = useResumenFilters((s) => s.setAccount)
+  const setCategory = useResumenFilters((s) => s.setCategory)
+
+  // El mes persistido puede no existir (p. ej. datos nuevos): se usa el más
+  // reciente sin sobrescribir el store hasta que el usuario elija otro.
+  const month =
+    months.some((m) => m.key === storedMonth) && storedMonth
+      ? storedMonth
+      : (months[0]?.key ?? storedMonth)
 
   const monthLabel = months.find((m) => m.key === month)?.label ?? month
   const start = rangeStart(range)
@@ -309,7 +319,7 @@ export function ResumenClient({
               items={KINDS.map((k) => ({ value: k.value, label: k.label }))}
               value={kind}
               onPick={(v) => {
-                setKind(v as Kind)
+                setKind(v as ActivityKind)
                 close()
               }}
             />
@@ -319,7 +329,7 @@ export function ResumenClient({
               items={RANGES.map((r) => ({ value: r.value, label: r.label }))}
               value={range}
               onPick={(v) => {
-                setRange(v as Range)
+                setRange(v as ActivityRange)
                 close()
               }}
             />
