@@ -11,7 +11,6 @@ import { SubscriptionForm } from '@/components/subscription-form'
 import { type AccountOpt, TransactionForm } from '@/components/transaction-form'
 
 import type { CatalogRow } from '@/lib/catalog'
-import { useBackToClose } from '@/lib/use-back-to-close'
 import { cn } from '@/lib/utils'
 
 const FAB_CLS =
@@ -53,7 +52,11 @@ function CuentasSpeedDial({ accountOptions, cats }: FabProps) {
   const [expanded, setExpanded] = useState(false)
   const [accountOpen, setAccountOpen] = useState(false)
   const [subOpen, setSubOpen] = useState(false)
-  useBackToClose(expanded, () => setExpanded(false))
+  // NOTA: el menú NO usa useBackToClose a propósito. Si empujara su propia
+  // entrada al historial, al abrir Cuenta/Suscripción en el mismo tap la
+  // limpieza del menú se comería la entrada del modal (race) y el botón
+  // atrás del teléfono dejaría de cerrar esos modales. El menú se cierra
+  // tocando el backdrop. Cada BottomSheet sí captura atrás con su entrada.
 
   return (
     <>
