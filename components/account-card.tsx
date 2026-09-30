@@ -17,6 +17,7 @@ export type AccountRow = {
   lastFour?: string
   expiry?: string
   color: string
+  isHidden: boolean
 }
 
 export function AccountCard({ a }: { a: AccountRow }) {

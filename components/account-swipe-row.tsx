@@ -2,7 +2,14 @@
 
 import { useState } from 'react'
 
-import { ArrowDownLeft, ArrowUpRight, Pencil, Trash2 } from 'lucide-react'
+import {
+  ArrowDownLeft,
+  ArrowUpRight,
+  Eye,
+  EyeOff,
+  Pencil,
+  Trash2,
+} from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 
@@ -21,7 +28,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 
-import { deleteAccount } from '@/lib/actions'
+import { deleteAccount, setAccountHidden } from '@/lib/actions'
 
 export function AccountSwipeRow({
   a,
@@ -40,9 +47,22 @@ export function AccountSwipeRow({
   const [payOpen, setPayOpen] = useState(false)
   const [delError, setDelError] = useState<string | null>(null)
   const [deleting, setDeleting] = useState(false)
+  const [hiding, setHiding] = useState(false)
 
   function close() {
     onOpenChange(false)
+  }
+
+  async function doHide() {
+    close()
+    setHiding(true)
+    const res = await setAccountHidden(a.id, true)
+    setHiding(false)
+    if ('error' in res && res.error) toast.error(res.error)
+    else {
+      toast.success('Cuenta oculta')
+      router.refresh()
+    }
   }
 
   async function doDelete() {
@@ -65,7 +85,8 @@ export function AccountSwipeRow({
       <SwipeRow
         open={open}
         onOpenChange={onOpenChange}
-        disabled={editOpen || confirmOpen || payOpen}
+        disabled={editOpen || confirmOpen || payOpen || hiding}
+        actionsWidth={224}
         leftActionsWidth={80}
         leftActions={
           a.type === 'CREDIT' ? (
@@ -94,6 +115,14 @@ export function AccountSwipeRow({
         }
         actions={
           <>
+            <button
+              type="button"
+              onClick={doHide}
+              disabled={hiding}
+              className="flex h-full flex-1 flex-col items-center justify-center gap-1.5 rounded-2xl border border-(--border) bg-(--card) text-xs font-semibold text-(--foreground) shadow-xs transition-all hover:bg-(--muted) active:scale-95 disabled:opacity-50">
+              <EyeOff className="size-4 text-(--foreground)" />
+              <span>{hiding ? '…' : 'Ocultar'}</span>
+            </button>
             <button
               type="button"
               onClick={() => {
@@ -166,5 +195,51 @@ export function AccountSwipeRow({
         </DialogContent>
       </Dialog>
     </>
+  )
+}
+
+/** Fila de cuenta oculta: swipe con un solo botón Mostrar. */
+export function HiddenAccountSwipeRow({
+  a,
+  open,
+  onOpenChange,
+}: {
+  a: AccountRow
+  open: boolean
+  onOpenChange: (open: boolean) => void
+}) {
+  const router = useRouter()
+  const [showing, setShowing] = useState(false)
+
+  async function doShow() {
+    onOpenChange(false)
+    setShowing(true)
+    const res = await setAccountHidden(a.id, false)
+    setShowing(false)
+    if ('error' in res && res.error) toast.error(res.error)
+    else {
+      toast.success('Cuenta visible')
+      router.refresh()
+    }
+  }
+
+  return (
+    <SwipeRow
+      open={open}
+      onOpenChange={onOpenChange}
+      disabled={showing}
+      actionsWidth={80}
+      actions={
+        <button
+          type="button"
+          onClick={doShow}
+          disabled={showing}
+          className="flex h-full flex-1 flex-col items-center justify-center gap-1.5 rounded-2xl border border-(--border) bg-(--card) text-xs font-semibold text-(--foreground) shadow-xs transition-all hover:bg-(--muted) active:scale-95 disabled:opacity-50">
+          <Eye className="size-4 text-(--foreground)" />
+          <span>{showing ? '…' : 'Mostrar'}</span>
+        </button>
+      }>
+      <AccountCard a={a} />
+    </SwipeRow>
   )
 }

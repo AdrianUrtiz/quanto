@@ -17,9 +17,10 @@ export default async function AppLayout({
   const meId = (session?.user as { id?: string } | undefined)?.id
   if (!meId) redirect('/login')
 
-  // Privacidad: el FAB solo ofrece MIS cuentas. Nadie opera sobre cuentas ajenas.
+  // Privacidad: el FAB solo ofrece MIS cuentas visibles. Nadie opera sobre
+  // cuentas ajenas ni ocultas.
   const rows = await prisma.account.findMany({
-    where: { isActive: true, userId: meId },
+    where: { isActive: true, isHidden: false, userId: meId },
     select: { id: true, name: true, type: true },
     orderBy: { createdAt: 'asc' },
   })

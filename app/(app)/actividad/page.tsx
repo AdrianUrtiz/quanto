@@ -105,7 +105,7 @@ export default async function ActividadPage() {
   // Pagos de pareja pendientes de mi confirmación + mis cuentas (destino).
   const [mineAccounts, pendingRows, sourceRows] = await Promise.all([
     prisma.account.findMany({
-      where: { isActive: true, userId: meId },
+      where: { isActive: true, isHidden: false, userId: meId },
       select: {
         id: true,
         name: true,

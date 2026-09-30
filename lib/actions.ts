@@ -142,6 +142,28 @@ export async function deleteAccount(id: string) {
   return { ok: true }
 }
 
+// Ocultar/mostrar: saca la cuenta de listas, totales y selectores sin borrar
+// nada (el historial se conserva). Solo el dueño puede hacerlo.
+export async function setAccountHidden(id: string, hidden: boolean) {
+  const session = await auth()
+  const userId = (session?.user as { id?: string } | undefined)?.id
+  if (!userId) return { error: 'No autenticado' }
+  if (!process.env.DATABASE_URL)
+    return { error: 'Configura DATABASE_URL para ocultar cuentas' }
+
+  const acc = await prisma.account.findFirst({
+    where: { id, userId },
+    select: { id: true },
+  })
+  if (!acc) return { error: 'Cuenta no encontrada' }
+
+  await prisma.account.update({ where: { id }, data: { isHidden: hidden } })
+
+  revalidatePath('/cuentas')
+  revalidatePath('/actividad')
+  return { ok: true }
+}
+
 const UpdateTxSchema = z.object({
   id: z.string().min(1),
   amount: z.coerce.number().positive('Monto debe ser mayor a 0'),
@@ -415,8 +437,7 @@ export async function createTransaction(formData: FormData) {
         isShared: false,
         // Pago a crédito desde su botón Pagar: se aplica a ese período
         // aunque la fecha sea posterior al vencimiento.
-        statementKey:
-          dest.type === 'CREDIT' ? (v.statementKey ?? null) : null,
+        statementKey: dest.type === 'CREDIT' ? (v.statementKey ?? null) : null,
       },
     })
 

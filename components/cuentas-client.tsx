@@ -8,7 +8,10 @@ import { toast } from 'sonner'
 
 import type { AccountRow } from '@/components/account-card'
 import { AccountForm } from '@/components/account-form'
-import { AccountSwipeRow } from '@/components/account-swipe-row'
+import {
+  AccountSwipeRow,
+  HiddenAccountSwipeRow,
+} from '@/components/account-swipe-row'
 import type { MonthOpt } from '@/components/activity-client'
 import { BottomSheet } from '@/components/bottom-sheet'
 import {
@@ -32,9 +35,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import type { CatalogRow } from '@/lib/catalog'
 import { useCuentasFilters } from '@/lib/cuentas-filters'
 import {
-  buildDebts,
   type DebtItemInput,
   type PartnerDebt,
+  buildDebts,
 } from '@/lib/partner-debts'
 import { cancelPayment, confirmPaymentSource } from '@/lib/payment-actions'
 import type { DueCharge } from '@/lib/subscriptions'
@@ -76,6 +79,7 @@ export type SourceConfirmItem = {
 
 export function CuentasClient({
   accounts,
+  hiddenAccounts = [],
   meId,
   debtItems,
   owedItems,
@@ -90,6 +94,7 @@ export function CuentasClient({
   editAccountId = null,
 }: {
   accounts: AccountRow[]
+  hiddenAccounts?: AccountRow[]
   meId: string
   debtItems: DebtItemInput[]
   owedItems: DebtItemInput[]
@@ -136,6 +141,12 @@ export function CuentasClient({
   const mine = useMemo(
     () => accounts.filter((a) => a.ownerId === meId),
     [accounts, meId],
+  )
+
+  // Ocultas: fuera de listas, totales y selectores; solo viven en su tab.
+  const hiddenMine = useMemo(
+    () => hiddenAccounts.filter((a) => a.ownerId === meId),
+    [hiddenAccounts, meId],
   )
 
   // Recordatorio de renovación (tabs Todas y Cuentas): abre la edición directo.
@@ -251,7 +262,7 @@ export function CuentasClient({
   }
 
   const filteredMine = useMemo(() => {
-    let list = mine
+    let list = accType === 'hidden' ? [...hiddenMine] : mine
     if (accType === 'debit') list = list.filter((a) => a.type === 'DEBIT')
     else if (accType === 'credit')
       list = list.filter((a) => a.type === 'CREDIT')
@@ -270,7 +281,7 @@ export function CuentasClient({
     else if (accSort === 'az')
       sorted.sort((a, b) => a.name.localeCompare(b.name, 'es'))
     return sorted
-  }, [mine, accSort, accType])
+  }, [mine, hiddenMine, accSort, accType])
 
   const typeCounts = useMemo(() => {
     const debt = mine.filter(
@@ -286,8 +297,9 @@ export function CuentasClient({
       credit: mine.filter((a) => a.type === 'CREDIT').length,
       debt,
       due,
+      hidden: hiddenMine.length,
     }
-  }, [mine])
+  }, [mine, hiddenMine])
 
   const SORT_OPTS = [
     { value: 'default', label: 'Predeterminado' },
@@ -343,13 +355,17 @@ export function CuentasClient({
     { value: 'credit', label: 'Crédito' },
     { value: 'debt', label: 'Con deuda' },
     { value: 'due', label: 'Vence pronto' },
+    { value: 'hidden', label: 'Ocultas' },
   ]
 
   // Header homologado: texto pequeño → monto grande (sin botones; la creación
   // vive en el speed-dial del FAB). En Cuentas el total responde al filtro.
   const header =
     tab === 'mias'
-      ? { label: 'Saldo total', value: totalOf(filteredMine) }
+      ? {
+          label: accType === 'hidden' ? 'En cuentas ocultas' : 'Saldo total',
+          value: totalOf(filteredMine),
+        }
       : tab === 'subs'
         ? { label: 'Comprometido/mes', value: monthly }
         : tab === 'pareja'
@@ -450,13 +466,31 @@ export function CuentasClient({
           {filteredMine.length === 0 && (
             <Empty
               text={
-                mine.length === 0
+                mine.length === 0 && hiddenMine.length === 0
                   ? 'Sin cuentas aquí todavía.'
-                  : 'Sin resultados para ese filtro.'
+                  : accType === 'hidden'
+                    ? 'Sin cuentas ocultas.'
+                    : 'Sin resultados para ese filtro.'
               }
             />
           )}
-          {filteredMine.map(swipe)}
+          {accType === 'hidden' && filteredMine.length > 0 && (
+            <p className="-mt-1 text-[11px] text-(--muted-foreground)">
+              Fuera de totales y selectores · desliza para mostrar ›
+            </p>
+          )}
+          {filteredMine.map((a) =>
+            accType === 'hidden' ? (
+              <HiddenAccountSwipeRow
+                key={a.id}
+                a={a}
+                open={openRow === `hidden:${a.id}`}
+                onOpenChange={(o) => setOpenRow(o ? `hidden:${a.id}` : null)}
+              />
+            ) : (
+              swipe(a)
+            ),
+          )}
         </TabsContent>
         <TabsContent value="pareja" className="space-y-4">
           <div className="flex items-center justify-center">
@@ -636,7 +670,9 @@ export function CuentasClient({
           />
         )}
       </BottomSheet>
-      <BottomSheet open={renewAccount != null} onOpenChange={(o) => !o && closeRenew()}>
+      <BottomSheet
+        open={renewAccount != null}
+        onOpenChange={(o) => !o && closeRenew()}>
         {renewAccount && (
           <AccountForm
             key={renewAccount.id}

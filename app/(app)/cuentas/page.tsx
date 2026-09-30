@@ -78,7 +78,7 @@ export default async function CuentasPage({
     }),
   ])
   const balances = await getAccountBalances(meId)
-  const accounts: AccountRow[] = accRows.map((a) => ({
+  const allAccounts: AccountRow[] = accRows.map((a) => ({
     id: a.id,
     name: a.name,
     type: a.type as 'DEBIT' | 'CREDIT',
@@ -93,7 +93,11 @@ export default async function CuentasPage({
     lastFour: a.lastFour ?? undefined,
     expiry: a.expiry ?? undefined,
     color: a.color ?? '#6366f1',
+    isHidden: a.isHidden,
   }))
+  // Visibles en listas/totales/selectores; ocultas solo en su tab.
+  const accounts = allAccounts.filter((a) => !a.isHidden)
+  const hiddenAccounts = allAccounts.filter((a) => a.isHidden)
   // Pagos de pareja: sumas por línea + pendientes donde participo.
   const allShareIds = [
     ...sharedRows.flatMap((t) => t.shares.map((s) => s.id)),
@@ -234,6 +238,7 @@ export default async function CuentasPage({
     <>
       <CuentasClient
         accounts={accounts}
+        hiddenAccounts={hiddenAccounts}
         meId={meId}
         editAccountId={editAccountId}
         debtItems={debtItems}

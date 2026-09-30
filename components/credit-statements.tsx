@@ -114,6 +114,7 @@ function StatementPanel({
     creditLimit: card.creditLimit ?? undefined,
     lastFour: card.lastFour ?? undefined,
     color: card.color,
+    isHidden: false,
   }
 
   return (

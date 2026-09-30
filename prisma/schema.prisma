@@ -55,6 +55,9 @@ model Account {
   expiry   String? // vencimiento MM/AA
   color    String? @default("#6366f1")
   isActive Boolean @default(true)
+  // Oculta manual (cuentas en ceros que casi no se usan): fuera de listas,
+  // totales y selectores; el historial se conserva.
+  isHidden Boolean @default(false)
 
   // — Débito: solo saldo inicial; los ingresos se registran manual —
   initialBalance Decimal? @db.Decimal(12, 2)

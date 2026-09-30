@@ -105,11 +105,11 @@ export default async function ResumenPage() {
   const stmtStart = new Date(now.getFullYear(), now.getMonth() - 30, 1)
   const [cards, debitRows, balances] = await Promise.all([
     prisma.account.findMany({
-      where: { userId: meId, isActive: true, type: 'CREDIT' },
+      where: { userId: meId, isActive: true, isHidden: false, type: 'CREDIT' },
       orderBy: { createdAt: 'asc' },
     }),
     prisma.account.findMany({
-      where: { userId: meId, isActive: true, type: 'DEBIT' },
+      where: { userId: meId, isActive: true, isHidden: false, type: 'DEBIT' },
       select: { id: true, name: true },
       orderBy: { createdAt: 'asc' },
     }),
