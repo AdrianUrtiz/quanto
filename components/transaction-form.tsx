@@ -37,6 +37,7 @@ import {
   prettyCat,
 } from '@/lib/categories'
 import { createCategory } from '@/lib/category-actions'
+import { fromCents, normalizeMoney, toCents, toFixedCents } from '@/lib/money'
 import { cn } from '@/lib/utils'
 
 export type AccountOpt = { id: string; name: string; type?: string }
@@ -186,8 +187,11 @@ export function TransactionForm({
     (accountOptions.find((a) => a.id === shownDest)?.type ?? 'CREDIT') !==
     'CREDIT'
 
-  const todayYMD = toYMD(new Date())
-  const yesterdayYMD = toYMD(new Date(Date.now() - 86400000))
+  const today = new Date()
+  const todayYMD = toYMD(today)
+  const yesterdayYMD = toYMD(
+    new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1),
+  )
   const dateLabel =
     dateYMD === todayYMD
       ? 'Hoy'
@@ -199,14 +203,17 @@ export function TransactionForm({
   const destLabel =
     accountOptions.find((a) => a.id === shownDest)?.name ?? 'Cuenta'
 
-  // Vista previa del reparto (total y mensual según MSI).
+  // Vista previa del reparto (total y mensual según MSI, en centavos).
   // sharePct = MI porcentaje; a mi pareja le toca el resto.
-  const totalNum = Number(amount) || 0
+  const totalC = toCents(amount || '0')
   const per = Math.max(1, msi)
-  const pctMonthly = (totalNum * (100 - sharePct)) / 100 / per
-  const amtNum = Number(shareAmt) || 0
-  const amtMonthly = amtNum / per
-  const amtPct = totalNum > 0 ? (amtNum / totalNum) * 100 : 0
+  const pctMonthly = fromCents(
+    Math.round(Math.round((totalC * (100 - sharePct)) / 100) / per),
+  )
+  const amtC = toCents(shareAmt || '0')
+  const amtMonthly = fromCents(Math.round(amtC / per))
+  const amtNum = fromCents(amtC)
+  const amtPct = totalC > 0 ? (amtC / totalC) * 100 : 0
   const shareLabel = !shared
     ? 'Compartir'
     : shareMode === 'pct'
@@ -232,8 +239,8 @@ export function TransactionForm({
 
   async function submit() {
     if (pending) return
-    const value = Number(amount)
-    if (!amount || Number.isNaN(value) || value <= 0) {
+    const value = normalizeMoney(amount)
+    if (!amount || Number.isNaN(toCents(amount)) || toCents(amount) <= 0) {
       setMsg('Ingresa un monto mayor a 0')
       return
     }
@@ -269,13 +276,13 @@ export function TransactionForm({
         if (shareMode === 'pct') {
           fd.set('sharePct', String(100 - sharePct)) // al servidor va el % del deudor
         } else {
-          const amt = Number(shareAmt)
-          if (!shareAmt || Number.isNaN(amt) || amt <= 0 || amt > value) {
+          const amtC = toCents(shareAmt || '0')
+          if (!shareAmt || Number.isNaN(amtC) || amtC <= 0 || amtC > toCents(value)) {
             setMsg('La aportación debe ser mayor a 0 y no mayor al total')
             setPending(false)
             return
           }
-          fd.set('shareAmount', String(amt))
+          fd.set('shareAmount', String(fromCents(amtC)))
         }
       }
     }
@@ -812,7 +819,7 @@ export function TransactionForm({
                   <p className="text-center text-sm">
                     Tu pareja aporta{' '}
                     <b>
-                      ${fmtAmount(pctMonthly.toFixed(2))}/mes
+                      ${fmtAmount(toFixedCents(pctMonthly))}/mes
                       {msi > 1 ? ` × ${msi}` : ''}
                     </b>{' '}
                     de ${fmtAmount(amount || '0')}
@@ -842,7 +849,7 @@ export function TransactionForm({
                     <p className="text-center text-sm">
                       Equivale al <b>{amtPct.toFixed(1)}%</b> ·{' '}
                       <b>
-                        ${fmtAmount(amtMonthly.toFixed(2))}/mes
+                        ${fmtAmount(toFixedCents(amtMonthly))}/mes
                         {msi > 1 ? ` × ${msi}` : ''}
                       </b>
                     </p>

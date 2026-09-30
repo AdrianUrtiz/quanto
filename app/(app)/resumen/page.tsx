@@ -6,6 +6,7 @@ import { ResumenClient } from '@/components/resumen-client'
 import { getAccountBalances } from '@/lib/balances'
 import { getCatalog } from '@/lib/catalog'
 import { getLineSums } from '@/lib/debt-payments'
+import { normalizeMoney } from '@/lib/money'
 import { prisma } from '@/lib/prisma'
 import { type StatementTx, activePeriods } from '@/lib/statements'
 import { monthKey, monthLabelEs } from '@/lib/utils'
@@ -53,14 +54,14 @@ export default async function ResumenPage() {
     id: t.id,
     type: t.type as 'EXPENSE' | 'INCOME',
     category: t.category,
-    amount: Number(t.amount),
+    amount: normalizeMoney(t.amount),
     date: t.date.toISOString(),
     accountName: t.account.name,
   }))
   const involved = sharedRows.map((t) => ({
     id: t.id,
     concept: t.concept,
-    amount: Number(t.amount),
+    amount: normalizeMoney(t.amount),
     installments: t.installments,
     date: t.date.toISOString(),
     isShared: t.isShared,
@@ -71,7 +72,7 @@ export default async function ResumenPage() {
       debtorId: s.debtor.id,
       debtorName: s.debtor.name,
       sharePct: s.sharePct,
-      monthlyAmount: Number(s.monthlyAmount),
+      monthlyAmount: normalizeMoney(s.monthlyAmount),
     })),
   }))
 
@@ -137,7 +138,7 @@ export default async function ResumenPage() {
       .map((t) => ({
         id: t.id,
         type: t.type as 'EXPENSE' | 'INCOME' | 'TRANSFER',
-        amount: Number(t.amount),
+        amount: normalizeMoney(t.amount),
         concept: t.concept,
         date: t.date,
         accountId: t.accountId,

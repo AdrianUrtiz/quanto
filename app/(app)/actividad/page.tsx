@@ -10,6 +10,7 @@ import { SourceConfirmBanner } from '@/components/source-confirm-banner'
 import type { TxRow } from '@/components/transaction-list'
 
 import { getCatalog } from '@/lib/catalog'
+import { normalizeMoney } from '@/lib/money'
 import { prisma } from '@/lib/prisma'
 import { monthKey, monthLabelEs } from '@/lib/utils'
 
@@ -43,7 +44,7 @@ export default async function ActividadPage() {
     id: t.id,
     concept: t.concept,
     category: t.category,
-    amount: Number(t.amount),
+    amount: normalizeMoney(t.amount),
     date: t.date,
     type: t.type,
     accountId: t.accountId,
@@ -154,11 +155,11 @@ export default async function ActividadPage() {
       const [y, mo] = p.month.split('-').map(Number)
       return {
         id: p.id,
-        amount: Number(p.amount),
+        amount: normalizeMoney(p.amount),
         month: p.month,
         monthLabel: monthLabelEs(new Date(y, mo - 1, 1)),
         concept: p.share.transaction.concept,
-        monthly: Number(p.share.monthlyAmount),
+        monthly: normalizeMoney(p.share.monthlyAmount),
         shareId: p.shareId,
         registeredByName: p.registeredBy.name,
       }
@@ -167,7 +168,7 @@ export default async function ActividadPage() {
     const [y, mo] = p.month.split('-').map(Number)
     return {
       id: p.id,
-      amount: Number(p.amount),
+      amount: normalizeMoney(p.amount),
       month: p.month,
       monthLabel: monthLabelEs(new Date(y, mo - 1, 1)),
       concept: p.share.transaction.concept,

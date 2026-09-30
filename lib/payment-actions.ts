@@ -12,6 +12,8 @@ import {
   lineRemaining,
   syncSubscriptionCheck,
 } from '@/lib/debt-payments'
+import { formatMoney } from '@/lib/utils'
+import { fromCents, moneySchema, toCents } from '@/lib/money'
 import { prisma } from '@/lib/prisma'
 
 import { auth } from '@/auth'
@@ -64,7 +66,7 @@ async function createDebtorExpense(
 const RegisterSchema = z.object({
   shareId: z.string().min(1),
   month: z.string().regex(/^\d{4}-\d{2}$/, 'Mes inválido'),
-  amount: z.coerce.number().positive('El monto debe ser mayor a 0'),
+  amount: moneySchema,
   accountId: z.string().optional(),
 })
 
@@ -103,12 +105,12 @@ export async function registerPayment(formData: FormData) {
   if (!months.includes(v.month))
     return { error: 'Esa parcialidad no corresponde a este gasto' }
 
-  const monthly = Number(share.monthlyAmount)
+  const monthly = fromCents(toCents(share.monthlyAmount))
   const sums = await getLineSums([share.id])
   const rest = lineRemaining(monthly, sums.get(lineKey(share.id, v.month)))
-  if (v.amount - rest > 0.005) {
+  if (toCents(v.amount) - toCents(rest) > 0) {
     return {
-      error: `Solo restan $${rest.toLocaleString('es-MX', { maximumFractionDigits: 2 })}`,
+      error: `Solo restan ${formatMoney(rest)}`,
     }
   }
 
@@ -229,13 +231,13 @@ export async function confirmPayment(formData: FormData) {
       if (p.registeredById === userId)
         throw new Error('No puedes confirmar tu propio registro')
 
-      const monthly = Number(p.share.monthlyAmount)
+      const monthlyC = toCents(p.share.monthlyAmount)
       const rows = await db.debtPayment.findMany({
         where: { shareId: p.shareId, month: p.month, status: 'CONFIRMED' },
         select: { amount: true },
       })
-      const confirmed = rows.reduce((a, r) => a + Number(r.amount), 0)
-      if (Number(p.amount) - Math.max(0, monthly - confirmed) > 0.005) {
+      const confirmedC = rows.reduce((a, r) => a + toCents(r.amount), 0)
+      if (toCents(p.amount) - Math.max(0, monthlyC - confirmedC) > 0) {
         throw new Error('El monto excede lo restante de la parcialidad')
       }
 
@@ -244,7 +246,7 @@ export async function confirmPayment(formData: FormData) {
         select: { name: true },
       })
       const incomeId = await createCreditorIncome(db, {
-        amount: Number(p.amount),
+        amount: fromCents(toCents(p.amount)),
         concept: `Pago de ${debtor?.name ?? 'pareja'} · ${p.share.transaction.concept}`,
         accountId: v.accountId,
         userId,
@@ -371,7 +373,7 @@ export async function confirmPaymentSource(formData: FormData) {
   if (catError) return { error: catError }
 
   const expenseId = await createDebtorExpense(prisma, account, {
-    amount: Number(p.amount),
+    amount: fromCents(toCents(p.amount)),
     concept: `Pago a ${p.share.transaction.createdBy.name} · ${p.share.transaction.concept}`,
     userId,
   })

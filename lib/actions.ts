@@ -6,6 +6,8 @@ import { z } from 'zod'
 import { debtorMonthlyAmount } from '@/lib/calculations'
 import { checkCategory } from '@/lib/catalog'
 import { getLineSums, lineKey } from '@/lib/debt-payments'
+import { formatMoney } from '@/lib/utils'
+import { fromCents, moneySchema, optionalMoneySchema, toCents } from '@/lib/money'
 import { prisma } from '@/lib/prisma'
 
 import { auth } from '@/auth'
@@ -16,8 +18,16 @@ const AccountSchema = z.object({
   lastFour: z.string().optional(),
   expiry: z.string().optional(),
   color: z.string().optional(),
-  initialBalance: z.coerce.number().min(0).default(0),
-  creditLimit: z.coerce.number().min(0).optional(),
+  initialBalance: z.coerce
+    .number()
+    .min(0)
+    .default(0)
+    .transform((v) => fromCents(toCents(v))),
+  creditLimit: z.coerce
+    .number()
+    .min(0)
+    .optional()
+    .transform((v) => (v == null ? v : fromCents(toCents(v)))),
   statementDay: z.coerce.number().min(1).max(31).optional(),
   dueDay: z.coerce.number().min(1).max(31).optional(),
 })
@@ -72,7 +82,11 @@ const UpdateAccountSchema = z.object({
   lastFour: z.string().optional(),
   expiry: z.string().optional(),
   color: z.string().optional(),
-  creditLimit: z.coerce.number().min(0).optional(),
+  creditLimit: z.coerce
+    .number()
+    .min(0)
+    .optional()
+    .transform((v) => (v == null ? v : fromCents(toCents(v)))),
   statementDay: z.coerce.number().min(1).max(31).optional(),
   dueDay: z.coerce.number().min(1).max(31).optional(),
 })
@@ -166,7 +180,7 @@ export async function setAccountHidden(id: string, hidden: boolean) {
 
 const UpdateTxSchema = z.object({
   id: z.string().min(1),
-  amount: z.coerce.number().positive('Monto debe ser mayor a 0'),
+  amount: moneySchema,
   concept: z.string().min(2, 'Agrega un concepto'),
   category: z.string().default('OTRO'),
   date: z.string(),
@@ -218,11 +232,13 @@ export async function updateTransaction(formData: FormData) {
     if (!share) return { error: 'Aportación no encontrada' }
     const sums = await getLineSums([p.shareId])
     const confirmed = sums.get(lineKey(p.shareId, p.month))?.confirmed ?? 0
-    const rest =
-      Math.max(0, Number(share.monthlyAmount) - confirmed) + Number(p.amount)
-    if (v.amount - rest > 0.005) {
+    const rest = fromCents(
+      Math.max(0, toCents(share.monthlyAmount) - toCents(confirmed)) +
+        toCents(p.amount),
+    )
+    if (toCents(v.amount) - toCents(rest) > 0) {
       return {
-        error: `Solo restan $${rest.toLocaleString('es-MX', { maximumFractionDigits: 2 })} en esa parcialidad`,
+        error: `Solo restan ${formatMoney(rest)} en esa parcialidad`,
       }
     }
   }
@@ -336,7 +352,7 @@ export async function deleteTransaction(id: string) {
   if (!tx) return { error: 'Movimiento no encontrado' }
 
   const linkedPayments = [tx.debtPayment, tx.debtorSourcePayment].filter(
-    (p) => p != null,
+    (p): p is NonNullable<typeof p> => p != null,
   )
   if (linkedPayments.some((p) => p.status === 'CONFIRMED')) {
     return {
@@ -366,7 +382,7 @@ export async function deleteTransaction(id: string) {
 
 const TxSchema = z.object({
   type: z.enum(['EXPENSE', 'INCOME', 'TRANSFER']).default('EXPENSE'),
-  amount: z.coerce.number().positive('Monto debe ser mayor a 0'),
+  amount: moneySchema,
   concept: z.string().min(2, 'Agrega un concepto'),
   category: z.string().default('OTRO'),
   date: z.string().default(() => new Date().toISOString()),
@@ -379,7 +395,7 @@ const TxSchema = z.object({
     .optional(),
   isShared: z.coerce.boolean().default(false),
   sharePct: z.coerce.number().min(1).max(100).default(50),
-  shareAmount: z.coerce.number().positive().optional(),
+  shareAmount: optionalMoneySchema,
   debtorId: z.string().optional(),
 })
 
@@ -501,10 +517,10 @@ export async function createTransaction(formData: FormData) {
           transactionId: tx.id,
           debtorId,
           sharePct: v.shareAmount
-            ? (v.shareAmount / v.amount) * 100
+            ? (toCents(v.shareAmount) / toCents(v.amount)) * 100
             : v.sharePct,
           monthlyAmount: v.shareAmount
-            ? v.shareAmount / n
+            ? fromCents(Math.round(toCents(v.shareAmount) / n))
             : debtorMonthlyAmount(v.amount, v.installments, v.sharePct),
           isFixedAmount: Boolean(v.shareAmount),
         },

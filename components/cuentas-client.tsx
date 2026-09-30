@@ -40,6 +40,7 @@ import {
   buildDebts,
 } from '@/lib/partner-debts'
 import { cancelPayment, confirmPaymentSource } from '@/lib/payment-actions'
+import { toCents } from '@/lib/money'
 import type { DueCharge } from '@/lib/subscriptions'
 import { formatMoney, monthKey } from '@/lib/utils'
 
@@ -267,7 +268,7 @@ export function CuentasClient({
     else if (accType === 'credit')
       list = list.filter((a) => a.type === 'CREDIT')
     else if (accType === 'debt')
-      list = list.filter((a) => a.type === 'CREDIT' && a.balance > 0.005)
+      list = list.filter((a) => a.type === 'CREDIT' && toCents(a.balance) > 0)
     else if (accType === 'due')
       list = list.filter(
         (a) =>
@@ -285,7 +286,7 @@ export function CuentasClient({
 
   const typeCounts = useMemo(() => {
     const debt = mine.filter(
-      (a) => a.type === 'CREDIT' && a.balance > 0.005,
+      (a) => a.type === 'CREDIT' && toCents(a.balance) > 0,
     ).length
     const due = mine.filter(
       (a) =>
@@ -854,7 +855,7 @@ function DebtCard({ d, meId }: { d: PartnerDebt; meId: string }) {
       <ul className="mt-2 space-y-1.5 border-t border-(--border) pt-2 text-xs text-(--muted-foreground)">
         {d.lines.map((l, i) => {
           const rest = Math.max(0, l.monthly - l.paid)
-          const settled = l.shareId != null && rest <= 0.005
+          const settled = l.shareId != null && toCents(rest) <= 0
           return (
             <li key={i}>
               <span className="flex items-center justify-between gap-2">
@@ -911,7 +912,7 @@ function DebtSwipeRow({
   const owe = d.debtorId === meId // yo debo → "Le pagué"; me deben → "Me pagó"
   const settled =
     d.lines.length > 0 &&
-    d.lines.every((l) => l.shareId == null || l.monthly - l.paid <= 0.005)
+    d.lines.every((l) => l.shareId == null || toCents(l.monthly) - toCents(l.paid) <= 0)
   const card = <DebtCard d={d} meId={meId} />
   if (!d.lines.some((l) => l.shareId)) return card // demo: sin pagos
   return (

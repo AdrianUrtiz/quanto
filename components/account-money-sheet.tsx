@@ -12,6 +12,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 
 import { createTransaction } from '@/lib/actions'
+import { fromCents, toCents } from '@/lib/money'
 import { formatMoney } from '@/lib/utils'
 import { cn } from '@/lib/utils'
 
@@ -45,7 +46,7 @@ export function AccountMoneySheet({
         ? debt
         : null
   const [amount, setAmount] = useState(
-    initial != null ? String(Math.round(initial * 100) / 100) : '',
+    initial != null ? String(fromCents(toCents(initial))) : '',
   )
   const [concept, setConcept] = useState(
     pay ? `Pago ${account.name}` : `Abono ${account.name}`,

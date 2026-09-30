@@ -15,6 +15,7 @@ import {
   registerPayment,
   rejectPayment,
 } from '@/lib/payment-actions'
+import { fromCents, toCents } from '@/lib/money'
 import { formatMoney } from '@/lib/utils'
 import { cn } from '@/lib/utils'
 
@@ -39,7 +40,7 @@ export type ConfirmTarget = {
 }
 
 export function lineRemaining(l: PayLine): number {
-  return Math.max(0, l.monthly - l.paid)
+  return fromCents(Math.max(0, toCents(l.monthly) - toCents(l.paid)))
 }
 
 /**
@@ -63,13 +64,15 @@ export function PaymentSheet({
 }) {
   // Las líneas ya liquidadas (todo CONFIRMED) no ofrecen acciones.
   const openLines =
-    mode === 'confirm' ? lines : lines.filter((l) => lineRemaining(l) > 0.005)
+    mode === 'confirm'
+      ? lines
+      : lines.filter((l) => toCents(lineRemaining(l)) > 0)
   const firstOpen =
-    openLines.find((l) => lineRemaining(l) > 0) ?? openLines[0] ?? null
+    openLines.find((l) => toCents(lineRemaining(l)) > 0) ?? openLines[0] ?? null
   const [selId, setSelId] = useState(firstOpen?.shareId ?? '')
   const sel = openLines.find((l) => l.shareId === selId) ?? firstOpen
   const [amount, setAmount] = useState(
-    sel ? String(Math.round(lineRemaining(sel) * 100) / 100) : '',
+    sel ? String(fromCents(toCents(lineRemaining(sel)))) : '',
   )
   const [accountId, setAccountId] = useState(accountOptions[0]?.id ?? '')
   const [noMovement, setNoMovement] = useState(false)
@@ -78,7 +81,7 @@ export function PaymentSheet({
 
   function pick(line: PayLine) {
     setSelId(line.shareId)
-    setAmount(String(Math.round(lineRemaining(line) * 100) / 100))
+    setAmount(String(fromCents(toCents(lineRemaining(line)))))
     setMsg(null)
   }
 
@@ -167,7 +170,7 @@ export function PaymentSheet({
         <ul className="space-y-2">
           {lines.map((l) => {
             const rest = lineRemaining(l)
-            const settled = rest <= 0.005
+            const settled = toCents(rest) <= 0
             const active = l.shareId === sel?.shareId
             if (settled) {
               return (

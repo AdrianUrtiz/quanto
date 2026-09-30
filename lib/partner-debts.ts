@@ -1,5 +1,6 @@
 import { installmentMonths } from '@/lib/calculations'
 import type { LineSums } from '@/lib/debt-payments'
+import { fromCents, toCents } from '@/lib/money'
 
 export type DebtLine = {
   concept: string
@@ -70,9 +71,12 @@ export function buildDebts(
       remaining: 0,
       lines: [],
     }
-    g.total += it.monthly
+    g.total = fromCents(toCents(g.total) + toCents(it.monthly))
     const s = sums.get(`${it.shareId}:${key}`) ?? { confirmed: 0, pending: 0 }
-    g.remaining += Math.max(0, it.monthly - s.confirmed)
+    g.remaining = fromCents(
+      toCents(g.remaining) +
+        Math.max(0, toCents(it.monthly) - toCents(s.confirmed)),
+    )
     g.lines.push({
       concept: it.concept,
       monthly: it.monthly,

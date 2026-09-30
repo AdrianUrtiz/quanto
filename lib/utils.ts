@@ -5,22 +5,29 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
+import { fromCents, toCents } from '@/lib/money'
+
 const mxn = new Intl.NumberFormat('es-MX', {
   style: 'currency',
   currency: 'MXN',
-  maximumFractionDigits: 0,
-})
-
-const mxnExact = new Intl.NumberFormat('es-MX', {
-  style: 'currency',
-  currency: 'MXN',
   minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
 })
 
-export function formatMoney(value: number | string, exact = false) {
-  const n = typeof value === 'string' ? Number(value) : value
-  if (Number.isNaN(n)) return '$0'
-  return exact ? mxnExact.format(n) : mxn.format(n)
+/**
+ * Muestra SIEMPRE centavos ($1,234.50). Acepta number, string numérico o
+ * Decimal de Prisma. `exact` queda como no-op por compatibilidad.
+ */
+export function formatMoney(
+  value: number | string | { toString(): string },
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  exact = true,
+) {
+  const cents = toCents(
+    value as unknown as number | string | { toString(): string },
+  )
+  if (Number.isNaN(cents)) return '$0.00'
+  return mxn.format(fromCents(cents))
 }
 
 export function monthKey(d: Date) {

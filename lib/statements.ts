@@ -54,8 +54,10 @@ export type Statement = StatementPeriod & {
   moves: StatementMove[]
 }
 
+import { fromCents, splitMoney, toCents } from '@/lib/money'
+
 function round2(n: number) {
-  return Math.round(n * 100) / 100
+  return fromCents(toCents(n))
 }
 
 function daysInMonth(y: number, m0: number) {
@@ -89,12 +91,7 @@ export function installmentDate(buyDate: Date, i: number): Date {
 
 /** Parcialidades con centavos exactos (la última absorbe el redondeo). */
 export function installmentSchedule(amount: number, n: number): number[] {
-  const k = Math.max(1, Math.round(n))
-  if (k === 1) return [round2(amount)]
-  const base = round2(amount / k)
-  const out = Array(k - 1).fill(base)
-  out.push(round2(amount - base * (k - 1)))
-  return out
+  return splitMoney(amount, n)
 }
 
 export type StatementOpts = {

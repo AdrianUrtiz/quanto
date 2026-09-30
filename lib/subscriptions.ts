@@ -1,6 +1,7 @@
 // Suscripciones como checklist mensual: el cargo es un hecho indivisible en la
 // tarjeta del dueño; lo único que se rastrea es quién cubrió su parte.
 // Sin TransactionShare ni DebtPayment para suscripciones.
+import { fromCents, toCents } from '@/lib/money'
 
 export type SubInfo = {
   id: string
@@ -122,7 +123,11 @@ export function computeDues(
     if (!s.isActive) continue
     const from = s.startMonth > minKey ? s.startMonth : minKey
     const monthlyShare = s.isShared
-      ? (s.shareAmount ?? (s.amount * s.sharePct) / 100)
+      ? fromCents(
+          s.shareAmount != null
+            ? toCents(s.shareAmount)
+            : Math.round((toCents(s.amount) * s.sharePct) / 100),
+        )
       : null
     for (const key of eachMonth(from, curKey)) {
       const ch = charges.get(`${s.id}:${key}`)

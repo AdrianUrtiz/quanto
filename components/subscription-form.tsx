@@ -29,6 +29,7 @@ import {
   createSubscription,
   updateSubscription,
 } from '@/lib/subscription-actions'
+import { fromCents, normalizeMoney, toCents } from '@/lib/money'
 import { formatMoney } from '@/lib/utils'
 import { cn } from '@/lib/utils'
 
@@ -88,9 +89,12 @@ export function SubscriptionForm({
   const [newCatColor, setNewCatColor] = useState<string>('#fb923c')
   const [savingCat, setSavingCat] = useState(false)
 
-  const totalNum = Number(amount) || 0
+  const totalC = toCents(amount || '0')
+  const totalNum = fromCents(totalC)
   const preview =
-    shareMode === 'pct' ? (totalNum * sharePct) / 100 : Number(shareAmt) || 0
+    shareMode === 'pct'
+      ? fromCents(Math.round((totalC * sharePct) / 100))
+      : normalizeMoney(shareAmt || '0')
 
   const shareLabel = !shared
     ? 'Compartir'
@@ -211,8 +215,8 @@ export function SubscriptionForm({
       return
     }
     if (shared && shareMode === 'amount') {
-      const v = Number(shareAmt)
-      if (!shareAmt || Number.isNaN(v) || v <= 0 || v > totalNum) {
+      const vC = toCents(shareAmt || '0')
+      if (!shareAmt || Number.isNaN(vC) || vC <= 0 || vC > totalC) {
         setMsg('La aportación debe ser mayor a 0 y no mayor al total')
         return
       }

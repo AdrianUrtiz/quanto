@@ -9,6 +9,8 @@
 // - Una parcialidad "aplica" a un mes si: mes >= mes de compra y
 //   mes < mes de compra + installments.
 
+import { fromCents, toCents } from '@/lib/money'
+
 export type ShareInput = {
   transactionId: string
   amount: number
@@ -21,7 +23,7 @@ export type ShareInput = {
 
 export function monthlyTotal(amount: number, installments: number) {
   const n = Math.max(1, Math.round(installments))
-  return amount / n
+  return fromCents(Math.round(toCents(amount) / n))
 }
 
 export function debtorMonthlyAmount(
@@ -29,7 +31,9 @@ export function debtorMonthlyAmount(
   installments: number,
   sharePct = 50,
 ) {
-  return (amount * (sharePct / 100)) / Math.max(1, Math.round(installments))
+  const n = Math.max(1, Math.round(installments))
+  const poolC = Math.round((toCents(amount) * sharePct) / 100)
+  return fromCents(Math.round(poolC / n))
 }
 
 /** Meses (monthKey "YYYY-MM") en los que cae cada parcialidad. */
@@ -88,9 +92,10 @@ export function settleMonth(
 
     for (const s of tx.shares) {
       if (s.debtorId === tx.createdById) continue // nadie se debe a sí mismo
-      const paid = confirmed?.get(`${s.id}:${targetMonth}`) ?? 0
-      const rest = Number(s.monthlyAmount) - paid
-      if (rest <= 0.005) continue // parcialidad ya liquidada
+      const paidC = toCents(confirmed?.get(`${s.id}:${targetMonth}`) ?? 0)
+      const restC = toCents(s.monthlyAmount) - paidC
+      if (restC <= 0) continue // parcialidad ya liquidada
+      const rest = fromCents(restC)
       const key = `${s.debtorId}->${tx.createdById}`
       const line =
         map.get(key) ??
@@ -102,7 +107,7 @@ export function settleMonth(
           amount: 0,
           details: [],
         } satisfies SettlementLine)
-      line.amount += rest
+      line.amount = fromCents(toCents(line.amount) + restC)
       line.details.push({
         concept: tx.concept,
         monthly: rest,
@@ -117,5 +122,5 @@ export function settleMonth(
 
 /** Disponible de una cuenta de crédito = límite - deuda. */
 export function creditAvailable(limit: number, debt: number) {
-  return limit - debt
+  return fromCents(toCents(limit) - toCents(debt))
 }

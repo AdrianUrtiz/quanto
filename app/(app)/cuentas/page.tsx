@@ -13,6 +13,7 @@ import { getAccountBalances } from '@/lib/balances'
 import { installmentMonths } from '@/lib/calculations'
 import { getCatalog } from '@/lib/catalog'
 import { getLineSums } from '@/lib/debt-payments'
+import { normalizeMoney } from '@/lib/money'
 import { type DebtItemInput, buildDebts } from '@/lib/partner-debts'
 import { prisma } from '@/lib/prisma'
 import { getSubscriptionData } from '@/lib/subscription-actions'
@@ -86,8 +87,8 @@ export default async function CuentasPage({
     ownerId: a.user.id,
     balance:
       balances.get(a.id) ??
-      (a.type === 'DEBIT' ? Number(a.initialBalance ?? 0) : 0),
-    creditLimit: a.creditLimit ? Number(a.creditLimit) : undefined,
+      (a.type === 'DEBIT' ? normalizeMoney(a.initialBalance ?? 0) : 0),
+    creditLimit: a.creditLimit ? normalizeMoney(a.creditLimit) : undefined,
     statementDay: a.statementDay ?? undefined,
     dueDay: a.dueDay ?? undefined,
     lastFour: a.lastFour ?? undefined,
@@ -145,11 +146,11 @@ export default async function CuentasPage({
   for (const p of pendingRows) {
     const base = {
       id: p.id,
-      amount: Number(p.amount),
+      amount: normalizeMoney(p.amount),
       month: p.month,
       monthLabel: monthLabelOf(p.month),
       concept: p.share.transaction.concept,
-      monthly: Number(p.share.monthlyAmount),
+      monthly: normalizeMoney(p.share.monthlyAmount),
       shareId: p.shareId,
     }
     if (p.registeredById === meId) {
@@ -166,7 +167,7 @@ export default async function CuentasPage({
   for (const p of sourceRows) {
     toConfirmSource.push({
       id: p.id,
-      amount: Number(p.amount),
+      amount: normalizeMoney(p.amount),
       month: p.month,
       monthLabel: monthLabelOf(p.month),
       concept: p.share.transaction.concept,
@@ -185,7 +186,7 @@ export default async function CuentasPage({
     debtorName: me,
     creditorName: t.createdBy.name,
     concept: t.concept,
-    monthly: Number(t.shares[0]?.monthlyAmount ?? 0),
+    monthly: normalizeMoney(t.shares[0]?.monthlyAmount ?? 0),
     installments: t.installments,
     date: t.date.toISOString(),
   }))
@@ -202,7 +203,7 @@ export default async function CuentasPage({
         debtorName: s.debtor.name,
         creditorName: t.createdBy.name,
         concept: t.concept,
-        monthly: Number(s.monthlyAmount ?? 0),
+        monthly: normalizeMoney(s.monthlyAmount ?? 0),
         installments: t.installments,
         date: t.date.toISOString(),
       })),

@@ -18,6 +18,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 
+import { toCents } from '@/lib/money'
 import { useStatementFilters } from '@/lib/resumen-filters'
 import { formatMoney } from '@/lib/utils'
 import { cn } from '@/lib/utils'
@@ -98,9 +99,9 @@ function StatementPanel({
 
   const [nowRef] = useState(() => Date.now())
   const isFuture = new Date(period.start).getTime() > nowRef
-  // Ya pagado si el cierre quedó en cero (tolerancia de centavos).
+  // Ya pagado si el cierre quedó en cero (centavos exactos).
   // El cierre ya descuenta los pagos, así que basta con ver el cierre.
-  const paid = period.closing <= 0.005
+  const paid = toCents(period.closing) <= 0
   const chart = useMemo(() => [...periods].reverse(), [periods])
   const maxCharges = Math.max(1, ...periods.map((p) => p.charges))
 

@@ -14,6 +14,7 @@
 //
 // Los movimientos de Pareja (ingreso del acreedor / egreso del deudor) ya son
 // `Transaction` normales, así que entran solos en la suma.
+import { fromCents, toCents } from '@/lib/money'
 import { prisma } from '@/lib/prisma'
 
 type AccountKind = 'DEBIT' | 'CREDIT'
@@ -50,8 +51,10 @@ export async function getAccountBalances(
 
   const ids = accounts.map((a) => a.id)
   const kindById = new Map(accounts.map((a) => [a.id, a.type as AccountKind]))
+  // Todo en centavos enteros: sin deriva IEEE-754.
+  const cents = new Map<string, number>()
   for (const a of accounts) {
-    out.set(a.id, a.type === 'DEBIT' ? Number(a.initialBalance ?? 0) : 0)
+    cents.set(a.id, a.type === 'DEBIT' ? toCents(a.initialBalance ?? 0) : 0)
   }
 
   const [origins, dests] = await Promise.all([
@@ -70,10 +73,10 @@ export async function getAccountBalances(
   for (const r of origins) {
     const kind = kindById.get(r.accountId)
     if (!kind) continue
-    const amt = Number(r._sum.amount ?? 0)
-    out.set(
+    const amtC = toCents(r._sum.amount ?? 0)
+    cents.set(
       r.accountId,
-      (out.get(r.accountId) ?? 0) + originSign(r.type, kind) * amt,
+      (cents.get(r.accountId) ?? 0) + originSign(r.type, kind) * amtC,
     )
   }
   for (const r of dests) {
@@ -81,11 +84,10 @@ export async function getAccountBalances(
     if (!destId) continue
     const kind = kindById.get(destId)
     if (!kind) continue
-    const amt = Number(r._sum.amount ?? 0)
-    out.set(destId, (out.get(destId) ?? 0) + destSign(kind) * amt)
+    const amtC = toCents(r._sum.amount ?? 0)
+    cents.set(destId, (cents.get(destId) ?? 0) + destSign(kind) * amtC)
   }
 
-  // Redondeo a centavos para evitar deriva de flotantes.
-  for (const [k, v] of out) out.set(k, Math.round(v * 100) / 100)
+  for (const [k, v] of cents) out.set(k, fromCents(v))
   return out
 }

@@ -6,6 +6,7 @@ import { z } from 'zod'
 
 import { debtorMonthlyAmount } from '@/lib/calculations'
 import { checkCategory } from '@/lib/catalog'
+import { fromCents, moneySchema, optionalMoneySchema, toCents } from '@/lib/money'
 import { prisma } from '@/lib/prisma'
 import {
   type ChargeRow,
@@ -22,13 +23,13 @@ const MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/
 
 const SubSchema = z.object({
   name: z.string().min(2, 'Ponle un nombre'),
-  amount: z.coerce.number().positive('Monto debe ser mayor a 0'),
+  amount: moneySchema,
   category: z.string().default('SUSCRIPCIONES'),
   accountId: z.string().min(1, 'Elige una cuenta'),
   chargeDay: z.coerce.number().min(1, 'Día 1-31').max(31, 'Día 1-31'),
   isShared: z.coerce.boolean().default(false),
   sharePct: z.coerce.number().min(1).max(100).default(50),
-  shareAmount: z.coerce.number().positive().optional(),
+  shareAmount: optionalMoneySchema,
 })
 
 function authedUser(session: Session | null) {
@@ -218,7 +219,7 @@ export async function confirmSubscriptionCharge(
   if (chargeDayStart > today)
     return { error: `El cobro llega el día ${sub.chargeDay}` }
 
-  const amount = Number(sub.amount)
+  const amount = fromCents(toCents(sub.amount))
   // Todo indivisible en una transacción: gasto + share + cargo.
   // El saldo se deriva por suma (lib/balances.ts).
   try {
@@ -246,12 +247,12 @@ export async function confirmSubscriptionCharge(
         const debtorId = other?.id
         if (!debtorId || debtorId === userId)
           throw new Error('No se pudo determinar quién debe aportar')
-        const fixed = sub.shareAmount ? Number(sub.shareAmount) : null
+        const fixed = sub.shareAmount ? fromCents(toCents(sub.shareAmount)) : null
         await db.transactionShare.create({
           data: {
             transactionId: tx.id,
             debtorId,
-            sharePct: fixed ? (fixed / amount) * 100 : sub.sharePct,
+            sharePct: fixed ? (toCents(fixed) / toCents(amount)) * 100 : sub.sharePct,
             monthlyAmount:
               fixed ?? debtorMonthlyAmount(amount, 1, sub.sharePct),
             isFixedAmount: Boolean(fixed),
@@ -424,7 +425,7 @@ export async function getSubscriptionData(
       ...mySubs.map((s) => ({
         id: s.id,
         name: s.name,
-        amount: Number(s.amount),
+        amount: fromCents(toCents(s.amount)),
         category: s.category,
         accountId: s.accountId,
         accountName: s.account.name,
@@ -432,7 +433,7 @@ export async function getSubscriptionData(
         chargeDay: s.chargeDay,
         isShared: s.isShared,
         sharePct: s.sharePct,
-        shareAmount: s.shareAmount ? Number(s.shareAmount) : null,
+        shareAmount: s.shareAmount ? fromCents(toCents(s.shareAmount)) : null,
         isActive: s.isActive,
         startMonth: s.startMonth,
         ownerId: userId,
@@ -443,7 +444,7 @@ export async function getSubscriptionData(
       ...partnerSubs.map((s) => ({
         id: s.id,
         name: s.name,
-        amount: Number(s.amount),
+        amount: fromCents(toCents(s.amount)),
         category: s.category,
         accountId: s.accountId,
         accountName: `Tarjeta de ${s.user.name}`,
@@ -451,7 +452,7 @@ export async function getSubscriptionData(
         chargeDay: s.chargeDay,
         isShared: s.isShared,
         sharePct: s.sharePct,
-        shareAmount: s.shareAmount ? Number(s.shareAmount) : null,
+        shareAmount: s.shareAmount ? fromCents(toCents(s.shareAmount)) : null,
         isActive: s.isActive,
         startMonth: s.startMonth,
         ownerId: '',

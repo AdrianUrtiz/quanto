@@ -1,5 +1,6 @@
 import type { Prisma } from '@prisma/client'
 
+import { fromCents, toCents } from '@/lib/money'
 import { prisma } from '@/lib/prisma'
 
 /** Cliente capaz de correr dentro o fuera de una transacción. */
@@ -21,18 +22,23 @@ export async function getLineSums(
     },
     select: { shareId: true, month: true, amount: true, status: true },
   })
+  const centsMap = new Map<string, { confirmed: number; pending: number }>()
   for (const r of rows) {
     const key = `${r.shareId}:${r.month}`
-    const s = map.get(key) ?? { confirmed: 0, pending: 0 }
-    if (r.status === 'CONFIRMED') s.confirmed += Number(r.amount)
-    else s.pending += Number(r.amount)
-    map.set(key, s)
+    const s = centsMap.get(key) ?? { confirmed: 0, pending: 0 }
+    if (r.status === 'CONFIRMED') s.confirmed += toCents(r.amount)
+    else s.pending += toCents(r.amount)
+    centsMap.set(key, s)
   }
+  for (const [k, s] of centsMap)
+    map.set(k, { confirmed: fromCents(s.confirmed), pending: fromCents(s.pending) })
   return map
 }
 
 export function lineRemaining(monthly: number, sums?: LineSums): number {
-  return Math.max(0, monthly - (sums?.confirmed ?? 0))
+  return fromCents(
+    Math.max(0, toCents(monthly) - toCents(sums?.confirmed ?? 0)),
+  )
 }
 
 export function lineKey(shareId: string, month: string): string {
@@ -64,8 +70,8 @@ export async function syncSubscriptionCheck(
     where: { shareId, month, status: 'CONFIRMED' },
     select: { amount: true },
   })
-  const confirmed = rows.reduce((a, r) => a + Number(r.amount), 0)
-  const covered = confirmed - Number(share.monthlyAmount) >= -0.005
+  const confirmedC = rows.reduce((a, r) => a + toCents(r.amount), 0)
+  const covered = confirmedC - toCents(share.monthlyAmount) >= 0
   const charge = await db.subscriptionCharge.findUnique({
     where: { subscriptionId_month: { subscriptionId: subId, month } },
     select: { id: true, partnerPaid: true },
