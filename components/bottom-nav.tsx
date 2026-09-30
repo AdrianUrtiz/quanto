@@ -1,6 +1,6 @@
 'use client'
 
-import { LayoutList, PieChart, Settings, Wallet } from 'lucide-react'
+import { LayoutList, PieChart, PiggyBank, Settings, Wallet } from 'lucide-react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 
@@ -9,6 +9,7 @@ import { cn } from '@/lib/utils'
 const ITEMS = [
   { href: '/actividad', label: 'Actividad', icon: LayoutList },
   { href: '/resumen', label: 'Resumen', icon: PieChart },
+  { href: '/presupuestos', label: 'Presupuesto', icon: PiggyBank },
   { href: '/cuentas', label: 'Cuentas', icon: Wallet },
   { href: '/ajustes', label: 'Ajustes', icon: Settings },
 ]

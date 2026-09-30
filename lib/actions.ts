@@ -283,6 +283,7 @@ export async function updateTransaction(formData: FormData) {
     revalidatePath('/actividad')
     revalidatePath('/resumen')
     revalidatePath('/cuentas')
+    revalidatePath('/presupuestos')
     return { ok: true }
   }
 
@@ -460,6 +461,7 @@ export async function createTransaction(formData: FormData) {
     revalidatePath('/actividad')
     revalidatePath('/resumen')
     revalidatePath('/cuentas')
+    revalidatePath('/presupuestos')
     return { ok: true }
   }
 

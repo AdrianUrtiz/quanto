@@ -19,6 +19,7 @@ function revalidateAll() {
   revalidatePath('/resumen')
   revalidatePath('/cuentas')
   revalidatePath('/categorias')
+  revalidatePath('/presupuestos')
 }
 
 const HEX_RE = /^#[0-9a-fA-F]{6}$/

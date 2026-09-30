@@ -40,6 +40,7 @@ function revalidateAll() {
   revalidatePath('/actividad')
   revalidatePath('/resumen')
   revalidatePath('/cuentas')
+  revalidatePath('/presupuestos')
 }
 
 function partsOf(v: {

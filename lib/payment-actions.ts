@@ -22,6 +22,7 @@ function revalidateDebts() {
   revalidatePath('/cuentas')
   revalidatePath('/resumen')
   revalidatePath('/actividad')
+  revalidatePath('/presupuestos')
 }
 
 async function meId() {

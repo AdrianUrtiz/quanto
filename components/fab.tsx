@@ -28,7 +28,8 @@ export function Fab({ accountOptions, cats }: FabProps) {
   if (
     pathname.startsWith('/resumen') ||
     pathname.startsWith('/ajustes') ||
-    pathname.startsWith('/categorias')
+    pathname.startsWith('/categorias') ||
+    pathname.startsWith('/presupuestos')
   )
     return null
 

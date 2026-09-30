@@ -34,14 +34,15 @@ model User {
   updatedAt DateTime @updatedAt
 
   accounts           Account[]
-  transactions       Transaction[]      @relation("CreatedBy")
-  debts              TransactionShare[] @relation("Debtor")
+  transactions       Transaction[]        @relation("CreatedBy")
+  debts              TransactionShare[]   @relation("Debtor")
   subscriptions      Subscription[]
   categories         Category[]
-  paymentsRegistered DebtPayment[]      @relation("PaymentRegistrar")
-  paymentsConfirmed  DebtPayment[]      @relation("PaymentConfirmer")
+  paymentsRegistered DebtPayment[]        @relation("PaymentRegistrar")
+  paymentsConfirmed  DebtPayment[]        @relation("PaymentConfirmer")
   chargesOwnerPaid   SubscriptionCharge[] @relation("ChargeOwnerPayer")
   chargesPartnerPaid SubscriptionCharge[] @relation("ChargePartnerPayer")
+  budgets            Budget[]
 }
 
 model Account {
@@ -77,7 +78,7 @@ model Account {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  debtPayments DebtPayment[] @relation("PaymentAccount")
+  debtPayments         DebtPayment[] @relation("PaymentAccount")
   debtorSourcePayments DebtPayment[] @relation("DebtorPaymentAccount")
 
   @@index([userId])
@@ -121,7 +122,7 @@ model Transaction {
   // Cargo mensual de suscripción (nuevo modelo checklist).
   charges SubscriptionCharge[]
 
-  debtPayment DebtPayment? @relation("PaymentTransaction")
+  debtPayment         DebtPayment? @relation("PaymentTransaction")
   debtorSourcePayment DebtPayment? @relation("DebtorPaymentTransaction")
 
   createdAt DateTime @default(now())
@@ -170,7 +171,7 @@ model Subscription {
 
   chargeDay Int // día de cobro 1-31 (se ajusta al último día del mes si no existe)
 
-  isShared Boolean @default(false)
+  isShared    Boolean  @default(false)
   // Reparto de la pareja: porcentaje o cantidad fija total. Solo referencia
   // para el split al confirmar; los pagos se registran en Pareja, no aquí.
   sharePct    Float    @default(50)
@@ -261,6 +262,63 @@ enum PaymentStatus {
   REJECTED
 }
 
+// Presupuesto mensual individual (sección Presupuestos).
+// El comprometido automático (MSI + suscripciones + pareja) se calcula en
+// lib/budgets.ts; aquí solo vive lo manual: ingreso base, fijos y límites.
+model Budget {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Mes del presupuesto, "YYYY-MM".
+  month String
+
+  // Ingreso manual del mes (quincena/mes). Nada se suma en automático.
+  baseIncome Decimal @default(0) @db.Decimal(12, 2)
+
+  items  BudgetItem[]
+  limits BudgetCategoryLimit[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, month])
+  @@index([userId])
+}
+
+// Fijo manual del mes (renta, colegiatura, abono extra).
+// accountId null = general; con cuenta = suma al desglose de esa tarjeta.
+model BudgetItem {
+  id       String @id @default(cuid())
+  budgetId String
+  budget   Budget @relation(fields: [budgetId], references: [id], onDelete: Cascade)
+
+  label     String
+  amount    Decimal @db.Decimal(12, 2)
+  accountId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([budgetId])
+}
+
+// Límite de gasto por categoría para el mes (codes del catálogo).
+model BudgetCategoryLimit {
+  id       String @id @default(cuid())
+  budgetId String
+  budget   Budget @relation(fields: [budgetId], references: [id], onDelete: Cascade)
+
+  category String
+  limit    Decimal @db.Decimal(12, 2)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([budgetId, category])
+  @@index([budgetId])
+}
+
 // Abono a la parcialidad de un mes de un gasto compartido.
 // - Si registra el ACREEDOR (recibe): CONFIRMED directo + ingreso en su cuenta.
 // - Si registra el DEUDOR (paga): PENDING hasta que el acreedor confirma.
@@ -292,11 +350,11 @@ model DebtPayment {
 
   // Lado deudor: de qué cuenta salió el dinero que el acreedor dice recibido.
   // Se llena cuando el deudor confirma el origen (o al confirmar su propio registro).
-  debtorAccountId String?
-  debtorAccount   Account? @relation("DebtorPaymentAccount", fields: [debtorAccountId], references: [id], onDelete: SetNull)
+  debtorAccountId     String?
+  debtorAccount       Account?     @relation("DebtorPaymentAccount", fields: [debtorAccountId], references: [id], onDelete: SetNull)
   debtorTransactionId String?      @unique
   debtorTransaction   Transaction? @relation("DebtorPaymentTransaction", fields: [debtorTransactionId], references: [id], onDelete: SetNull)
-  debtorConfirmedAt DateTime?
+  debtorConfirmedAt   DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
