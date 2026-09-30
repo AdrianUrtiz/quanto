@@ -378,7 +378,7 @@ const TxSchema = z.object({
     .regex(/^\d{4}-\d{2}$/, 'Período inválido')
     .optional(),
   isShared: z.coerce.boolean().default(false),
-  sharePct: z.coerce.number().min(1).max(99).default(50),
+  sharePct: z.coerce.number().min(1).max(100).default(50),
   shareAmount: z.coerce.number().positive().optional(),
   debtorId: z.string().optional(),
 })
@@ -466,9 +466,9 @@ export async function createTransaction(formData: FormData) {
     v.type === 'EXPENSE' &&
     v.isShared &&
     v.shareAmount &&
-    v.shareAmount >= v.amount
+    v.shareAmount > v.amount
   ) {
-    return { error: 'La aportación debe ser menor al total' }
+    return { error: 'La aportación no puede ser mayor al total' }
   }
 
   // El saldo se deriva por suma (lib/balances.ts): solo se crean filas.

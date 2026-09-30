@@ -27,7 +27,7 @@ const SubSchema = z.object({
   accountId: z.string().min(1, 'Elige una cuenta'),
   chargeDay: z.coerce.number().min(1, 'Día 1-31').max(31, 'Día 1-31'),
   isShared: z.coerce.boolean().default(false),
-  sharePct: z.coerce.number().min(1).max(99).default(50),
+  sharePct: z.coerce.number().min(1).max(100).default(50),
   shareAmount: z.coerce.number().positive().optional(),
 })
 
@@ -48,8 +48,8 @@ function partsOf(v: {
   shareAmount?: number
 }) {
   if (!v.isShared) return { sharePct: 50, shareAmount: null as number | null }
-  if (v.shareAmount != null && v.shareAmount >= v.amount) {
-    return { error: 'La aportación debe ser menor al total' }
+  if (v.shareAmount != null && v.shareAmount > v.amount) {
+    return { error: 'La aportación no puede ser mayor al total' }
   }
   return { sharePct: v.sharePct ?? 50, shareAmount: v.shareAmount ?? null }
 }

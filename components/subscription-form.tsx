@@ -2,14 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 
-import {
-  Check,
-  LayoutGrid,
-  Plus,
-  Repeat,
-  Users,
-  Wallet,
-} from 'lucide-react'
+import { Check, LayoutGrid, Plus, Repeat, Users, Wallet } from 'lucide-react'
 import { toast } from 'sonner'
 
 import type { AccountOpt } from '@/components/transaction-form'
@@ -219,8 +212,8 @@ export function SubscriptionForm({
     }
     if (shared && shareMode === 'amount') {
       const v = Number(shareAmt)
-      if (!shareAmt || Number.isNaN(v) || v <= 0 || v >= totalNum) {
-        setMsg('La aportación debe ser mayor a 0 y menor al total')
+      if (!shareAmt || Number.isNaN(v) || v <= 0 || v > totalNum) {
+        setMsg('La aportación debe ser mayor a 0 y no mayor al total')
         return
       }
     }
@@ -517,7 +510,7 @@ export function SubscriptionForm({
                   <input
                     type="range"
                     min={1}
-                    max={99}
+                    max={100}
                     value={sharePct}
                     onChange={(e) => setSharePct(Number(e.target.value))}
                     aria-label="Porcentaje que aporta tu pareja"

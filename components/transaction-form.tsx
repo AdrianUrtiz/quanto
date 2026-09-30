@@ -270,8 +270,8 @@ export function TransactionForm({
           fd.set('sharePct', String(100 - sharePct)) // al servidor va el % del deudor
         } else {
           const amt = Number(shareAmt)
-          if (!shareAmt || Number.isNaN(amt) || amt <= 0 || amt >= value) {
-            setMsg('La aportación debe ser mayor a 0 y menor al total')
+          if (!shareAmt || Number.isNaN(amt) || amt <= 0 || amt > value) {
+            setMsg('La aportación debe ser mayor a 0 y no mayor al total')
             setPending(false)
             return
           }
@@ -798,7 +798,7 @@ export function TransactionForm({
                   </p>
                   <input
                     type="range"
-                    min={1}
+                    min={0}
                     max={99}
                     value={sharePct}
                     onChange={(e) => setSharePct(Number(e.target.value))}
