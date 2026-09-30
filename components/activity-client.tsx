@@ -19,9 +19,9 @@ import {
 } from '@/components/ui/dialog'
 
 import {
-  useActivityFilters,
   type ActivityKind,
   type ActivityRange,
+  useActivityFilters,
 } from '@/lib/activity-filters'
 import type { CatalogRow } from '@/lib/catalog'
 import { lookupCategory } from '@/lib/categories'
@@ -41,9 +41,9 @@ const RANGES: { value: ActivityRange; label: string }[] = [
 ]
 
 const KINDS: { value: ActivityKind; label: string }[] = [
+  { value: 'todos', label: 'Toda la actividad' },
   { value: 'gastos', label: 'Gastos' },
   { value: 'ingresos', label: 'Ingresos' },
-  { value: 'todos', label: 'Toda la actividad' },
 ]
 
 const RANGE_DESC: Record<ActivityRange, string> = {
@@ -96,11 +96,14 @@ export function ActivityClient({
   months,
   cats,
   expiryAccounts = [],
+  filterAccounts = [],
 }: {
   txs: TxRow[]
   months: MonthOpt[]
   cats: CatalogRow[]
   expiryAccounts?: ExpiryAccount[]
+  /** Cuentas propias no ocultas para el filtro (débito y crédito). */
+  filterAccounts?: { id: string; name: string; type: string }[]
 }) {
   const [sheet, setSheet] = useState<Sheet>(null)
   const [openRow, setOpenRow] = useState<string | null>(null)
@@ -126,10 +129,12 @@ export function ActivityClient({
   const monthLabel = months.find((m) => m.key === month)?.label ?? month
   const start = rangeStart(range)
 
-  // 1) Rango temporal
+  // 1) Rango temporal (el fin es hoy completo: los movimientos de hoy
+  // con hora posterior a este momento también cuentan)
   const rangeTxs = useMemo(() => {
     if (range === 'mensual') return txs.filter((t) => keyOf(t.date) === month)
     const end = new Date()
+    end.setHours(23, 59, 59, 999)
     return txs.filter((t) => {
       const d = new Date(t.date)
       return d >= start! && d <= end
@@ -140,11 +145,16 @@ export function ActivityClient({
   const inKind = (t: TxRow) =>
     kind === 'ingresos' ? t.type === 'INCOME' : t.type === 'EXPENSE'
 
-  // 2) Filtros restantes
+  // 2) Filtros restantes (un traspaso matchea por origen o destino)
   const filtered = useMemo(() => {
     return rangeTxs.filter((t) => {
       if (kind !== 'todos' && !inKind(t)) return false
-      if (account !== 'todas' && t.accountName !== account) return false
+      if (
+        account !== 'todas' &&
+        t.accountName !== account &&
+        t.transferToAccountName !== account
+      )
+        return false
       if (category !== 'todas' && t.category !== category) return false
       if (
         q &&
@@ -281,16 +291,14 @@ export function ActivityClient({
     }))
   }, [txs])
 
-  // Opciones con totales (respetan el tipo activo)
+  // Opciones: todas las cuentas propias no ocultas (débito y crédito),
+  // ordenadas A–Z y sin contadores. Un traspaso involucra dos cuentas:
+  // aparece al filtrar por cualquiera de las dos (sin duplicarse).
   const accountOpts = useMemo(() => {
-    const map = new Map<string, number>()
-    for (const t of rangeTxs) {
-      if (!inKind(t)) continue
-      map.set(t.accountName, (map.get(t.accountName) ?? 0) + t.amount)
-    }
-    return [...map.entries()].sort((a, b) => b[1] - a[1])
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rangeTxs, kind])
+    return filterAccounts
+      .map((a) => a.name)
+      .sort((a, b) => a.localeCompare(b, 'es'))
+  }, [filterAccounts])
 
   const categoryOpts = useMemo(() => {
     const map = new Map<string, number>()
@@ -348,7 +356,7 @@ export function ActivityClient({
         <div className="no-scrollbar -mx-5 flex gap-2 overflow-x-auto px-5 pb-1">
           <FilterPill
             label={kindLabel}
-            active={kind !== 'gastos'}
+            active={kind !== 'todos'}
             onClick={() => setSheet('kind')}
           />
           <FilterPill
@@ -433,7 +441,6 @@ export function ActivityClient({
               items={months.map((m) => ({
                 value: m.key,
                 label: m.label,
-                total: m.total,
                 cap: true,
               }))}
               value={month}
@@ -447,10 +454,9 @@ export function ActivityClient({
             <Options
               items={[
                 { value: 'todas', label: 'Todas las cuentas' },
-                ...accountOpts.map(([name, total]) => ({
+                ...accountOpts.map((name) => ({
                   value: name,
                   label: name,
-                  total,
                 })),
               ]}
               value={account}

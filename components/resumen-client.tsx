@@ -57,7 +57,6 @@ type Sheet = null | 'kind' | 'range' | 'month' | 'account' | 'category'
 const KINDS: { value: ActivityKind; label: string }[] = [
   { value: 'gastos', label: 'Gastos' },
   { value: 'ingresos', label: 'Ingresos' },
-  { value: 'todos', label: 'Toda la actividad' },
 ]
 
 const RANGES: { value: ActivityRange; label: string }[] = [
@@ -144,11 +143,13 @@ export function ResumenClient({
   const inKind = (t: ResumenMineTx) =>
     kind === 'ingresos' ? t.type === 'INCOME' : t.type === 'EXPENSE'
 
-  // 1) Rango temporal
+  // 1) Rango temporal (el fin es hoy completo: los movimientos de hoy
+  // con hora posterior a este momento también cuentan)
   const rangeTxs = useMemo(() => {
     if (range === 'mensual')
       return mine.filter((t) => monthKeyOf(t.date) === month)
     const end = new Date()
+    end.setHours(23, 59, 59, 999)
     return mine.filter((t) => {
       const d = new Date(t.date)
       return d >= start! && d <= end
@@ -339,7 +340,6 @@ export function ResumenClient({
               items={months.map((m) => ({
                 value: m.key,
                 label: m.label,
-                total: m.total,
                 cap: true,
               }))}
               value={month}

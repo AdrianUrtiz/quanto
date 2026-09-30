@@ -25,7 +25,7 @@ function currentMonthKey() {
 
 export const useActivityFilters = create<ActivityFiltersState>()((set) => ({
   month: currentMonthKey(),
-  kind: 'gastos',
+  kind: 'todos',
   range: 'mensual',
   account: 'todas',
   category: 'todas',

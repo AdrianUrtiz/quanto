@@ -190,6 +190,7 @@ export default async function ActividadPage() {
         txs={txs}
         months={months}
         cats={catalog}
+        filterAccounts={accountOptions}
         expiryAccounts={mineAccounts.map((a) => ({
           id: a.id,
           name: a.name,
