@@ -39,6 +39,14 @@ import {
 import { createCategory } from '@/lib/category-actions'
 import { fromCents, normalizeMoney, toCents, toFixedCents } from '@/lib/money'
 import { cn } from '@/lib/utils'
+import {
+  addWallDays,
+  fmtDayMonth,
+  todayMexicoYMD,
+  utc,
+  wallNow,
+  ymdOfWall,
+} from '@/lib/walltime'
 
 export type AccountOpt = { id: string; name: string; type?: string }
 
@@ -67,17 +75,28 @@ const msiLabel = (m: number) => (m === 1 ? 'Contado' : `${m} MSI`)
 type Panel =
   null | 'cats' | 'account' | 'dest' | 'date' | 'addcat' | 'msi' | 'share'
 
-function toYMD(d: Date) {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-}
-function fromYMD(ymd: string) {
-  const [y, m, d] = ymd.split('-').map(Number)
-  return new Date(y, (m || 1) - 1, d || 1)
-}
 function shortDate(ymd: string) {
-  return fromYMD(ymd)
-    .toLocaleDateString('es-MX', { day: 'numeric', month: 'short' })
-    .replace('.', '')
+  // Hora-muro (ver lib/walltime.ts): el día se interpreta en UTC para que
+  // no se desfase según el runtime.
+  const [y, m, d] = ymd.split('-').map(Number)
+  return fmtDayMonth(utc(y, (m || 1) - 1, d || 1))
+}
+/** Hora local HH:MM:SS.mmm de un Date (para combinar con el día elegido). */
+function timeOfDay(d: Date) {
+  const p = (n: number, l = 2) => String(n).padStart(l, '0')
+  return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}.${p(d.getMilliseconds(), 3)}`
+}
+/**
+ * Día elegido + hora real. Al crear: hora actual (cada movimiento del día
+ * queda con timestamp único y ordena bien). Al editar: se conserva la hora
+ * original (solo cambia el día si el usuario lo movió).
+ */
+function buildDateTime(ymd: string, entryDate?: string) {
+  if (entryDate) {
+    const t = new Date(entryDate)
+    if (!Number.isNaN(t.getTime())) return `${ymd}T${timeOfDay(t)}`
+  }
+  return `${ymd}T${timeOfDay(new Date())}`
 }
 function fmtAmount(s: string) {
   const [i, dec] = s.split('.')
@@ -108,7 +127,7 @@ export function TransactionForm({
   const [mode, setMode] = useState<Mode>(initialMode)
   const [amount, setAmount] = useState(entry ? String(entry.amount) : '')
   const [dateYMD, setDateYMD] = useState(
-    entry ? toYMD(new Date(entry.date)) : toYMD(new Date()),
+    entry ? ymdOfWall(new Date(entry.date)) : todayMexicoYMD(),
   )
   const [desc, setDesc] = useState(entry?.concept ?? '')
   const [descTouched, setDescTouched] = useState(Boolean(entry?.concept))
@@ -134,7 +153,13 @@ export function TransactionForm({
   const [pending, setPending] = useState(false)
   const [savingCat, setSavingCat] = useState(false)
 
-  const catalog = useMemo(() => [...cats, ...localRows], [cats, localRows])
+  // Al crear una categoría, llega por `localRows` y —tras revalidar el
+  // servidor— también por el prop `cats`: se deduplica por código para
+  // no renderizarla dos veces (misma key).
+  const catalog = useMemo(() => {
+    const seen = new Set(cats.map((c) => c.code))
+    return [...cats, ...localRows.filter((r) => !seen.has(r.code))]
+  }, [cats, localRows])
 
   // Solo las categorías del modo activo (gasto o ingreso), resueltas a icono.
   // Si la actual (legado) no está en la lista, se antepone para no perderla.
@@ -187,11 +212,9 @@ export function TransactionForm({
     (accountOptions.find((a) => a.id === shownDest)?.type ?? 'CREDIT') !==
     'CREDIT'
 
-  const today = new Date()
-  const todayYMD = toYMD(today)
-  const yesterdayYMD = toYMD(
-    new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1),
-  )
+  // "Hoy"/"ayer" en día real de México (el dispositivo está en México).
+  const todayYMD = todayMexicoYMD()
+  const yesterdayYMD = ymdOfWall(addWallDays(wallNow(), -1))
   const dateLabel =
     dateYMD === todayYMD
       ? 'Hoy'
@@ -266,7 +289,7 @@ export function TransactionForm({
         : prettyCat(category)
     fd.set('concept', descTouched ? desc.trim() || autoConcept : autoConcept)
     fd.set('category', mode === 'pago' ? 'OTRO' : category)
-    fd.set('date', `${dateYMD}T12:00:00`) // mediodía: inmune a desfases de zona horaria
+    fd.set('date', buildDateTime(dateYMD, editing ? entry!.date : undefined))
     fd.set('accountId', accountId)
     if (mode === 'pago') fd.set('transferToAccountId', shownDest)
     if (mode === 'cargo' && !editing) {

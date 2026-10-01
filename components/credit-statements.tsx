@@ -21,6 +21,7 @@ import {
 import { toCents } from '@/lib/money'
 import { useStatementFilters } from '@/lib/resumen-filters'
 import { formatMoney } from '@/lib/utils'
+import { fmtMonthShort } from '@/lib/walltime'
 import { cn } from '@/lib/utils'
 
 export type StatementMoveView = {
@@ -63,18 +64,16 @@ export type CreditStatementView = {
   }
   debitOpts: AccountOpt[]
   periods: StatementPeriodView[]
-  currentKey: string // período vigente (periods[0] puede ser futuro con MSI)
+  currentKey: string // período vigente a pagar (periods[0] puede ser futuro con MSI)
 }
 
 type Sheet = null | 'card' | 'period'
 
 function moveDay(iso: string) {
+  // Hora-muro (ver lib/walltime.ts): el ISO ya viene etiquetado UTC.
   const d = new Date(iso)
-  const day = String(d.getDate()).padStart(2, '0')
-  const mon = d
-    .toLocaleDateString('es-MX', { month: 'short' })
-    .replace('.', '')
-    .toUpperCase()
+  const day = String(d.getUTCDate()).padStart(2, '0')
+  const mon = fmtMonthShort(d).replace('.', '').toUpperCase()
   return `${day} ${mon}`
 }
 

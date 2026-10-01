@@ -15,6 +15,7 @@ import {
 import { formatMoney } from '@/lib/utils'
 import { fromCents, moneySchema, toCents } from '@/lib/money'
 import { prisma } from '@/lib/prisma'
+import { wallNow } from '@/lib/walltime'
 
 import { auth } from '@/auth'
 
@@ -54,7 +55,7 @@ async function createDebtorExpense(
       amount: opts.amount,
       concept: opts.concept,
       category: 'OTRO',
-      date: new Date(),
+      date: wallNow(),
       accountId: account.id,
       createdById: opts.userId,
       installments: 1,
@@ -264,7 +265,7 @@ export async function confirmPayment(formData: FormData) {
             ? {
                 debtorAccountId: p.accountId,
                 debtorTransactionId: p.transactionId,
-                debtorConfirmedAt: new Date(),
+                debtorConfirmedAt: wallNow(),
               }
             : {}),
         },
@@ -383,7 +384,7 @@ export async function confirmPaymentSource(formData: FormData) {
     data: {
       debtorAccountId: v.accountId,
       debtorTransactionId: expenseId,
-      debtorConfirmedAt: new Date(),
+      debtorConfirmedAt: wallNow(),
     },
   })
   revalidateDebts()

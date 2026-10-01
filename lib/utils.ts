@@ -6,6 +6,7 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 import { fromCents, toCents } from '@/lib/money'
+import { fmtMonthYear, monthKeyOfWall } from '@/lib/walltime'
 
 const mxn = new Intl.NumberFormat('es-MX', {
   style: 'currency',
@@ -31,9 +32,10 @@ export function formatMoney(
 }
 
 export function monthKey(d: Date) {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+  // Hora-muro (ver lib/walltime.ts): getters UTC = día real en México.
+  return monthKeyOfWall(d)
 }
 
 export function monthLabelEs(d: Date) {
-  return d.toLocaleDateString('es-MX', { month: 'long', year: 'numeric' })
+  return fmtMonthYear(d)
 }

@@ -13,6 +13,7 @@ import { getCatalog } from '@/lib/catalog'
 import { normalizeMoney } from '@/lib/money'
 import { prisma } from '@/lib/prisma'
 import { monthKey, monthLabelEs } from '@/lib/utils'
+import { mexicoMonthKey } from '@/lib/walltime'
 
 import { auth } from '@/auth'
 
@@ -32,7 +33,9 @@ export default async function ActividadPage() {
     prisma.transaction.findMany({
       where: { createdById: meId },
       include: { account: true, createdBy: true },
-      orderBy: { date: 'desc' },
+      // Desempate por creación: varios movimientos pueden compartir fecha+hora
+      // (mediodías fijos históricos, cargos de suscripción).
+      orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
     }),
     prisma.account.findMany({
       where: { userId: meId },
@@ -94,7 +97,7 @@ export default async function ActividadPage() {
     const k = monthKey(new Date(t.date))
     totals.set(k, (totals.get(k) ?? 0) + t.amount)
   }
-  const current = monthKey(new Date())
+  const current = mexicoMonthKey()
   if (!totals.has(current)) totals.set(current, 0)
   const months: MonthOpt[] = [...totals.entries()]
     .sort((a, b) => (a[0] < b[0] ? 1 : -1))

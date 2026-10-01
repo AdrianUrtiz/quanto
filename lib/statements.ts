@@ -55,21 +55,32 @@ export type Statement = StatementPeriod & {
 }
 
 import { fromCents, splitMoney, toCents } from '@/lib/money'
+import {
+  addWallMonths,
+  daysInWallMonth,
+  endOfWallDay,
+  fmtChartLabel,
+  fmtMonthLong,
+  fmtMonthYear,
+  startOfWallDay,
+  utc,
+  wallNow,
+} from '@/lib/walltime'
 
 function round2(n: number) {
   return fromCents(toCents(n))
 }
 
 function daysInMonth(y: number, m0: number) {
-  return new Date(y, m0 + 1, 0).getDate()
+  return daysInWallMonth(y, m0)
 }
 
 function startOfDay(d: Date) {
-  return new Date(d.getFullYear(), d.getMonth(), d.getDate())
+  return startOfWallDay(d)
 }
 
 function endOfDay(d: Date) {
-  return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999)
+  return endOfWallDay(d)
 }
 
 function cap(s: string) {
@@ -77,14 +88,20 @@ function cap(s: string) {
 }
 
 function monthNameEs(d: Date) {
-  return d.toLocaleDateString('es-MX', { month: 'long' })
+  return fmtMonthLong(d)
 }
 
 /** Fecha de la parcialidad i (0-based): mismo día, ajustado a fin de mes. */
 export function installmentDate(buyDate: Date, i: number): Date {
-  const d = new Date(buyDate.getFullYear(), buyDate.getMonth() + i, 1, 12, 0, 0)
-  d.setDate(
-    Math.min(buyDate.getDate(), daysInMonth(d.getFullYear(), d.getMonth())),
+  // Hora-muro (ver lib/walltime.ts): getters/constructores UTC.
+  const base = addWallMonths(
+    buyDate.getUTCFullYear(),
+    buyDate.getUTCMonth(),
+    i,
+  )
+  const d = utc(base.y, base.m0, 1, 12, 0, 0)
+  d.setUTCDate(
+    Math.min(buyDate.getUTCDate(), daysInMonth(base.y, base.m0)),
   )
   return d
 }
@@ -116,20 +133,18 @@ function periodWithEnd(
   // Sin corte: mes calendario, pago al mes siguiente.
   if (cut == null) {
     const dim = daysInMonth(ey, em)
-    const end = endOfDay(new Date(ey, em, dim))
-    const start = startOfDay(new Date(ey, em, 1))
+    const end = endOfDay(utc(ey, em, dim))
+    const start = startOfDay(utc(ey, em, 1))
     const key = `${ey}-${String(em + 1).padStart(2, '0')}`
-    const label = cap(
-      end.toLocaleDateString('es-MX', { month: 'long', year: 'numeric' }),
-    )
-    const chartLabel = `${end.toLocaleDateString('es-MX', { month: 'short' }).replace('.', '').toUpperCase()} ${String(end.getFullYear()).slice(2)}`
-    const cutoffLabel = `${end.getDate()} de ${monthNameEs(end)}`
+    const label = cap(fmtMonthYear(end))
+    const chartLabel = fmtChartLabel(end)
+    const cutoffLabel = `${end.getUTCDate()} de ${monthNameEs(end)}`
     let dueDate: Date | null = null
     let dueLabel: string | null = null
     if (opts.dueDay && opts.dueDay >= 1 && opts.dueDay <= 31) {
       const dy = em + 1 > 11 ? ey + 1 : ey
       const dm = em + 1 > 11 ? 0 : em + 1
-      dueDate = new Date(
+      dueDate = utc(
         dy,
         dm,
         Math.min(Math.round(opts.dueDay), daysInMonth(dy, dm)),
@@ -137,29 +152,27 @@ function periodWithEnd(
         0,
         0,
       )
-      dueLabel = `${dueDate.getDate()} de ${monthNameEs(dueDate)}`
+      dueLabel = `${dueDate.getUTCDate()} de ${monthNameEs(dueDate)}`
     }
     return { key, label, chartLabel, start, end, dueDate, dueLabel, cutoffLabel }
   }
 
   const dim = daysInMonth(ey, em)
-  const cutoff = new Date(ey, em, Math.min(cut, dim))
+  const cutoff = utc(ey, em, Math.min(cut, dim))
   // Último día incluido = víspera del corte.
   const end = endOfDay(
-    new Date(cutoff.getFullYear(), cutoff.getMonth(), cutoff.getDate() - 1),
+    utc(cutoff.getUTCFullYear(), cutoff.getUTCMonth(), cutoff.getUTCDate() - 1),
   )
   // El inicio es el corte del mes anterior (inclusive).
   const py = em - 1 < 0 ? ey - 1 : ey
   const pm = em - 1 < 0 ? 11 : em - 1
-  const prevCutoff = new Date(py, pm, Math.min(cut, daysInMonth(py, pm)))
+  const prevCutoff = utc(py, pm, Math.min(cut, daysInMonth(py, pm)))
   const start = startOfDay(prevCutoff)
 
   const key = `${ey}-${String(em + 1).padStart(2, '0')}`
-  const label = cap(
-    cutoff.toLocaleDateString('es-MX', { month: 'long', year: 'numeric' }),
-  )
-  const chartLabel = `${cutoff.toLocaleDateString('es-MX', { month: 'short' }).replace('.', '').toUpperCase()} ${String(cutoff.getFullYear()).slice(2)}`
-  const cutoffLabel = `${cutoff.getDate()} de ${monthNameEs(cutoff)}`
+  const label = cap(fmtMonthYear(cutoff))
+  const chartLabel = fmtChartLabel(cutoff)
+  const cutoffLabel = `${cutoff.getUTCDate()} de ${monthNameEs(cutoff)}`
 
   let dueDate: Date | null = null
   let dueLabel: string | null = null
@@ -170,7 +183,7 @@ function periodWithEnd(
     const sameMonth = dueRaw > cut
     const dy = sameMonth ? ey : em + 1 > 11 ? ey + 1 : ey
     const dm = sameMonth ? em : em + 1 > 11 ? 0 : em + 1
-    dueDate = new Date(
+    dueDate = utc(
       dy,
       dm,
       Math.min(dueRaw, daysInMonth(dy, dm)),
@@ -178,10 +191,31 @@ function periodWithEnd(
       0,
       0,
     )
-    dueLabel = `${dueDate.getDate()} de ${monthNameEs(dueDate)}`
+    dueLabel = `${dueDate.getUTCDate()} de ${monthNameEs(dueDate)}`
   }
 
   return { key, label, chartLabel, start, end, dueDate, dueLabel, cutoffLabel }
+}
+
+/**
+ * Periodo vigente para pagar: el más antiguo cuyo vencimiento aún no pasa.
+ * (corte 16/pago 6 al 30 sep → septiembre; ya vencido → el siguiente).
+ * Sin día de pago se usa el fin del periodo (equivale al periodo en curso).
+ */
+export function currentPayablePeriod(
+  opts: StatementOpts,
+  now = wallNow(),
+): StatementPeriod {
+  let cur = periodContaining(now, opts)
+  const today = startOfWallDay(now).getTime()
+  for (let i = 0; i < 24; i++) {
+    const step = addWallMonths(cur.end.getUTCFullYear(), cur.end.getUTCMonth(), -1)
+    const prev = periodWithEnd(step.y, step.m0, opts)
+    const limit = prev.dueDate ?? prev.end
+    if (startOfWallDay(limit).getTime() >= today) cur = prev
+    else break
+  }
+  return cur
 }
 
 /** Período de corte que contiene la fecha dada. */
@@ -191,13 +225,13 @@ export function periodContaining(
 ): StatementPeriod {
   const cut = normCut(opts.statementDay)
   if (cut == null) {
-    return periodWithEnd(d.getFullYear(), d.getMonth(), opts)
+    return periodWithEnd(d.getUTCFullYear(), d.getUTCMonth(), opts)
   }
   const day = startOfDay(d)
-  let ey = d.getFullYear()
-  let em = d.getMonth()
+  let ey = d.getUTCFullYear()
+  let em = d.getUTCMonth()
   const thisCutoff = startOfDay(
-    new Date(ey, em, Math.min(cut, daysInMonth(ey, em))),
+    utc(ey, em, Math.min(cut, daysInMonth(ey, em))),
   )
   // El día de corte ya pertenece al período siguiente
   // (corte 15: el 15 abr → mayo, el 14 abr → abril).
@@ -218,13 +252,13 @@ export function periodContaining(
  */
 export function statementPeriods(
   opts: StatementOpts,
-  now = new Date(),
+  now = wallNow(),
   count = 8,
 ): StatementPeriod[] {
   const cur = periodContaining(now, opts)
   const out: StatementPeriod[] = [cur]
-  let ey = cur.end.getFullYear()
-  let em = cur.end.getMonth()
+  let ey = cur.end.getUTCFullYear()
+  let em = cur.end.getUTCMonth()
   for (let i = 1; i < count; i++) {
     em -= 1
     if (em < 0) {
@@ -246,9 +280,9 @@ export function activePeriods(
   cardId: string,
   txs: StatementTx[],
   opts: StatementOpts,
-  now = new Date(),
+  now = wallNow(),
 ): { statements: Statement[]; currentKey: string } {
-  const current = periodContaining(now, opts)
+  const current = currentPayablePeriod(opts, now)
   let minT = now.getTime()
   let maxT = now.getTime()
   for (const tx of txs) {
@@ -262,12 +296,15 @@ export function activePeriods(
     }
   }
 
-  const from = periodContaining(new Date(minT), opts)
+  let from = periodContaining(new Date(minT), opts)
   const to = periodContaining(new Date(maxT), opts)
+  // El vigente a pagar puede ser anterior al primer movimiento (caso raro:
+  // solo movimientos futuros): se incluye para no dejarlo fuera.
+  if (current.key < from.key) from = current
   const periods: StatementPeriod[] = []
-  let ey = from.end.getFullYear()
-  let em = from.end.getMonth()
-  const toKey = to.end.getFullYear() * 12 + to.end.getMonth()
+  let ey = from.end.getUTCFullYear()
+  let em = from.end.getUTCMonth()
+  const toKey = to.end.getUTCFullYear() * 12 + to.end.getUTCMonth()
   for (;;) {
     periods.push(periodWithEnd(ey, em, opts))
     if (ey * 12 + em >= toKey) break
@@ -286,8 +323,8 @@ export function activePeriods(
   const allPeriods = [...periods] // newest-first
   while (allPeriods.length < MIN_BARS) {
     const oldest = allPeriods[allPeriods.length - 1]
-    let ey = oldest.end.getFullYear()
-    let em = oldest.end.getMonth() - 1
+    let ey = oldest.end.getUTCFullYear()
+    let em = oldest.end.getUTCMonth() - 1
     if (em < 0) {
       em = 11
       ey -= 1

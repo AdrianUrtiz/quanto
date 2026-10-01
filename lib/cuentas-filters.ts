@@ -1,5 +1,7 @@
 import { create } from 'zustand'
 
+import { mexicoMonthKey } from '@/lib/walltime'
+
 type CuentasFiltersState = {
   /** Tab activa de Cuentas. */
   tab: string
@@ -20,8 +22,7 @@ type CuentasFiltersState = {
 }
 
 function currentMonthKey() {
-  const now = new Date()
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+  return mexicoMonthKey()
 }
 
 export const useCuentasFilters = create<CuentasFiltersState>()((set) => ({

@@ -9,6 +9,7 @@ import { getLineSums, lineKey } from '@/lib/debt-payments'
 import { formatMoney } from '@/lib/utils'
 import { fromCents, moneySchema, optionalMoneySchema, toCents } from '@/lib/money'
 import { prisma } from '@/lib/prisma'
+import { parseWallInput, wallNow } from '@/lib/walltime'
 
 import { auth } from '@/auth'
 
@@ -274,7 +275,7 @@ export async function updateTransaction(formData: FormData) {
       data: {
         amount: v.amount,
         concept: v.concept,
-        date: new Date(v.date),
+        date: parseWallInput(v.date),
         accountId: v.accountId,
         transferToAccountId: newDestId,
       },
@@ -293,7 +294,7 @@ export async function updateTransaction(formData: FormData) {
       amount: v.amount,
       concept: v.concept,
       category: v.category,
-      date: new Date(v.date),
+      date: parseWallInput(v.date),
       accountId: v.accountId,
     },
   })
@@ -386,7 +387,7 @@ const TxSchema = z.object({
   amount: moneySchema,
   concept: z.string().min(2, 'Agrega un concepto'),
   category: z.string().default('OTRO'),
-  date: z.string().default(() => new Date().toISOString()),
+  date: z.string().default(() => wallNow().toISOString()),
   accountId: z.string().min(1, 'Elige una cuenta'),
   transferToAccountId: z.string().optional(),
   installments: z.coerce.number().min(1).max(24).default(1),
@@ -446,7 +447,7 @@ export async function createTransaction(formData: FormData) {
         amount: v.amount,
         concept: v.concept,
         category: v.category,
-        date: new Date(v.date),
+        date: parseWallInput(v.date),
         accountId: v.accountId,
         transferToAccountId: destId,
         createdById: userId,
@@ -498,7 +499,7 @@ export async function createTransaction(formData: FormData) {
         amount: v.amount,
         concept: v.concept,
         category: v.category,
-        date: new Date(v.date),
+        date: parseWallInput(v.date),
         accountId: v.accountId,
         createdById: userId,
         installments: v.type === 'EXPENSE' ? Math.round(v.installments) : 1,

@@ -14,8 +14,9 @@ import {
   skipSubscriptionCharge,
   unskipSubscriptionCharge,
 } from '@/lib/subscription-actions'
-import { chargeDate, monthKeyOf, monthLabelOf } from '@/lib/subscriptions'
+import { chargeDate, monthLabelOf } from '@/lib/subscriptions'
 import { formatMoney } from '@/lib/utils'
+import { monthKeyOfWall, startOfWallDay, wallNow } from '@/lib/walltime'
 import { cn } from '@/lib/utils'
 
 /**
@@ -28,9 +29,9 @@ export function SubscriptionHistorySheet({ sub }: { sub: SubRow }) {
   const router = useRouter()
   const [busy, setBusy] = useState<string | null>(null)
 
-  const now = new Date()
-  const curKey = monthKeyOf(now.getFullYear(), now.getMonth())
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  const now = wallNow()
+  const curKey = monthKeyOfWall(now)
+  const today = startOfWallDay(now)
   const monthlyShare = sub.isShared
     ? (sub.shareAmount ?? (sub.amount * sub.sharePct) / 100)
     : null
@@ -73,8 +74,7 @@ export function SubscriptionHistorySheet({ sub }: { sub: SubRow }) {
           let actionable = overdue
           if (!h.confirmed && !h.skipped && h.monthKey === curKey) {
             const d = chargeDate(h.monthKey, sub.chargeDay)
-            actionable =
-              new Date(d.getFullYear(), d.getMonth(), d.getDate()) <= today
+            actionable = startOfWallDay(d) <= today
           }
           const loadingConfirm = busy === `${h.monthKey}:confirm`
           const loadingSkip = busy === `${h.monthKey}:skip`

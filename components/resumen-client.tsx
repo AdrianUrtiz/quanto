@@ -24,6 +24,12 @@ import type { CatalogRow } from '@/lib/catalog'
 import { lookupCategory } from '@/lib/categories'
 import { useResumenFilters } from '@/lib/resumen-filters'
 import { formatMoney } from '@/lib/utils'
+import {
+  endOfWallDay,
+  monthKeyOfWall,
+  rangeStartWall,
+  wallNow,
+} from '@/lib/walltime'
 
 export type ResumenMineTx = {
   id: string
@@ -43,6 +49,8 @@ export type ResumenInvolvedTx = {
   isShared: boolean
   createdById: string
   creatorName: string
+  statementDay?: number | null
+  dueDay?: number | null
   shares: {
     id: string
     debtorId: string
@@ -78,28 +86,14 @@ const RANGE_DESC: Record<ActivityRange, string> = {
 }
 
 function monthKeyOf(iso: string) {
-  const d = new Date(iso)
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+  // Hora-muro (ver lib/walltime.ts): el ISO de la BD ya viene etiquetado
+  // UTC = día real en México.
+  return monthKeyOfWall(new Date(iso))
 }
 
 /** Inicio del rango (el fin siempre es hoy). Null = mes seleccionado. */
 function rangeStart(range: ActivityRange): Date | null {
-  const now = new Date()
-  const d = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-  switch (range) {
-    case 'mensual':
-      return null
-    case 'semanal':
-      return new Date(d.getFullYear(), d.getMonth(), d.getDate() - 6)
-    case 'trimestral':
-      return new Date(now.getFullYear(), 0, 1)
-    case 'seis':
-      return new Date(now.getFullYear(), now.getMonth() - 5, 1)
-    case 'anio':
-      return new Date(now.getFullYear(), 0, 1)
-    case 'todo':
-      return new Date(2000, 0, 1)
-  }
+  return rangeStartWall(range, wallNow())
 }
 
 export function ResumenClient({
@@ -148,8 +142,7 @@ export function ResumenClient({
   const rangeTxs = useMemo(() => {
     if (range === 'mensual')
       return mine.filter((t) => monthKeyOf(t.date) === month)
-    const end = new Date()
-    end.setHours(23, 59, 59, 999)
+    const end = endOfWallDay(wallNow())
     return mine.filter((t) => {
       const d = new Date(t.date)
       return d >= start! && d <= end

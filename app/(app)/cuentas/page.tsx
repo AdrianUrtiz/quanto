@@ -10,15 +10,19 @@ import {
 import type { SubRow } from '@/components/subscription-tab'
 
 import { getAccountBalances } from '@/lib/balances'
-import { installmentMonths } from '@/lib/calculations'
+import { payableInstallments } from '@/lib/calculations'
 import { getCatalog } from '@/lib/catalog'
 import { getLineSums } from '@/lib/debt-payments'
 import { normalizeMoney } from '@/lib/money'
-import { type DebtItemInput, buildDebts } from '@/lib/partner-debts'
+import {
+  type DebtItemInput,
+  buildDebts,
+} from '@/lib/partner-debts'
 import { prisma } from '@/lib/prisma'
 import { getSubscriptionData } from '@/lib/subscription-actions'
 import type { DueCharge } from '@/lib/subscriptions'
-import { monthKey, monthLabelEs } from '@/lib/utils'
+import { monthLabelEs } from '@/lib/utils'
+import { mexicoMonthKey } from '@/lib/walltime'
 
 import { auth } from '@/auth'
 
@@ -35,7 +39,7 @@ export default async function CuentasPage({
   // Deep-link desde el recordatorio de renovación: abre la edición.
   const editAccountId = (await searchParams)?.editar ?? null
   const me = session?.user?.name ?? 'Tú'
-  const key = monthKey(new Date())
+  const key = mexicoMonthKey()
 
   let subs: SubRow[] = []
   let dues: DueCharge[] = []
@@ -61,7 +65,7 @@ export default async function CuentasPage({
         createdBy: true,
         shares: { where: { debtorId: meId } },
       },
-      orderBy: { date: 'asc' },
+      orderBy: [{ date: 'asc' }, { createdAt: 'asc' }],
     }),
     // Compras MÍAS compartidas donde mi pareja es la deudora (me deben).
     prisma.transaction.findMany({
@@ -75,7 +79,7 @@ export default async function CuentasPage({
         createdBy: true,
         shares: { include: { debtor: true } },
       },
-      orderBy: { date: 'asc' },
+      orderBy: [{ date: 'asc' }, { createdAt: 'asc' }],
     }),
   ])
   const balances = await getAccountBalances(meId)
@@ -182,6 +186,7 @@ export default async function CuentasPage({
     accountName: t.account.name,
     accountType: t.account.type as 'DEBIT' | 'CREDIT',
     dueDay: t.account.dueDay ?? undefined,
+    statementDay: t.account.statementDay ?? undefined,
     debtorId: meId,
     debtorName: me,
     creditorName: t.createdBy.name,
@@ -199,6 +204,7 @@ export default async function CuentasPage({
         accountName: t.account.name,
         accountType: t.account.type as 'DEBIT' | 'CREDIT',
         dueDay: t.account.dueDay ?? undefined,
+        statementDay: t.account.statementDay ?? undefined,
         debtorId: s.debtorId,
         debtorName: s.debtor.name,
         creditorName: t.createdBy.name,
@@ -215,10 +221,16 @@ export default async function CuentasPage({
   }))
 
   // Meses con parcialidades exigibles (debo + me deben) para el selector.
+  // En crédito con corte es el mes de vencimiento, no el de compra.
   const monthKeys = new Set<string>([key])
   for (const it of [...debtItems, ...owedItems])
-    for (const m of installmentMonths(new Date(it.date), it.installments))
-      monthKeys.add(m)
+    for (const p of payableInstallments(
+      new Date(it.date),
+      it.installments,
+      it.statementDay,
+      it.dueDay,
+    ))
+      monthKeys.add(p.dueKey)
   const partnerMonths = [...monthKeys]
     .sort((a, b) => (a < b ? 1 : -1))
     .map((k) => {

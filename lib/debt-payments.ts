@@ -2,6 +2,7 @@ import type { Prisma } from '@prisma/client'
 
 import { fromCents, toCents } from '@/lib/money'
 import { prisma } from '@/lib/prisma'
+import { wallNow } from '@/lib/walltime'
 
 /** Cliente capaz de correr dentro o fuera de una transacción. */
 export type TxDb = Prisma.TransactionClient
@@ -83,7 +84,7 @@ export async function syncSubscriptionCheck(
       ? {
           partnerPaid: true,
           partnerPaidById: actorId,
-          partnerPaidAt: new Date(),
+          partnerPaidAt: wallNow(),
         }
       : { partnerPaid: false, partnerPaidById: null, partnerPaidAt: null },
   })
@@ -110,7 +111,7 @@ export async function createCreditorIncome(
       amount: opts.amount,
       concept: opts.concept,
       category: 'TRANSFERENCIA',
-      date: new Date(),
+      date: wallNow(),
       accountId: opts.accountId,
       createdById: opts.userId,
       installments: 1,

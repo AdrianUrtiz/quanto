@@ -9,6 +9,10 @@ import { checkCategory } from '@/lib/catalog'
 import { fromCents, moneySchema, optionalMoneySchema, toCents } from '@/lib/money'
 import { prisma } from '@/lib/prisma'
 import {
+  startOfWallDay,
+  wallNow,
+} from '@/lib/walltime'
+import {
   type ChargeRow,
   type DueCharge,
   type SubInfo,
@@ -79,7 +83,7 @@ export async function createSubscription(formData: FormData) {
   const parts = partsOf(v)
   if ('error' in parts) return { error: parts.error }
 
-  const now = new Date()
+  const now = wallNow()
   await prisma.subscription.create({
     data: {
       userId,
@@ -91,7 +95,7 @@ export async function createSubscription(formData: FormData) {
       isShared: v.isShared,
       sharePct: parts.sharePct,
       shareAmount: parts.shareAmount,
-      startMonth: `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`,
+      startMonth: `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`,
     },
   })
 
@@ -209,14 +213,10 @@ export async function confirmSubscriptionCharge(
   }
 
   // El mes en curso solo se confirma desde su fecha de cobro.
-  const now = new Date()
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  // Todo en hora-muro (ver lib/walltime.ts): el "hoy" es el día en México.
+  const today = startOfWallDay(wallNow())
   const charge = chargeDate(month, sub.chargeDay)
-  const chargeDayStart = new Date(
-    charge.getFullYear(),
-    charge.getMonth(),
-    charge.getDate(),
-  )
+  const chargeDayStart = startOfWallDay(charge)
   if (chargeDayStart > today)
     return { error: `El cobro llega el día ${sub.chargeDay}` }
 
@@ -268,7 +268,7 @@ export async function confirmSubscriptionCharge(
           transactionId: tx.id,
           ownerPaid: true,
           ownerPaidById: userId,
-          ownerPaidAt: new Date(),
+          ownerPaidAt: wallNow(),
           partnerPaid: false,
         },
       })
@@ -314,14 +314,9 @@ export async function skipSubscriptionCharge(
     }
   }
 
-  const now = new Date()
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  const today = startOfWallDay(wallNow())
   const charge = chargeDate(month, sub.chargeDay)
-  const chargeDayStart = new Date(
-    charge.getFullYear(),
-    charge.getMonth(),
-    charge.getDate(),
-  )
+  const chargeDayStart = startOfWallDay(charge)
   if (chargeDayStart > today)
     return { error: `El cobro llega el día ${sub.chargeDay}` }
 

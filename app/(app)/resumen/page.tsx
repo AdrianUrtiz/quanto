@@ -10,6 +10,7 @@ import { normalizeMoney } from '@/lib/money'
 import { prisma } from '@/lib/prisma'
 import { type StatementTx, activePeriods } from '@/lib/statements'
 import { monthKey, monthLabelEs } from '@/lib/utils'
+import { mexicoMonthKey, utc, wallNow } from '@/lib/walltime'
 
 import { auth } from '@/auth'
 
@@ -20,10 +21,12 @@ export default async function ResumenPage() {
   const session = await auth()
   const meId = (session?.user as { id?: string } | undefined)?.id
   if (!meId) redirect('/login')
-  const now = new Date()
+  // Base hora-muro (ver lib/walltime.ts): los límites de ventana y el
+  // período vigente usan el día real en México, no el UTC del servidor.
+  const now = wallNow()
   // Ventana amplia para compartidos: un MSI comprado hace meses sigue
   // generando parcialidad este mes.
-  const sharedStart = new Date(now.getFullYear(), now.getMonth() - 24, 1)
+  const sharedStart = utc(now.getUTCFullYear(), now.getUTCMonth() - 24, 1)
 
   // Privacidad: el donut/categorías solo con MIS gastos. La liquidación solo
   // con compartidos donde estoy involucrado (soy quien compra o quien debe).
@@ -36,7 +39,7 @@ export default async function ResumenPage() {
         createdById: meId,
       },
       include: { account: { select: { name: true } } },
-      orderBy: { date: 'desc' },
+      orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
     }),
     prisma.transaction.findMany({
       where: {
@@ -45,8 +48,12 @@ export default async function ResumenPage() {
         isShared: true,
         OR: [{ createdById: meId }, { shares: { some: { debtorId: meId } } }],
       },
-      include: { createdBy: true, shares: { include: { debtor: true } } },
-      orderBy: { date: 'desc' },
+      include: {
+        account: { select: { statementDay: true, dueDay: true } },
+        createdBy: true,
+        shares: { include: { debtor: true } },
+      },
+      orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
     }),
   ])
   // Donut: MIS movimientos (fecha ISO para filtrar en cliente, como Actividad).
@@ -67,6 +74,8 @@ export default async function ResumenPage() {
     isShared: t.isShared,
     createdById: t.createdById,
     creatorName: t.createdBy.name,
+    statementDay: t.account.statementDay ?? undefined,
+    dueDay: t.account.dueDay ?? undefined,
     shares: t.shares.map((s) => ({
       id: s.id,
       debtorId: s.debtor.id,
@@ -83,7 +92,7 @@ export default async function ResumenPage() {
     const k = monthKey(new Date(t.date))
     totals.set(k, (totals.get(k) ?? 0) + t.amount)
   }
-  const current = monthKey(new Date())
+  const current = mexicoMonthKey()
   if (!totals.has(current)) totals.set(current, 0)
   const months = [...totals.entries()]
     .sort((a, b) => (a[0] < b[0] ? 1 : -1))
@@ -103,7 +112,7 @@ export default async function ResumenPage() {
 
   // Estados de cuenta: tarjetas de crédito propias + sus movimientos.
   // Ventana amplia para no perder MSI largos en la siembra de saldos.
-  const stmtStart = new Date(now.getFullYear(), now.getMonth() - 30, 1)
+  const stmtStart = utc(now.getUTCFullYear(), now.getUTCMonth() - 30, 1)
   const [cards, debitRows, balances] = await Promise.all([
     prisma.account.findMany({
       where: { userId: meId, isActive: true, isHidden: false, type: 'CREDIT' },
@@ -126,7 +135,7 @@ export default async function ResumenPage() {
             { transferToAccountId: { in: cardIds } },
           ],
         },
-        orderBy: { date: 'desc' },
+        orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
       })
     : []
 

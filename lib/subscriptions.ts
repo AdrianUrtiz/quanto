@@ -3,6 +3,17 @@
 // Sin TransactionShare ni DebtPayment para suscripciones.
 import { fromCents, toCents } from '@/lib/money'
 
+import {
+  addWallMonths,
+  daysInWallMonth,
+  fmtMonthShort,
+  fmtMonthYear,
+  monthKeyOfWall,
+  startOfWallDay,
+  utc,
+  wallNow,
+} from '@/lib/walltime'
+
 export type SubInfo = {
   id: string
   name: string
@@ -63,36 +74,36 @@ export function monthKeyOf(y: number, m0: number) {
 }
 
 export function monthLabelOf(key: string) {
+  // Hora-muro (ver lib/walltime.ts): se construye en UTC para que el mes
+  // nunca se desfase según el runtime (dev local o Vercel).
   const [y, m] = key.split('-').map(Number)
-  return new Date(y, m - 1, 1).toLocaleDateString('es-MX', {
-    month: 'long',
-    year: 'numeric',
-  })
+  return fmtMonthYear(utc(y, m - 1, 1))
 }
 
 export function monthShortOf(key: string) {
   const [y, m] = key.split('-').map(Number)
-  return new Date(y, m - 1, 1)
-    .toLocaleDateString('es-MX', { month: 'short' })
-    .replace('.', '')
+  return fmtMonthShort(utc(y, m - 1, 1))
 }
 
 /** Fecha del cargo: chargeDay ajustado al último día si el mes es más corto. */
 export function chargeDate(monthKey: string, chargeDay: number): Date {
   const [y, m] = monthKey.split('-').map(Number)
-  const last = new Date(y, m, 0).getDate()
-  return new Date(y, m - 1, Math.min(Math.max(1, chargeDay), last), 12, 0, 0)
+  const last = daysInWallMonth(y, m - 1)
+  return utc(y, m - 1, Math.min(Math.max(1, chargeDay), last), 12, 0, 0)
 }
 
 function eachMonth(fromKey: string, toKey: string): string[] {
   const [fy, fm] = fromKey.split('-').map(Number)
   const [ty, tm] = toKey.split('-').map(Number)
   const out: string[] = []
-  const d = new Date(fy, fm - 1, 1)
-  const end = new Date(ty, tm - 1, 1)
-  while (d <= end) {
-    out.push(monthKeyOf(d.getFullYear(), d.getMonth()))
-    d.setMonth(d.getMonth() + 1)
+  let y = fy
+  let m0 = fm - 1
+  for (;;) {
+    out.push(monthKeyOf(y, m0))
+    if (y === ty && m0 === tm - 1) break
+    const n = addWallMonths(y, m0, 1)
+    y = n.y
+    m0 = n.m0
   }
   return out
 }
@@ -106,18 +117,18 @@ function eachMonth(fromKey: string, toKey: string): string[] {
 export function computeDues(
   subs: SubInfo[],
   charges: Map<string, ChargeRow>, // `${subId}:${month}`
-  now = new Date(),
+  now = wallNow(),
   lookbackMonths = 6,
 ): DueCharge[] {
   const dues: DueCharge[] = []
-  const curKey = monthKeyOf(now.getFullYear(), now.getMonth())
-  const minD = new Date(
-    now.getFullYear(),
-    now.getMonth() - lookbackMonths + 1,
-    1,
+  const curKey = monthKeyOfWall(now)
+  const min = addWallMonths(
+    now.getUTCFullYear(),
+    now.getUTCMonth() - lookbackMonths + 1,
+    0,
   )
-  const minKey = monthKeyOf(minD.getFullYear(), minD.getMonth())
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  const minKey = monthKeyOf(min.y, min.m0)
+  const today = startOfWallDay(now)
 
   for (const s of subs) {
     if (!s.isActive) continue
@@ -136,11 +147,7 @@ export function computeDues(
         const date = chargeDate(key, s.chargeDay)
         // El mes en curso avisa solo desde su fecha de cobro (inclusive).
         if (key === curKey) {
-          const dayStart = new Date(
-            date.getFullYear(),
-            date.getMonth(),
-            date.getDate(),
-          )
+          const dayStart = startOfWallDay(date)
           if (dayStart > today) continue
         }
         dues.push({
@@ -182,14 +189,14 @@ export function computeDues(
 export function monthHistory(
   sub: SubInfo,
   charges: Map<string, ChargeRow>,
-  now = new Date(),
+  now = wallNow(),
   count = 6,
 ): MonthMark[] {
   const out: MonthMark[] = []
-  const d = new Date(now.getFullYear(), now.getMonth(), 1)
+  const base = addWallMonths(now.getUTCFullYear(), now.getUTCMonth(), 0)
   for (let i = count - 1; i >= 0; i--) {
-    const dt = new Date(d.getFullYear(), d.getMonth() - i, 1)
-    const key = monthKeyOf(dt.getFullYear(), dt.getMonth())
+    const dt = addWallMonths(base.y, base.m0, -i)
+    const key = monthKeyOf(dt.y, dt.m0)
     const ch = charges.get(`${sub.id}:${key}`)
     out.push({
       monthKey: key,
