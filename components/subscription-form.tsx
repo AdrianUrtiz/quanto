@@ -105,13 +105,15 @@ export function SubscriptionForm({
         : 'Compartir'
 
   // Catálogo de gasto (tabla + creadas en sesión); la elegida va primera.
+  // Deduplica por código: la recién creada llega por `localRows` y —tras
+  // revalidar— también por el prop `cats` (evita keys duplicadas).
   const expenseCats = useMemo(() => {
-    const all = [...cats, ...localRows].filter((c) =>
-      EXPENSE_KINDS.includes(c.kind),
-    )
-    const list = all.map((r) => lookupCategory(r.code, [...cats, ...localRows]))
+    const seen = new Set(cats.map((c) => c.code))
+    const merged = [...cats, ...localRows.filter((r) => !seen.has(r.code))]
+    const all = merged.filter((c) => EXPENSE_KINDS.includes(c.kind))
+    const list = all.map((r) => lookupCategory(r.code, merged))
     if (category && !list.some((c) => c.code === category)) {
-      list.unshift(lookupCategory(category, [...cats, ...localRows]))
+      list.unshift(lookupCategory(category, merged))
     }
     return list
   }, [cats, localRows, category])

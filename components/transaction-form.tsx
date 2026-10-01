@@ -153,7 +153,13 @@ export function TransactionForm({
   const [pending, setPending] = useState(false)
   const [savingCat, setSavingCat] = useState(false)
 
-  const catalog = useMemo(() => [...cats, ...localRows], [cats, localRows])
+  // Al crear una categoría, llega por `localRows` y —tras revalidar el
+  // servidor— también por el prop `cats`: se deduplica por código para
+  // no renderizarla dos veces (misma key).
+  const catalog = useMemo(() => {
+    const seen = new Set(cats.map((c) => c.code))
+    return [...cats, ...localRows.filter((r) => !seen.has(r.code))]
+  }, [cats, localRows])
 
   // Solo las categorías del modo activo (gasto o ingreso), resueltas a icono.
   // Si la actual (legado) no está en la lista, se antepone para no perderla.
