@@ -275,11 +275,13 @@ export function ActivityClient({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rangeTxs, range, month])
 
-  // Opciones de cuenta para el diálogo de edición (solo las mías, ya filtradas).
+  // Opciones de cuenta para el diálogo de edición (solo las mías, ya filtradas;
+  // las filas de pareja son solo lectura y no aportan cuentas).
   const accountOptionsAll = useMemo(() => {
     const map = new Map<string, { name: string; type: string }>()
     for (const t of txs)
-      map.set(t.accountId, { name: t.accountName, type: t.accountType })
+      if (!t.partnerShare)
+        map.set(t.accountId, { name: t.accountName, type: t.accountType })
     return [...map.entries()].map(([id, v]) => ({
       id,
       name: v.name,

@@ -28,6 +28,8 @@ export type TxRow = {
   creatorName: string
   installments: number
   isShared: boolean
+  /** Parte que me toca de un gasto compartido de mi pareja (solo lectura). */
+  partnerShare?: boolean
   /** Movimiento huella de un pago CONFIRMED: sin acciones (solo lectura). */
   locked?: boolean
 }
@@ -57,9 +59,11 @@ export function TransactionRow({ t, cats }: { t: TxRow; cats: CatalogRow[] }) {
         <p className="truncate text-sm font-semibold">{t.concept}</p>
         <p className="truncate text-xs text-(--muted-foreground)">
           {fmtDayMonth(t.date)} ·{' '}
-          {transfer && t.transferToAccountName
-            ? `${t.accountName} → ${t.transferToAccountName}`
-            : `${t.accountName} · ${t.creatorName}`}
+          {t.partnerShare
+            ? `Compartido por ${t.creatorName}`
+            : transfer && t.transferToAccountName
+              ? `${t.accountName} → ${t.transferToAccountName}`
+              : `${t.accountName} · ${t.creatorName}`}
         </p>
         <div className="mt-1 flex flex-wrap gap-1">
           {t.installments > 1 && (

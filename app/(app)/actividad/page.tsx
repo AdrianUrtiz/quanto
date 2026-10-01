@@ -10,7 +10,7 @@ import { SourceConfirmBanner } from '@/components/source-confirm-banner'
 import type { TxRow } from '@/components/transaction-list'
 
 import { getCatalog } from '@/lib/catalog'
-import { normalizeMoney } from '@/lib/money'
+import { fromCents, normalizeMoney, toCents } from '@/lib/money'
 import { prisma } from '@/lib/prisma'
 import { monthKey, monthLabelEs } from '@/lib/utils'
 import { mexicoMonthKey } from '@/lib/walltime'
@@ -29,12 +29,28 @@ export default async function ActividadPage() {
 
   // Privacidad: solo MIS movimientos. Lo que gasta mi pareja no aparece aquí;
   // lo que le debo vive en Cuentas > Mi pareja y en el Resumen.
-  const [rows, accRows] = await Promise.all([
+  const [rows, partnerRows, accRows] = await Promise.all([
     prisma.transaction.findMany({
       where: { createdById: meId },
       include: { account: true, createdBy: true },
       // Desempate por creación: varios movimientos pueden compartir fecha+hora
       // (mediodías fijos históricos, cargos de suscripción).
+      orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
+    }),
+    // Compartidos de mi pareja donde YO soy el deudor: solo lectura con MI
+    // parte (el gasto completo nunca tocó mis cuentas). Sin datos de sus
+    // cuentas: solo concepto, categoría, fecha y quién lo creó.
+    prisma.transaction.findMany({
+      where: {
+        type: 'EXPENSE',
+        isShared: true,
+        createdById: { not: meId },
+        shares: { some: { debtorId: meId } },
+      },
+      include: {
+        createdBy: true,
+        shares: { where: { debtorId: meId } },
+      },
       orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
     }),
     prisma.account.findMany({
@@ -64,7 +80,36 @@ export default async function ActividadPage() {
     installments: t.installments,
     isShared: t.isShared,
     createdById: t.createdById,
+    partnerShare: false,
   }))
+  // Mi parte de sus gastos compartidos: una fila por compra con el total
+  // que me toca (mensual × parcialidades), en el mes de compra.
+  const mine = partnerRows.map((t) => {
+    const monthly = normalizeMoney(t.shares[0]?.monthlyAmount ?? 0)
+    const n = Math.max(1, Math.round(t.installments))
+    return {
+      id: `partner-${t.id}`,
+      concept: t.concept,
+      category: t.category,
+      amount: fromCents(toCents(monthly) * n),
+      date: t.date,
+      type: 'EXPENSE',
+      accountId: '',
+      accountName: '',
+      accountType: 'DEBIT',
+      transferToAccountId: null,
+      transferToAccountName: null,
+      transferToAccountType: null,
+      creatorName: t.createdBy.name,
+      installments: t.installments,
+      isShared: true,
+      createdById: t.createdById,
+      partnerShare: true,
+    }
+  })
+  const all = [...raw, ...mine].sort(
+    (a, b) => b.date.getTime() - a.date.getTime(),
+  )
 
   // Movimientos huella de pagos CONFIRMED (ingreso del cobro o egreso del
   // origen): solo lectura, sin acciones de editar/eliminar.
@@ -83,16 +128,17 @@ export default async function ActividadPage() {
       .filter((id) => id != null),
   )
 
-  const txs: TxRow[] = raw.map((t) => ({
+  const txs: TxRow[] = all.map((t) => ({
     ...t,
     date: t.date.toISOString(),
-    locked: lockedTxIds.has(t.id),
+    locked: t.partnerShare || lockedTxIds.has(t.id),
   }))
   const catalog = await getCatalog(meId)
 
-  // Meses con registro (solo gastos suman al total del selector).
+  // Meses con registro (solo gastos suman al total del selector,
+  // incluyendo mi parte de sus compartidos).
   const totals = new Map<string, number>()
-  for (const t of raw) {
+  for (const t of all) {
     if (t.type !== 'EXPENSE') continue
     const k = monthKey(new Date(t.date))
     totals.set(k, (totals.get(k) ?? 0) + t.amount)
