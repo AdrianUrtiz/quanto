@@ -197,6 +197,27 @@ function periodWithEnd(
   return { key, label, chartLabel, start, end, dueDate, dueLabel, cutoffLabel }
 }
 
+/**
+ * Periodo vigente para pagar: el más antiguo cuyo vencimiento aún no pasa.
+ * (corte 16/pago 6 al 30 sep → septiembre; ya vencido → el siguiente).
+ * Sin día de pago se usa el fin del periodo (equivale al periodo en curso).
+ */
+export function currentPayablePeriod(
+  opts: StatementOpts,
+  now = wallNow(),
+): StatementPeriod {
+  let cur = periodContaining(now, opts)
+  const today = startOfWallDay(now).getTime()
+  for (let i = 0; i < 24; i++) {
+    const step = addWallMonths(cur.end.getUTCFullYear(), cur.end.getUTCMonth(), -1)
+    const prev = periodWithEnd(step.y, step.m0, opts)
+    const limit = prev.dueDate ?? prev.end
+    if (startOfWallDay(limit).getTime() >= today) cur = prev
+    else break
+  }
+  return cur
+}
+
 /** Período de corte que contiene la fecha dada. */
 export function periodContaining(
   d: Date,
@@ -261,7 +282,7 @@ export function activePeriods(
   opts: StatementOpts,
   now = wallNow(),
 ): { statements: Statement[]; currentKey: string } {
-  const current = periodContaining(now, opts)
+  const current = currentPayablePeriod(opts, now)
   let minT = now.getTime()
   let maxT = now.getTime()
   for (const tx of txs) {
@@ -275,8 +296,11 @@ export function activePeriods(
     }
   }
 
-  const from = periodContaining(new Date(minT), opts)
+  let from = periodContaining(new Date(minT), opts)
   const to = periodContaining(new Date(maxT), opts)
+  // El vigente a pagar puede ser anterior al primer movimiento (caso raro:
+  // solo movimientos futuros): se incluye para no dejarlo fuera.
+  if (current.key < from.key) from = current
   const periods: StatementPeriod[] = []
   let ey = from.end.getUTCFullYear()
   let em = from.end.getUTCMonth()

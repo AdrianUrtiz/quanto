@@ -64,7 +64,7 @@ export type CreditStatementView = {
   }
   debitOpts: AccountOpt[]
   periods: StatementPeriodView[]
-  currentKey: string // período vigente (periods[0] puede ser futuro con MSI)
+  currentKey: string // período vigente a pagar (periods[0] puede ser futuro con MSI)
 }
 
 type Sheet = null | 'card' | 'period'
