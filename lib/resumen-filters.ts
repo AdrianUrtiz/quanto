@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 
 import type { ActivityKind, ActivityRange } from '@/lib/activity-filters'
+import { mexicoMonthKey } from '@/lib/walltime'
 
 type ResumenFiltersState = {
   /** Mes en formato YYYY-MM. Solo aplica cuando range === 'mensual'. */
@@ -17,8 +18,7 @@ type ResumenFiltersState = {
 }
 
 function currentMonthKey() {
-  const now = new Date()
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+  return mexicoMonthKey()
 }
 
 export const useResumenFilters = create<ResumenFiltersState>()((set) => ({

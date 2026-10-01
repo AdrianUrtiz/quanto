@@ -26,6 +26,16 @@ import {
 import type { CatalogRow } from '@/lib/catalog'
 import { lookupCategory } from '@/lib/categories'
 import { formatMoney } from '@/lib/utils'
+import {
+  WD_ES,
+  daysInWallMonth,
+  endOfWallDay,
+  fmtMonthShort,
+  mexicoMonthKey,
+  monthKeyOfWall,
+  rangeStartWall,
+  wallNow,
+} from '@/lib/walltime'
 
 export type MonthOpt = { key: string; label: string; total: number }
 
@@ -56,39 +66,25 @@ const RANGE_DESC: Record<ActivityRange, string> = {
 }
 
 function keyOf(iso: string) {
-  const d = new Date(iso)
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+  // Hora-muro (ver lib/walltime.ts): el ISO de la BD ya viene etiquetado
+  // UTC = día real en México.
+  return monthKeyOfWall(new Date(iso))
 }
 
 function dayKey(d: Date) {
-  return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`
+  return `${d.getUTCFullYear()}-${d.getUTCMonth()}-${d.getUTCDate()}`
 }
 
 function shortMonth(d: Date) {
-  const s = d.toLocaleDateString('es-MX', { month: 'short' }).replace('.', '')
-  return d.getFullYear() === new Date().getFullYear()
+  const s = fmtMonthShort(d)
+  return d.getUTCFullYear() === Number(mexicoMonthKey().slice(0, 4))
     ? s
-    : `${s} ${String(d.getFullYear()).slice(2)}`
+    : `${s} ${String(d.getUTCFullYear()).slice(2)}`
 }
 
 /** Inicio del rango (el fin siempre es hoy). Null = mes seleccionado. */
 function rangeStart(range: ActivityRange): Date | null {
-  const now = new Date()
-  const d = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-  switch (range) {
-    case 'mensual':
-      return null
-    case 'semanal':
-      return new Date(d.getFullYear(), d.getMonth(), d.getDate() - 6)
-    case 'trimestral':
-      return new Date(now.getFullYear(), 0, 1) // trimestres del año en curso
-    case 'seis':
-      return new Date(now.getFullYear(), now.getMonth() - 5, 1) // 6 meses calendario
-    case 'anio':
-      return new Date(now.getFullYear(), 0, 1)
-    case 'todo':
-      return new Date(2000, 0, 1)
-  }
+  return rangeStartWall(range, wallNow())
 }
 
 export function ActivityClient({
@@ -133,8 +129,7 @@ export function ActivityClient({
   // con hora posterior a este momento también cuentan)
   const rangeTxs = useMemo(() => {
     if (range === 'mensual') return txs.filter((t) => keyOf(t.date) === month)
-    const end = new Date()
-    end.setHours(23, 59, 59, 999)
+    const end = endOfWallDay(wallNow())
     return txs.filter((t) => {
       const d = new Date(t.date)
       return d >= start! && d <= end
@@ -175,38 +170,41 @@ export function ActivityClient({
   // 3) Buckets del gráfico según la granularidad del periodo:
   //    mensual → días · semanal → 7 días · trimestral → T1-T4 del año ·
   //    seis → 6 meses · anio → 12 meses · todo → por año.
+  // Todo en hora-muro (getters UTC): los ISO de la BD ya vienen etiquetados.
   const { buckets, todayIndex } = useMemo(() => {
     const onlyExpenses = rangeTxs.filter((t) => t.type === 'EXPENSE')
-    const now = new Date()
+    const now = wallNow()
 
     if (range === 'mensual') {
       const [y, m] = month.split('-').map(Number)
-      const dim = new Date(y, m, 0).getDate()
+      const dim = daysInWallMonth(y, m - 1)
       const arr = Array.from({ length: dim }, (_, i) => ({
         label: `${i + 1}`,
         total: 0,
       }))
       for (const t of onlyExpenses) {
-        const d = new Date(t.date).getDate()
+        const d = new Date(t.date).getUTCDate()
         if (d >= 1 && d <= dim) arr[d - 1].total += t.amount
       }
-      const isCur = keyOf(new Date().toISOString()) === month
+      const isCur = monthKeyOfWall(now) === month
       return {
         buckets: arr,
-        todayIndex: isCur ? new Date().getDate() - 1 : null,
+        todayIndex: isCur ? now.getUTCDate() - 1 : null,
       }
     }
 
     if (range === 'semanal') {
-      const WD = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb']
       const days: { label: string; total: number }[] = []
       const idxByDay = new Map<string, number>()
       const cur = new Date(start!)
-      const today = new Date()
+      const today = now
       while (cur <= today) {
         idxByDay.set(dayKey(cur), days.length)
-        days.push({ label: `${WD[cur.getDay()]} ${cur.getDate()}`, total: 0 })
-        cur.setDate(cur.getDate() + 1)
+        days.push({
+          label: `${WD_ES[cur.getUTCDay()]} ${cur.getUTCDate()}`,
+          total: 0,
+        })
+        cur.setUTCDate(cur.getUTCDate() + 1)
       }
       for (const t of onlyExpenses) {
         const i = idxByDay.get(dayKey(new Date(t.date)))
@@ -216,34 +214,32 @@ export function ActivityClient({
     }
 
     if (range === 'trimestral') {
-      const y = now.getFullYear()
+      const y = now.getUTCFullYear()
       const arr = ['T1', 'T2', 'T3', 'T4'].map((label) => ({
         label,
         total: 0,
       }))
       for (const t of onlyExpenses) {
         const d = new Date(t.date)
-        if (d.getFullYear() !== y || d > now) continue
-        arr[Math.floor(d.getMonth() / 3)].total += t.amount
+        if (d.getUTCFullYear() !== y || d > now) continue
+        arr[Math.floor(d.getUTCMonth() / 3)].total += t.amount
       }
-      return { buckets: arr, todayIndex: Math.floor(now.getMonth() / 3) }
+      return { buckets: arr, todayIndex: Math.floor(now.getUTCMonth() / 3) }
     }
 
     if (range === 'seis') {
       const arr: { label: string; total: number; y: number; m: number }[] = []
       for (let i = 5; i >= 0; i--) {
-        const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
-        arr.push({
-          label: shortMonth(d),
-          total: 0,
-          y: d.getFullYear(),
-          m: d.getMonth(),
-        })
+        const t = now.getUTCMonth() - i
+        const y = now.getUTCFullYear() + Math.floor(t / 12)
+        const m = ((t % 12) + 12) % 12
+        const d = new Date(Date.UTC(y, m, 1))
+        arr.push({ label: shortMonth(d), total: 0, y, m })
       }
       for (const t of onlyExpenses) {
         const d = new Date(t.date)
         const b = arr.find(
-          (b) => b.y === d.getFullYear() && b.m === d.getMonth(),
+          (b) => b.y === d.getUTCFullYear() && b.m === d.getUTCMonth(),
         )
         if (b) b.total += t.amount
       }
@@ -251,29 +247,29 @@ export function ActivityClient({
     }
 
     if (range === 'anio') {
-      const y = now.getFullYear()
+      const y = now.getUTCFullYear()
       const arr = Array.from({ length: 12 }, (_, m) => ({
-        label: shortMonth(new Date(y, m, 1)),
+        label: shortMonth(new Date(Date.UTC(y, m, 1))),
         total: 0,
       }))
       for (const t of onlyExpenses) {
         const d = new Date(t.date)
-        if (d.getFullYear() !== y || d > now) continue
-        arr[d.getMonth()].total += t.amount
+        if (d.getUTCFullYear() !== y || d > now) continue
+        arr[d.getUTCMonth()].total += t.amount
       }
-      return { buckets: arr, todayIndex: now.getMonth() }
+      return { buckets: arr, todayIndex: now.getUTCMonth() }
     }
 
     // todo: acumulado por año
     const years = new Map<number, number>()
     for (const t of onlyExpenses) {
-      const y = new Date(t.date).getFullYear()
+      const y = new Date(t.date).getUTCFullYear()
       years.set(y, (years.get(y) ?? 0) + t.amount)
     }
     const keys = [...years.keys()].sort((a, b) => a - b)
-    const minY = keys.length ? keys[0] : now.getFullYear()
+    const minY = keys.length ? keys[0] : now.getUTCFullYear()
     const arr: { label: string; total: number }[] = []
-    for (let y = minY; y <= now.getFullYear(); y++)
+    for (let y = minY; y <= now.getUTCFullYear(); y++)
       arr.push({ label: `${y}`, total: years.get(y) ?? 0 })
     return { buckets: arr, todayIndex: arr.length - 1 }
     // eslint-disable-next-line react-hooks/exhaustive-deps

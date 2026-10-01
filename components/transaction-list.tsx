@@ -10,6 +10,7 @@ import { Badge } from '@/components/ui/badge'
 import type { CatalogRow } from '@/lib/catalog'
 import { lookupCategory } from '@/lib/categories'
 import { formatMoney } from '@/lib/utils'
+import { fmtDayMonth } from '@/lib/walltime'
 
 export type TxRow = {
   id: string
@@ -34,7 +35,6 @@ export type TxRow = {
 export function TransactionRow({ t, cats }: { t: TxRow; cats: CatalogRow[] }) {
   const income = t.type === 'INCOME'
   const transfer = t.type === 'TRANSFER'
-  const d = new Date(t.date)
   const cat = lookupCategory(t.category, cats)
   const catColor = cat.color
   const CatIcon = cat.icon
@@ -56,7 +56,7 @@ export function TransactionRow({ t, cats }: { t: TxRow; cats: CatalogRow[] }) {
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-semibold">{t.concept}</p>
         <p className="truncate text-xs text-(--muted-foreground)">
-          {d.toLocaleDateString('es-MX', { day: 'numeric', month: 'short' })} ·{' '}
+          {fmtDayMonth(t.date)} ·{' '}
           {transfer && t.transferToAccountName
             ? `${t.accountName} → ${t.transferToAccountName}`
             : `${t.accountName} · ${t.creatorName}`}

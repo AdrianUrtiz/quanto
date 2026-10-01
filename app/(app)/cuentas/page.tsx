@@ -18,7 +18,8 @@ import { type DebtItemInput, buildDebts } from '@/lib/partner-debts'
 import { prisma } from '@/lib/prisma'
 import { getSubscriptionData } from '@/lib/subscription-actions'
 import type { DueCharge } from '@/lib/subscriptions'
-import { monthKey, monthLabelEs } from '@/lib/utils'
+import { monthLabelEs } from '@/lib/utils'
+import { mexicoMonthKey } from '@/lib/walltime'
 
 import { auth } from '@/auth'
 
@@ -35,7 +36,7 @@ export default async function CuentasPage({
   // Deep-link desde el recordatorio de renovación: abre la edición.
   const editAccountId = (await searchParams)?.editar ?? null
   const me = session?.user?.name ?? 'Tú'
-  const key = monthKey(new Date())
+  const key = mexicoMonthKey()
 
   let subs: SubRow[] = []
   let dues: DueCharge[] = []
@@ -61,7 +62,7 @@ export default async function CuentasPage({
         createdBy: true,
         shares: { where: { debtorId: meId } },
       },
-      orderBy: { date: 'asc' },
+      orderBy: [{ date: 'asc' }, { createdAt: 'asc' }],
     }),
     // Compras MÍAS compartidas donde mi pareja es la deudora (me deben).
     prisma.transaction.findMany({
@@ -75,7 +76,7 @@ export default async function CuentasPage({
         createdBy: true,
         shares: { include: { debtor: true } },
       },
-      orderBy: { date: 'asc' },
+      orderBy: [{ date: 'asc' }, { createdAt: 'asc' }],
     }),
   ])
   const balances = await getAccountBalances(meId)

@@ -38,11 +38,16 @@ export function debtorMonthlyAmount(
 
 /** Meses (monthKey "YYYY-MM") en los que cae cada parcialidad. */
 export function installmentMonths(start: Date, installments: number): string[] {
+  // Hora-muro (ver lib/walltime.ts): todo en UTC = día real en México.
   const out: string[] = []
   const n = Math.max(1, Math.round(installments))
+  const y = start.getUTCFullYear()
+  const m0 = start.getUTCMonth()
   for (let i = 0; i < n; i++) {
-    const d = new Date(start.getFullYear(), start.getMonth() + i, 1)
-    out.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`)
+    const t = m0 + i
+    const ny = y + Math.floor(t / 12)
+    const nm0 = ((t % 12) + 12) % 12
+    out.push(`${ny}-${String(nm0 + 1).padStart(2, '0')}`)
   }
   return out
 }
