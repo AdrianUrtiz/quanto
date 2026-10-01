@@ -48,7 +48,11 @@ export default async function ResumenPage() {
         isShared: true,
         OR: [{ createdById: meId }, { shares: { some: { debtorId: meId } } }],
       },
-      include: { createdBy: true, shares: { include: { debtor: true } } },
+      include: {
+        account: { select: { statementDay: true, dueDay: true } },
+        createdBy: true,
+        shares: { include: { debtor: true } },
+      },
       orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
     }),
   ])
@@ -70,6 +74,8 @@ export default async function ResumenPage() {
     isShared: t.isShared,
     createdById: t.createdById,
     creatorName: t.createdBy.name,
+    statementDay: t.account.statementDay ?? undefined,
+    dueDay: t.account.dueDay ?? undefined,
     shares: t.shares.map((s) => ({
       id: s.id,
       debtorId: s.debtor.id,

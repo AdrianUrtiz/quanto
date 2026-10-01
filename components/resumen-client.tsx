@@ -49,6 +49,8 @@ export type ResumenInvolvedTx = {
   isShared: boolean
   createdById: string
   creatorName: string
+  statementDay?: number | null
+  dueDay?: number | null
   shares: {
     id: string
     debtorId: string

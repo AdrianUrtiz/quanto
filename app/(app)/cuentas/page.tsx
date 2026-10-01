@@ -10,11 +10,14 @@ import {
 import type { SubRow } from '@/components/subscription-tab'
 
 import { getAccountBalances } from '@/lib/balances'
-import { installmentMonths } from '@/lib/calculations'
+import { payableInstallments } from '@/lib/calculations'
 import { getCatalog } from '@/lib/catalog'
 import { getLineSums } from '@/lib/debt-payments'
 import { normalizeMoney } from '@/lib/money'
-import { type DebtItemInput, buildDebts } from '@/lib/partner-debts'
+import {
+  type DebtItemInput,
+  buildDebts,
+} from '@/lib/partner-debts'
 import { prisma } from '@/lib/prisma'
 import { getSubscriptionData } from '@/lib/subscription-actions'
 import type { DueCharge } from '@/lib/subscriptions'
@@ -183,6 +186,7 @@ export default async function CuentasPage({
     accountName: t.account.name,
     accountType: t.account.type as 'DEBIT' | 'CREDIT',
     dueDay: t.account.dueDay ?? undefined,
+    statementDay: t.account.statementDay ?? undefined,
     debtorId: meId,
     debtorName: me,
     creditorName: t.createdBy.name,
@@ -200,6 +204,7 @@ export default async function CuentasPage({
         accountName: t.account.name,
         accountType: t.account.type as 'DEBIT' | 'CREDIT',
         dueDay: t.account.dueDay ?? undefined,
+        statementDay: t.account.statementDay ?? undefined,
         debtorId: s.debtorId,
         debtorName: s.debtor.name,
         creditorName: t.createdBy.name,
@@ -216,10 +221,16 @@ export default async function CuentasPage({
   }))
 
   // Meses con parcialidades exigibles (debo + me deben) para el selector.
+  // En crédito con corte es el mes de vencimiento, no el de compra.
   const monthKeys = new Set<string>([key])
   for (const it of [...debtItems, ...owedItems])
-    for (const m of installmentMonths(new Date(it.date), it.installments))
-      monthKeys.add(m)
+    for (const p of payableInstallments(
+      new Date(it.date),
+      it.installments,
+      it.statementDay,
+      it.dueDay,
+    ))
+      monthKeys.add(p.dueKey)
   const partnerMonths = [...monthKeys]
     .sort((a, b) => (a < b ? 1 : -1))
     .map((k) => {

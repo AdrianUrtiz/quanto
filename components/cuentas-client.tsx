@@ -824,11 +824,13 @@ function DebtSummaryRow({
 
 function DebtCard({ d, meId }: { d: PartnerDebt; meId: string }) {
   const owe = d.debtorId === meId
-  // Crédito → día límite de pago de la tarjeta; débito → antes de fin de mes.
+  // Fecha real de pago: periodo de corte de la tarjeta; débito o sin
+  // datos → día límite de la tarjeta o fin de mes.
   const due =
-    d.accountType === 'CREDIT' && d.dueDay
+    d.dueLabel ??
+    (d.accountType === 'CREDIT' && d.dueDay
       ? `para el día ${d.dueDay}`
-      : 'antes de fin de mes'
+      : 'antes de fin de mes')
   return (
     <div
       className={`space-y-1 rounded-3xl border p-4 ${owe ? 'debt-owe' : 'debt-owed'}`}>
