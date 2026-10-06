@@ -9,7 +9,9 @@ import { PendingPaymentsBanner } from '@/components/pending-payments-banner'
 import { SourceConfirmBanner } from '@/components/source-confirm-banner'
 import type { TxRow } from '@/components/transaction-list'
 
+import { getCardPayCandidates } from '@/lib/card-pay-server'
 import { getCatalog } from '@/lib/catalog'
+import { getLineSums } from '@/lib/debt-payments'
 import { fromCents, normalizeMoney, toCents } from '@/lib/money'
 import { prisma } from '@/lib/prisma'
 import { monthKey, monthLabelEs } from '@/lib/utils'
@@ -225,6 +227,45 @@ export default async function ActividadPage() {
     }
   })
 
+  // Recordatorio "Pagar a tu pareja": lo que YO debo de sus tarjetas
+  // (mismo origen que Cuentas > Pareja; sin datos de sus cuentas, solo
+  // concepto, corte/límite y mi parte). Si no debo nada, lista vacía.
+  const meName = session?.user?.name ?? 'Tú'
+  const sharedOwed = await prisma.transaction.findMany({
+    where: {
+      isShared: true,
+      createdById: { not: meId },
+      shares: { some: { debtorId: meId } },
+    },
+    include: {
+      account: true,
+      createdBy: true,
+      shares: { where: { debtorId: meId } },
+    },
+    orderBy: [{ date: 'asc' }, { createdAt: 'asc' }],
+  })
+  const partnerDebtItems = sharedOwed.map((t) => ({
+    shareId: t.shares[0]?.id ?? '',
+    accountId: t.account.id,
+    accountName: t.account.name,
+    accountType: t.account.type as 'DEBIT' | 'CREDIT',
+    dueDay: t.account.dueDay ?? undefined,
+    statementDay: t.account.statementDay ?? undefined,
+    debtorId: meId,
+    debtorName: meName,
+    creditorName: t.createdBy.name,
+    concept: t.concept,
+    monthly: normalizeMoney(t.shares[0]?.monthlyAmount ?? 0),
+    installments: t.installments,
+    date: t.date.toISOString(),
+  }))
+  const partnerSums = await getLineSums(
+    sharedOwed.flatMap((t) => t.shares.map((s) => s.id)),
+  )
+  // Recordatorio "Pagar tus tarjetas": cierre del periodo vigente de MIS
+  // créditos con día de pago (propietario). Se apaga al liquidar.
+  const cardPayItems = await getCardPayCandidates(meId)
+
   return (
     <>
       <PendingPaymentsBanner
@@ -247,6 +288,13 @@ export default async function ActividadPage() {
           expiry: a.expiry,
           color: a.color ?? '#6366f1',
         }))}
+        partnerDebtItems={partnerDebtItems}
+        partnerSums={[...partnerSums.entries()].map(([k, s]) => ({
+          key: k,
+          confirmed: s.confirmed,
+          pending: s.pending,
+        }))}
+        cardPayItems={cardPayItems}
       />
     </>
   )

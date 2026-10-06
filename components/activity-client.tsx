@@ -3,12 +3,15 @@
 import { useMemo, useState } from 'react'
 
 import { Check, Search } from 'lucide-react'
+import { useRouter } from 'next/navigation'
 
 import { ActivityChart } from '@/components/activity-chart'
+import { CardPayReminders } from '@/components/card-pay-reminders'
 import {
   type ExpiryAccount,
   ExpiryReminders,
 } from '@/components/expiry-reminders'
+import { PartnerPayReminders } from '@/components/partner-pay-reminders'
 import { TransactionRow, type TxRow } from '@/components/transaction-list'
 import { TransactionSwipeRow } from '@/components/transaction-swipe-row'
 import {
@@ -23,8 +26,12 @@ import {
   type ActivityRange,
   useActivityFilters,
 } from '@/lib/activity-filters'
+import type { CardPayCandidate } from '@/lib/card-pay'
 import type { CatalogRow } from '@/lib/catalog'
 import { lookupCategory } from '@/lib/categories'
+import { useCuentasFilters } from '@/lib/cuentas-filters'
+import type { PartnerPayItem } from '@/lib/partner-pay'
+import { useStatementFilters } from '@/lib/resumen-filters'
 import { formatMoney } from '@/lib/utils'
 import {
   WD_ES,
@@ -93,6 +100,9 @@ export function ActivityClient({
   cats,
   expiryAccounts = [],
   filterAccounts = [],
+  partnerDebtItems = [],
+  partnerSums = [],
+  cardPayItems = [],
 }: {
   txs: TxRow[]
   months: MonthOpt[]
@@ -100,7 +110,13 @@ export function ActivityClient({
   expiryAccounts?: ExpiryAccount[]
   /** Cuentas propias no ocultas para el filtro (débito y crédito). */
   filterAccounts?: { id: string; name: string; type: string }[]
+  /** Lo que le debo a mi pareja (origen Cuentas > Pareja). */
+  partnerDebtItems?: PartnerPayItem[]
+  partnerSums?: { key: string; confirmed: number; pending: number }[]
+  /** Cierre de MIS tarjetas (propietario): pago para no generar intereses. */
+  cardPayItems?: CardPayCandidate[]
 }) {
+  const router = useRouter()
   const [sheet, setSheet] = useState<Sheet>(null)
   const [openRow, setOpenRow] = useState<string | null>(null)
   const storedMonth = useActivityFilters((s) => s.month)
@@ -113,7 +129,23 @@ export function ActivityClient({
   const setRange = useActivityFilters((s) => s.setRange)
   const setAccount = useActivityFilters((s) => s.setAccount)
   const setCategory = useActivityFilters((s) => s.setCategory)
+  const setPartnerMonth = useCuentasFilters((s) => s.setPartnerMonth)
+  const setCuentasTab = useCuentasFilters((s) => s.setTab)
+  const setStmtCard = useStatementFilters((s) => s.setCardId)
+  const setStmtPeriod = useStatementFilters((s) => s.setPeriod)
   const [q, setQ] = useState('')
+
+  // Sumas CONFIRMED/PENDING por línea para suprimir avisos ya pagados.
+  const partnerPaySumsMap = useMemo(
+    () =>
+      new Map(
+        partnerSums.map((s) => [
+          s.key,
+          { confirmed: s.confirmed, pending: s.pending },
+        ]),
+      ),
+    [partnerSums],
+  )
 
   // El mes persistido puede no existir (p. ej. datos nuevos): se usa el más
   // reciente sin sobrescribir el store hasta que el usuario elija otro.
@@ -318,6 +350,23 @@ export function ActivityClient({
   return (
     <div className="space-y-4 px-5 pt-4">
       <ExpiryReminders accounts={expiryAccounts} />
+      <PartnerPayReminders
+        debtItems={partnerDebtItems}
+        sums={partnerPaySumsMap}
+        onPay={(it) => {
+          setPartnerMonth(it.dueKey)
+          setCuentasTab('pareja')
+          router.push('/cuentas')
+        }}
+      />
+      <CardPayReminders
+        items={cardPayItems ?? []}
+        onPay={(it) => {
+          setStmtCard(it.cardId)
+          setStmtPeriod(it.cardId, it.periodKey)
+          router.push('/resumen')
+        }}
+      />
       {range === 'mensual' ? (
         <div className="flex items-center justify-center">
           <button
