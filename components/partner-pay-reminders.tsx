@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 import { HandCoins, X } from 'lucide-react'
 
@@ -48,7 +48,16 @@ export function PartnerPayReminders({
   sums: PartnerPaySums
   onPay?: (item: PartnerPayReminder) => void
 }) {
-  const [dismissed, setDismissed] = useState<Set<string>>(loadDismissed)
+  // SSR no tiene localStorage: se inicia vacío (igual que el servidor) y
+  // los descartes guardados se aplican tras montar (sin hydration mismatch).
+  const [dismissed, setDismissed] = useState<Set<string>>(new Set())
+  useEffect(() => {
+    const stored = loadDismissed()
+    // Sincronización con sistema externo (localStorage) tras montar:
+    // el estado inicial vacío coincide con el SSR (sin hydration mismatch).
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (stored.size > 0) setDismissed(stored)
+  }, [])
   const items = useMemo(() => {
     const now = wallNow()
     return getPartnerPayReminders(debtItems, sums, now).filter(

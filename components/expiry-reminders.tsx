@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 import { CreditCard, X } from 'lucide-react'
 import { useRouter } from 'next/navigation'
@@ -30,7 +30,9 @@ function loadDismissed(): Set<string> {
   try {
     const raw = window.localStorage.getItem(DISMISS_KEY)
     const arr: unknown = raw ? JSON.parse(raw) : []
-    return new Set(Array.isArray(arr) ? arr.filter((x) => typeof x === 'string') : [])
+    return new Set(
+      Array.isArray(arr) ? arr.filter((x) => typeof x === 'string') : [],
+    )
   } catch {
     return new Set()
   }
@@ -50,7 +52,17 @@ export function ExpiryReminders({
   onRenew?: (accountId: string) => void
 }) {
   const router = useRouter()
-  const [dismissed, setDismissed] = useState<Set<string>>(loadDismissed)
+  // SSR no tiene localStorage: se inicia vacío (igual que el servidor) y
+  // los descartes guardados se aplican tras montar. Así el primer pintado
+  // del cliente coincide con el HTML y no hay hydration mismatch.
+  const [dismissed, setDismissed] = useState<Set<string>>(new Set())
+  useEffect(() => {
+    const stored = loadDismissed()
+    // Sincronización con sistema externo (localStorage) tras montar:
+    // el estado inicial vacío coincide con el SSR (sin hydration mismatch).
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (stored.size > 0) setDismissed(stored)
+  }, [])
   const items = useMemo(() => {
     const now = new Date()
     return accounts
@@ -130,7 +142,7 @@ export function ExpiryReminders({
               </span>
               <Button
                 type="button"
-                variant='outline'
+                variant="outline"
                 size="xs"
                 className="shrink-0 rounded-full"
                 onClick={() => renew(a.id)}>

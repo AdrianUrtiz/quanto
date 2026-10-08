@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 import { CreditCard, X } from 'lucide-react'
 
@@ -46,7 +46,16 @@ export function CardPayReminders({
   items: CardPayCandidate[]
   onPay?: (item: CardPayReminder) => void
 }) {
-  const [dismissed, setDismissed] = useState<Set<string>>(loadDismissed)
+  // SSR no tiene localStorage: se inicia vacío (igual que el servidor) y
+  // los descartes guardados se aplican tras montar (sin hydration mismatch).
+  const [dismissed, setDismissed] = useState<Set<string>>(new Set())
+  useEffect(() => {
+    const stored = loadDismissed()
+    // Sincronización con sistema externo (localStorage) tras montar:
+    // el estado inicial vacío coincide con el SSR (sin hydration mismatch).
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (stored.size > 0) setDismissed(stored)
+  }, [])
   const visible = useMemo(() => {
     const now = wallNow()
     return getVisibleCardPay(items, now).filter(
