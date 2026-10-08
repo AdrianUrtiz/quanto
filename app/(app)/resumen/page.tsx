@@ -1,7 +1,7 @@
 import { redirect } from 'next/navigation'
 
 import type { CreditStatementView } from '@/components/credit-statements'
-import { ResumenClient } from '@/components/resumen-client'
+import { ResumenShell } from '@/components/resumen-shell'
 
 import { getAccountBalances } from '@/lib/balances'
 import { getCatalog } from '@/lib/catalog'
@@ -190,7 +190,7 @@ export default async function ResumenPage() {
 
   return (
     <>
-      <ResumenClient
+      <ResumenShell
         months={months}
         mine={mine}
         involved={involved}

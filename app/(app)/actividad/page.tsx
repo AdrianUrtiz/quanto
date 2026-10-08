@@ -1,12 +1,11 @@
 import { redirect } from 'next/navigation'
 
-import { ActivityClient, type MonthOpt } from '@/components/activity-client'
+import { ActividadShell } from '@/components/actividad-shell'
+import { type MonthOpt } from '@/components/activity-client'
 import type {
   SourceConfirmItem,
   ToConfirmItem,
 } from '@/components/cuentas-client'
-import { PendingPaymentsBanner } from '@/components/pending-payments-banner'
-import { SourceConfirmBanner } from '@/components/source-confirm-banner'
 import type { TxRow } from '@/components/transaction-list'
 
 import { getCardPayCandidates } from '@/lib/card-pay-server'
@@ -267,35 +266,27 @@ export default async function ActividadPage() {
   const cardPayItems = await getCardPayCandidates(meId)
 
   return (
-    <>
-      <PendingPaymentsBanner
-        items={toConfirm}
-        accountOptions={accountOptions}
-      />
-      <SourceConfirmBanner
-        items={toConfirmSource}
-        accountOptions={accountOptions}
-      />
-      <ActivityClient
-        txs={txs}
-        months={months}
-        cats={catalog}
-        filterAccounts={accountOptions}
-        expiryAccounts={mineAccounts.map((a) => ({
-          id: a.id,
-          name: a.name,
-          lastFour: a.lastFour,
-          expiry: a.expiry,
-          color: a.color ?? '#6366f1',
-        }))}
-        partnerDebtItems={partnerDebtItems}
-        partnerSums={[...partnerSums.entries()].map(([k, s]) => ({
-          key: k,
-          confirmed: s.confirmed,
-          pending: s.pending,
-        }))}
-        cardPayItems={cardPayItems}
-      />
-    </>
+    <ActividadShell
+      txs={txs}
+      months={months}
+      cats={catalog}
+      filterAccounts={accountOptions}
+      expiryAccounts={mineAccounts.map((a) => ({
+        id: a.id,
+        name: a.name,
+        lastFour: a.lastFour,
+        expiry: a.expiry,
+        color: a.color ?? '#6366f1',
+      }))}
+      partnerDebtItems={partnerDebtItems}
+      partnerSums={[...partnerSums.entries()].map(([k, s]) => ({
+        key: k,
+        confirmed: s.confirmed,
+        pending: s.pending,
+      }))}
+      cardPayItems={cardPayItems}
+      toConfirm={toConfirm}
+      toConfirmSource={toConfirmSource}
+    />
   )
 }

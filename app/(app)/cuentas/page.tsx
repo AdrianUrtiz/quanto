@@ -1,12 +1,12 @@
 import { redirect } from 'next/navigation'
 
 import type { AccountRow } from '@/components/account-card'
-import {
-  CuentasClient,
-  type MyPendingItem,
-  type SourceConfirmItem,
-  type ToConfirmItem,
+import type {
+  MyPendingItem,
+  SourceConfirmItem,
+  ToConfirmItem,
 } from '@/components/cuentas-client'
+import { CuentasShell } from '@/components/cuentas-shell'
 import type { SubRow } from '@/components/subscription-tab'
 
 import { getAccountBalances } from '@/lib/balances'
@@ -250,7 +250,7 @@ export default async function CuentasPage({
 
   return (
     <>
-      <CuentasClient
+      <CuentasShell
         accounts={accounts}
         hiddenAccounts={hiddenAccounts}
         meId={meId}

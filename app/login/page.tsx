@@ -21,12 +21,24 @@ export default function LoginPage() {
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     setError(null)
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      setError('Sin conexión a internet. Conéctate para iniciar sesión.')
+      return
+    }
     setPending(true)
     try {
       const res = await loginAction(new FormData(e.currentTarget))
       if ('error' in res && res.error) {
         setError(res.error)
       } else {
+        // Descarga inicial de la copia local (best-effort): si falla,
+        // la app entra igual y el AutoSync reintentará con red.
+        try {
+          const { syncNow } = await import('@/lib/offline/sync')
+          await syncNow()
+        } catch {
+          // Se entra igual; los módulos reintentan al abrirse.
+        }
         router.push('/actividad')
         router.refresh()
       }
