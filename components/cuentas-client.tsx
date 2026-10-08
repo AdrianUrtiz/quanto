@@ -14,11 +14,13 @@ import {
 } from '@/components/account-swipe-row'
 import type { MonthOpt } from '@/components/activity-client'
 import { BottomSheet } from '@/components/bottom-sheet'
+import { CardPayReminders } from '@/components/card-pay-reminders'
 import {
   type ExpiryAccount,
   ExpiryReminders,
 } from '@/components/expiry-reminders'
 import { FilterOptions, FilterPill } from '@/components/filter-dialog'
+import { PartnerPayReminders } from '@/components/partner-pay-reminders'
 import { PaymentSheet } from '@/components/payment-sheet'
 import { SubscriptionSummaryRow } from '@/components/subscription-swipe-row'
 import { type SubRow, SubscriptionTab } from '@/components/subscription-tab'
@@ -32,15 +34,17 @@ import {
 } from '@/components/ui/dialog'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
+import type { CardPayCandidate } from '@/lib/card-pay'
 import type { CatalogRow } from '@/lib/catalog'
 import { useCuentasFilters } from '@/lib/cuentas-filters'
+import { toCents } from '@/lib/money'
 import {
   type DebtItemInput,
   type PartnerDebt,
   buildDebts,
 } from '@/lib/partner-debts'
 import { cancelPayment, confirmPaymentSource } from '@/lib/payment-actions'
-import { toCents } from '@/lib/money'
+import { useStatementFilters } from '@/lib/resumen-filters'
 import type { DueCharge } from '@/lib/subscriptions'
 import { formatMoney, monthKey } from '@/lib/utils'
 
@@ -93,6 +97,7 @@ export function CuentasClient({
   myPending = [],
   toConfirmSource = [],
   editAccountId = null,
+  cardPayItems = [],
 }: {
   accounts: AccountRow[]
   hiddenAccounts?: AccountRow[]
@@ -109,10 +114,14 @@ export function CuentasClient({
   toConfirmSource?: SourceConfirmItem[]
   /** Deep-link ?editar=<id>: abre la edición (recordatorio de renovación). */
   editAccountId?: string | null
+  /** Cierre de MIS tarjetas (propietario): pago para no generar intereses. */
+  cardPayItems?: CardPayCandidate[]
 }) {
   const router = useRouter()
   const tab = useCuentasFilters((s) => s.tab)
   const setTab = useCuentasFilters((s) => s.setTab)
+  const setStmtCard = useStatementFilters((s) => s.setCardId)
+  const setStmtPeriod = useStatementFilters((s) => s.setPeriod)
   const [openRow, setOpenRow] = useState<string | null>(null)
   const [paySheet, setPaySheet] = useState<{
     d: PartnerDebt
@@ -196,6 +205,19 @@ export function CuentasClient({
     () => buildDebts(owedItems, partnerMonth, sumsMap),
     [owedItems, partnerMonth, sumsMap],
   )
+  // Recordatorio de pago a la pareja (tabs Todas y Cuentas): abre Pareja
+  // en el mes exigible del vencimiento.
+  const openPartnerPay = (it: { dueKey: string }) => {
+    setPartnerMonth(it.dueKey)
+    setTab('pareja')
+  }
+  // Recordatorio de pago de mis tarjetas (propietario): abre el corte
+  // en Resumen > Estados de cuenta.
+  const openCardPay = (it: { cardId: string; periodKey: string }) => {
+    setStmtCard(it.cardId)
+    setStmtPeriod(it.cardId, it.periodKey)
+    router.push('/resumen')
+  }
 
   const swipe = (a: AccountRow) => (
     <AccountSwipeRow
@@ -398,6 +420,12 @@ export function CuentasClient({
         </TabsList>
         <TabsContent value="todas" className="space-y-2">
           <ExpiryReminders accounts={expiryAccounts} onRenew={openRenew} />
+          <PartnerPayReminders
+            debtItems={debtItems}
+            sums={sumsMap}
+            onPay={openPartnerPay}
+          />
+          <CardPayReminders items={cardPayItems ?? []} onPay={openCardPay} />
           <div className="no-scrollbar -mx-5 flex gap-2 overflow-x-auto px-5 pb-1">
             <FilterPill
               label={SECTION_OPTS.find((o) => o.value === allSection)!.label}
@@ -452,6 +480,12 @@ export function CuentasClient({
         </TabsContent>
         <TabsContent value="mias" className="space-y-2">
           <ExpiryReminders accounts={expiryAccounts} onRenew={openRenew} />
+          <PartnerPayReminders
+            debtItems={debtItems}
+            sums={sumsMap}
+            onPay={openPartnerPay}
+          />
+          <CardPayReminders items={cardPayItems ?? []} onPay={openCardPay} />
           <div className="no-scrollbar -mx-5 flex gap-2 overflow-x-auto px-5 pb-1">
             <FilterPill
               label={SORT_OPTS.find((o) => o.value === accSort)!.label}
@@ -914,7 +948,9 @@ function DebtSwipeRow({
   const owe = d.debtorId === meId // yo debo → "Le pagué"; me deben → "Me pagó"
   const settled =
     d.lines.length > 0 &&
-    d.lines.every((l) => l.shareId == null || toCents(l.monthly) - toCents(l.paid) <= 0)
+    d.lines.every(
+      (l) => l.shareId == null || toCents(l.monthly) - toCents(l.paid) <= 0,
+    )
   const card = <DebtCard d={d} meId={meId} />
   if (!d.lines.some((l) => l.shareId)) return card // demo: sin pagos
   return (

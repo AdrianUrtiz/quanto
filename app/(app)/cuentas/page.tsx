@@ -1,23 +1,21 @@
 import { redirect } from 'next/navigation'
 
 import type { AccountRow } from '@/components/account-card'
-import {
-  CuentasClient,
-  type MyPendingItem,
-  type SourceConfirmItem,
-  type ToConfirmItem,
+import type {
+  MyPendingItem,
+  SourceConfirmItem,
+  ToConfirmItem,
 } from '@/components/cuentas-client'
+import { CuentasShell } from '@/components/cuentas-shell'
 import type { SubRow } from '@/components/subscription-tab'
 
 import { getAccountBalances } from '@/lib/balances'
 import { payableInstallments } from '@/lib/calculations'
+import { getCardPayCandidates } from '@/lib/card-pay-server'
 import { getCatalog } from '@/lib/catalog'
 import { getLineSums } from '@/lib/debt-payments'
 import { normalizeMoney } from '@/lib/money'
-import {
-  type DebtItemInput,
-  buildDebts,
-} from '@/lib/partner-debts'
+import { type DebtItemInput, buildDebts } from '@/lib/partner-debts'
 import { prisma } from '@/lib/prisma'
 import { getSubscriptionData } from '@/lib/subscription-actions'
 import type { DueCharge } from '@/lib/subscriptions'
@@ -246,10 +244,13 @@ export default async function CuentasPage({
   dues = subData.dues
 
   const catalog = await getCatalog(meId)
+  // Recordatorio "Pagar tus tarjetas": cierre de MIS créditos con día
+  // de pago (propietario). Se apaga al liquidar el periodo.
+  const cardPayItems = await getCardPayCandidates(meId)
 
   return (
     <>
-      <CuentasClient
+      <CuentasShell
         accounts={accounts}
         hiddenAccounts={hiddenAccounts}
         meId={meId}
@@ -264,6 +265,7 @@ export default async function CuentasPage({
         toConfirm={toConfirm}
         myPending={myPending}
         toConfirmSource={toConfirmSource}
+        cardPayItems={cardPayItems}
       />
     </>
   )

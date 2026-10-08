@@ -1,16 +1,17 @@
 import { redirect } from 'next/navigation'
 
-import { ActivityClient, type MonthOpt } from '@/components/activity-client'
+import { ActividadShell } from '@/components/actividad-shell'
+import { type MonthOpt } from '@/components/activity-client'
 import type {
   SourceConfirmItem,
   ToConfirmItem,
 } from '@/components/cuentas-client'
-import { PendingPaymentsBanner } from '@/components/pending-payments-banner'
-import { SourceConfirmBanner } from '@/components/source-confirm-banner'
 import type { TxRow } from '@/components/transaction-list'
 
+import { getCardPayCandidates } from '@/lib/card-pay-server'
 import { getCatalog } from '@/lib/catalog'
-import { normalizeMoney } from '@/lib/money'
+import { getLineSums } from '@/lib/debt-payments'
+import { fromCents, normalizeMoney, toCents } from '@/lib/money'
 import { prisma } from '@/lib/prisma'
 import { monthKey, monthLabelEs } from '@/lib/utils'
 import { mexicoMonthKey } from '@/lib/walltime'
@@ -29,12 +30,28 @@ export default async function ActividadPage() {
 
   // Privacidad: solo MIS movimientos. Lo que gasta mi pareja no aparece aquí;
   // lo que le debo vive en Cuentas > Mi pareja y en el Resumen.
-  const [rows, accRows] = await Promise.all([
+  const [rows, partnerRows, accRows] = await Promise.all([
     prisma.transaction.findMany({
       where: { createdById: meId },
       include: { account: true, createdBy: true },
       // Desempate por creación: varios movimientos pueden compartir fecha+hora
       // (mediodías fijos históricos, cargos de suscripción).
+      orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
+    }),
+    // Compartidos de mi pareja donde YO soy el deudor: solo lectura con MI
+    // parte (el gasto completo nunca tocó mis cuentas). Sin datos de sus
+    // cuentas: solo concepto, categoría, fecha y quién lo creó.
+    prisma.transaction.findMany({
+      where: {
+        type: 'EXPENSE',
+        isShared: true,
+        createdById: { not: meId },
+        shares: { some: { debtorId: meId } },
+      },
+      include: {
+        createdBy: true,
+        shares: { where: { debtorId: meId } },
+      },
       orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
     }),
     prisma.account.findMany({
@@ -64,7 +81,36 @@ export default async function ActividadPage() {
     installments: t.installments,
     isShared: t.isShared,
     createdById: t.createdById,
+    partnerShare: false,
   }))
+  // Mi parte de sus gastos compartidos: una fila por compra con el total
+  // que me toca (mensual × parcialidades), en el mes de compra.
+  const mine = partnerRows.map((t) => {
+    const monthly = normalizeMoney(t.shares[0]?.monthlyAmount ?? 0)
+    const n = Math.max(1, Math.round(t.installments))
+    return {
+      id: `partner-${t.id}`,
+      concept: t.concept,
+      category: t.category,
+      amount: fromCents(toCents(monthly) * n),
+      date: t.date,
+      type: 'EXPENSE',
+      accountId: '',
+      accountName: '',
+      accountType: 'DEBIT',
+      transferToAccountId: null,
+      transferToAccountName: null,
+      transferToAccountType: null,
+      creatorName: t.createdBy.name,
+      installments: t.installments,
+      isShared: true,
+      createdById: t.createdById,
+      partnerShare: true,
+    }
+  })
+  const all = [...raw, ...mine].sort(
+    (a, b) => b.date.getTime() - a.date.getTime(),
+  )
 
   // Movimientos huella de pagos CONFIRMED (ingreso del cobro o egreso del
   // origen): solo lectura, sin acciones de editar/eliminar.
@@ -83,16 +129,17 @@ export default async function ActividadPage() {
       .filter((id) => id != null),
   )
 
-  const txs: TxRow[] = raw.map((t) => ({
+  const txs: TxRow[] = all.map((t) => ({
     ...t,
     date: t.date.toISOString(),
-    locked: lockedTxIds.has(t.id),
+    locked: t.partnerShare || lockedTxIds.has(t.id),
   }))
   const catalog = await getCatalog(meId)
 
-  // Meses con registro (solo gastos suman al total del selector).
+  // Meses con registro (solo gastos suman al total del selector,
+  // incluyendo mi parte de sus compartidos).
   const totals = new Map<string, number>()
-  for (const t of raw) {
+  for (const t of all) {
     if (t.type !== 'EXPENSE') continue
     const k = monthKey(new Date(t.date))
     totals.set(k, (totals.get(k) ?? 0) + t.amount)
@@ -179,29 +226,67 @@ export default async function ActividadPage() {
     }
   })
 
+  // Recordatorio "Pagar a tu pareja": lo que YO debo de sus tarjetas
+  // (mismo origen que Cuentas > Pareja; sin datos de sus cuentas, solo
+  // concepto, corte/límite y mi parte). Si no debo nada, lista vacía.
+  const meName = session?.user?.name ?? 'Tú'
+  const sharedOwed = await prisma.transaction.findMany({
+    where: {
+      isShared: true,
+      createdById: { not: meId },
+      shares: { some: { debtorId: meId } },
+    },
+    include: {
+      account: true,
+      createdBy: true,
+      shares: { where: { debtorId: meId } },
+    },
+    orderBy: [{ date: 'asc' }, { createdAt: 'asc' }],
+  })
+  const partnerDebtItems = sharedOwed.map((t) => ({
+    shareId: t.shares[0]?.id ?? '',
+    accountId: t.account.id,
+    accountName: t.account.name,
+    accountType: t.account.type as 'DEBIT' | 'CREDIT',
+    dueDay: t.account.dueDay ?? undefined,
+    statementDay: t.account.statementDay ?? undefined,
+    debtorId: meId,
+    debtorName: meName,
+    creditorName: t.createdBy.name,
+    concept: t.concept,
+    monthly: normalizeMoney(t.shares[0]?.monthlyAmount ?? 0),
+    installments: t.installments,
+    date: t.date.toISOString(),
+  }))
+  const partnerSums = await getLineSums(
+    sharedOwed.flatMap((t) => t.shares.map((s) => s.id)),
+  )
+  // Recordatorio "Pagar tus tarjetas": cierre del periodo vigente de MIS
+  // créditos con día de pago (propietario). Se apaga al liquidar.
+  const cardPayItems = await getCardPayCandidates(meId)
+
   return (
-    <>
-      <PendingPaymentsBanner
-        items={toConfirm}
-        accountOptions={accountOptions}
-      />
-      <SourceConfirmBanner
-        items={toConfirmSource}
-        accountOptions={accountOptions}
-      />
-      <ActivityClient
-        txs={txs}
-        months={months}
-        cats={catalog}
-        filterAccounts={accountOptions}
-        expiryAccounts={mineAccounts.map((a) => ({
-          id: a.id,
-          name: a.name,
-          lastFour: a.lastFour,
-          expiry: a.expiry,
-          color: a.color ?? '#6366f1',
-        }))}
-      />
-    </>
+    <ActividadShell
+      txs={txs}
+      months={months}
+      cats={catalog}
+      filterAccounts={accountOptions}
+      expiryAccounts={mineAccounts.map((a) => ({
+        id: a.id,
+        name: a.name,
+        lastFour: a.lastFour,
+        expiry: a.expiry,
+        color: a.color ?? '#6366f1',
+      }))}
+      partnerDebtItems={partnerDebtItems}
+      partnerSums={[...partnerSums.entries()].map(([k, s]) => ({
+        key: k,
+        confirmed: s.confirmed,
+        pending: s.pending,
+      }))}
+      cardPayItems={cardPayItems}
+      toConfirm={toConfirm}
+      toConfirmSource={toConfirmSource}
+    />
   )
 }

@@ -62,9 +62,6 @@ export default function RootLayout({ children }: LayoutProps<'/'>) {
           {`try{var t=localStorage.getItem("quanto-theme")||"dark";var r=t==="system"?(window.matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light"):t;if(r==="dark"){document.documentElement.classList.add("dark")}else{document.documentElement.classList.remove("dark")}document.documentElement.style.colorScheme=r;}catch(e){}`}
         </Script>
         <Providers>{children}</Providers>
-        <Script id="sw-register" strategy="afterInteractive">
-          {`if('serviceWorker' in navigator){window.addEventListener('load',()=>{navigator.serviceWorker.register('/sw.js').catch(()=>{})})}`}
-        </Script>
       </body>
     </html>
   )

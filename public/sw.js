@@ -1,7 +1,13 @@
-/* Minimal service worker to make Quanto installable + offline-capable */
-const CACHE = 'quanto-v1'
+/* Quanto SW: shell instalable + páginas y estáticos cacheados para que la
+   app bootee sin red y rehidrate desde IndexedDB (los datos viven en Dexie).
+   Nunca se cachea /api/* (sesión y snapshot siempre van a la red). */
+const CACHE = 'quanto-v3'
 const CORE = [
   '/actividad',
+  '/resumen',
+  '/cuentas',
+  '/ajustes',
+  '/login',
   '/manifest.webmanifest',
   '/icon-192.png',
   '/icon-512.png',
@@ -10,10 +16,15 @@ const CORE = [
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches
-      .open(CACHE)
-      .then((cache) => cache.addAll(CORE))
-      .then(() => self.skipWaiting()),
+    (async () => {
+      const cache = await caches.open(CACHE)
+      // Uno por uno: si alguno falla (p. ej. instalar sin red),
+      // los demás sí quedan guardados.
+      await Promise.allSettled(
+        CORE.map((url) => cache.add(url).catch(() => undefined)),
+      )
+      await self.skipWaiting()
+    })(),
   )
 })
 
@@ -30,18 +41,85 @@ self.addEventListener('activate', (event) => {
   )
 })
 
+function cacheable(res) {
+  return !!res && res.ok && (res.type === 'basic' || res.type === 'default')
+}
+
 self.addEventListener('fetch', (event) => {
-  if (event.request.method !== 'GET') return
-  const url = new URL(event.request.url)
+  const { request } = event
+  if (request.method !== 'GET') return
+  const url = new URL(request.url)
   if (url.origin !== self.location.origin) return
-  // Network-first for navigations, cache-first for static
-  if (event.request.mode === 'navigate') {
+  // API/auth/snapshot: siempre a la red, nunca a caché.
+  if (url.pathname.startsWith('/api/')) return
+
+  // Navegaciones (reload o URL directa): red primero con guardado;
+  // sin red, la página cacheada y al final /actividad.
+  if (request.mode === 'navigate') {
     event.respondWith(
-      fetch(event.request).catch(() => caches.match('/actividad')),
+      (async () => {
+        try {
+          const res = await fetch(request)
+          if (cacheable(res)) {
+            const cache = await caches.open(CACHE)
+            cache.put(request, res.clone()).catch(() => undefined)
+          }
+          return res
+        } catch {
+          const hit = await caches.match(request).catch(() => undefined)
+          if (hit) return hit
+          const fallback = await caches
+            .match('/actividad')
+            .catch(() => undefined)
+          if (fallback) return fallback
+          throw new Error('offline sin copia cacheada')
+        }
+      })(),
     )
     return
   }
+
+  // Estáticos versionados (_next/static): caché primero + revalidación.
+  if (url.pathname.startsWith('/_next/static/')) {
+    event.respondWith(
+      (async () => {
+        const cache = await caches.open(CACHE)
+        const hit = await cache.match(request).catch(() => undefined)
+        const update = fetch(request)
+          .then((res) => {
+            if (cacheable(res))
+              cache.put(request, res.clone()).catch(() => undefined)
+            return res
+          })
+          .catch(() => undefined)
+        if (hit) {
+          event.waitUntil(update)
+          return hit
+        }
+        const res = await update
+        if (res) return res
+        throw new Error('offline sin copia cacheada')
+      })(),
+    )
+    return
+  }
+
+  // Resto same-origin (chunks, imágenes, RSC): red primero con guardado,
+  // caché como respaldo. Así una recarga offline puede bootear.
   event.respondWith(
-    caches.match(event.request).then((hit) => hit || fetch(event.request)),
+    (async () => {
+      try {
+        const res = await fetch(request)
+        if (cacheable(res)) {
+          const cache = await caches.open(CACHE)
+          cache.put(request, res.clone()).catch(() => undefined)
+        }
+        return res
+      } catch {
+        const hit = await caches.match(request).catch(() => undefined)
+        if (hit) return hit
+        throw new Error('offline sin copia cacheada')
+      }
+    })(),
   )
 })
