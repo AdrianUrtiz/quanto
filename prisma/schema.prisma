@@ -54,6 +54,11 @@ model Account {
   lastFour String?
   expiry   String? // vencimiento MM/AA
   color    String? @default("#6366f1")
+  // Orden manual (menor = primero) y favorita (siempre primera y
+  // preseleccionada en formularios). Una sola favorita por usuario
+  // (se garantiza en los server actions).
+  position   Int     @default(0)
+  isFavorite Boolean @default(false)
   isActive Boolean @default(true)
   // Oculta manual (cuentas en ceros que casi no se usan): fuera de listas,
   // totales y selectores; el historial se conserva.

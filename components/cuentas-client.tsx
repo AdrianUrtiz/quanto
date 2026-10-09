@@ -9,6 +9,7 @@ import { toast } from 'sonner'
 import type { AccountRow } from '@/components/account-card'
 import { AccountBadge } from '@/components/account-badge'
 import { AccountForm } from '@/components/account-form'
+import { AccountsReorder } from '@/components/accounts-reorder'
 import {
   AccountSwipeRow,
   HiddenAccountSwipeRow,
@@ -124,6 +125,7 @@ export function CuentasClient({
   const setStmtCard = useStatementFilters((s) => s.setCardId)
   const setStmtPeriod = useStatementFilters((s) => s.setPeriod)
   const [openRow, setOpenRow] = useState<string | null>(null)
+  const [reordering, setReordering] = useState(false)
   const [paySheet, setPaySheet] = useState<{
     d: PartnerDebt
     mode: 'receive' | 'pay'
@@ -504,34 +506,58 @@ export function CuentasClient({
               active={accType !== 'all'}
               onClick={() => setAccSheet('type')}
             />
+            {mine.length > 1 && (
+              <button
+                type="button"
+                onClick={() => {
+                  setAccSort('default')
+                  setAccType('all')
+                  setReordering(true)
+                }}
+                className="max-w-55 shrink-0 truncate rounded-full border border-(--border) bg-(--card) px-4 py-2 text-xs font-semibold text-(--muted-foreground) transition">
+                ↕ Ordenar
+              </button>
+            )}
           </div>
-          {filteredMine.length === 0 && (
-            <Empty
-              text={
-                mine.length === 0 && hiddenMine.length === 0
-                  ? 'Sin cuentas aquí todavía.'
-                  : accType === 'hidden'
-                    ? 'Sin cuentas ocultas.'
-                    : 'Sin resultados para ese filtro.'
-              }
+          {reordering ? (
+            <AccountsReorder
+              key="reorder"
+              accounts={mine}
+              onClose={() => setReordering(false)}
             />
-          )}
-          {accType === 'hidden' && filteredMine.length > 0 && (
-            <p className="-mt-1 text-[11px] text-(--muted-foreground)">
-              Fuera de totales y selectores · desliza para mostrar ›
-            </p>
-          )}
-          {filteredMine.map((a) =>
-            accType === 'hidden' ? (
-              <HiddenAccountSwipeRow
-                key={a.id}
-                a={a}
-                open={openRow === `hidden:${a.id}`}
-                onOpenChange={(o) => setOpenRow(o ? `hidden:${a.id}` : null)}
-              />
-            ) : (
-              swipe(a)
-            ),
+          ) : (
+            <>
+              {filteredMine.length === 0 && (
+                <Empty
+                  text={
+                    mine.length === 0 && hiddenMine.length === 0
+                      ? 'Sin cuentas aquí todavía.'
+                      : accType === 'hidden'
+                        ? 'Sin cuentas ocultas.'
+                        : 'Sin resultados para ese filtro.'
+                  }
+                />
+              )}
+              {accType === 'hidden' && filteredMine.length > 0 && (
+                <p className="-mt-1 text-[11px] text-(--muted-foreground)">
+                  Fuera de totales y selectores · desliza para mostrar ›
+                </p>
+              )}
+              {filteredMine.map((a) =>
+                accType === 'hidden' ? (
+                  <HiddenAccountSwipeRow
+                    key={a.id}
+                    a={a}
+                    open={openRow === `hidden:${a.id}`}
+                    onOpenChange={(o) =>
+                      setOpenRow(o ? `hidden:${a.id}` : null)
+                    }
+                  />
+                ) : (
+                  swipe(a)
+                ),
+              )}
+            </>
           )}
         </TabsContent>
         <TabsContent value="pareja" className="space-y-4">

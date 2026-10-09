@@ -22,7 +22,7 @@ export default async function AppLayout({
   const rows = await prisma.account.findMany({
     where: { isActive: true, isHidden: false, userId: meId },
     select: { id: true, name: true, type: true, color: true },
-    orderBy: { createdAt: 'asc' },
+    orderBy: [{ isFavorite: 'desc' }, { position: 'asc' }, { createdAt: 'asc' }],
   })
   const accounts = rows.map((r) => ({
     id: r.id,

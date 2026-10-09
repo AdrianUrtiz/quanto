@@ -116,12 +116,20 @@ export default async function ResumenPage() {
   const [cards, debitRows, balances] = await Promise.all([
     prisma.account.findMany({
       where: { userId: meId, isActive: true, isHidden: false, type: 'CREDIT' },
-      orderBy: { createdAt: 'asc' },
+      orderBy: [
+        { isFavorite: 'desc' },
+        { position: 'asc' },
+        { createdAt: 'asc' },
+      ],
     }),
     prisma.account.findMany({
       where: { userId: meId, isActive: true, isHidden: false, type: 'DEBIT' },
       select: { id: true, name: true, type: true, color: true },
-      orderBy: { createdAt: 'asc' },
+      orderBy: [
+        { isFavorite: 'desc' },
+        { position: 'asc' },
+        { createdAt: 'asc' },
+      ],
     }),
     getAccountBalances(meId),
   ])

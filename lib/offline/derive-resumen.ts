@@ -133,6 +133,7 @@ export function deriveStatements(
 
   const debitOpts = accounts
     .filter((a) => a.type === 'DEBIT' && !a.isHidden)
+    .sort((x, y) => Number(y.isFavorite) - Number(x.isFavorite) || x.position - y.position)
     .map((d) => ({ id: d.id, name: d.name, type: d.type, color: d.color }))
 
   return cards.map((c) => {

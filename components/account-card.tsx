@@ -1,4 +1,4 @@
-import { CreditCard, Landmark } from 'lucide-react'
+import { CreditCard, Landmark, Star } from 'lucide-react'
 
 import { Badge } from '@/components/ui/badge'
 
@@ -18,6 +18,8 @@ export type AccountRow = {
   expiry?: string
   color: string
   isHidden: boolean
+  position: number
+  isFavorite: boolean
 }
 
 export function AccountCard({ a }: { a: AccountRow }) {
@@ -32,11 +34,19 @@ export function AccountCard({ a }: { a: AccountRow }) {
         <Icon className="size-5" />
       </span>
       <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-semibold">
-          {a.name}{' '}
-          {a.lastFour && (
-            <span className="text-(--muted-foreground)">· ·{a.lastFour}</span>
-          )}{' '}
+        <p className="flex items-center gap-1.5 truncate text-sm font-semibold">
+          <span className="truncate">
+            {a.name}{' '}
+            {a.lastFour && (
+              <span className="text-(--muted-foreground)">· ·{a.lastFour}</span>
+            )}{' '}
+          </span>
+          {a.isFavorite && (
+            <Star
+              aria-label="Cuenta favorita"
+              className="size-3.5 shrink-0 fill-amber-400 text-amber-400"
+            />
+          )}
         </p>
         <p className="text-xs text-(--muted-foreground)">
           {a.expiry && (

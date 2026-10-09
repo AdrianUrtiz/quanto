@@ -57,6 +57,11 @@ export default async function ActividadPage() {
     prisma.account.findMany({
       where: { userId: meId },
       select: { id: true, name: true, type: true, color: true },
+      orderBy: [
+        { isFavorite: 'desc' },
+        { position: 'asc' },
+        { createdAt: 'asc' },
+      ],
     }),
   ])
   const accById = new Map(accRows.map((a) => [a.id, a]))
@@ -164,8 +169,13 @@ export default async function ActividadPage() {
         lastFour: true,
         expiry: true,
         color: true,
+        isFavorite: true,
       },
-      orderBy: { createdAt: 'asc' },
+      orderBy: [
+        { isFavorite: 'desc' },
+        { position: 'asc' },
+        { createdAt: 'asc' },
+      ],
     }),
     prisma.debtPayment.findMany({
       where: {
@@ -199,6 +209,7 @@ export default async function ActividadPage() {
     name: a.name,
     type: a.type as 'DEBIT' | 'CREDIT',
     color: a.color ?? '#6366f1',
+    isFavorite: a.isFavorite,
   }))
   const toConfirm: ToConfirmItem[] = pendingRows
     .filter((p) => p.registeredById !== meId)
