@@ -69,13 +69,14 @@ function CuentasSpeedDial({ accountOptions, cats }: FabProps) {
           expanded ? 'opacity-100' : 'pointer-events-none opacity-0',
         )}
       />
-      <div className="fixed right-5 bottom-24 z-50 flex flex-col items-end gap-3">
+      <div className="pointer-events-none fixed right-5 bottom-24 z-50 flex flex-col items-end gap-3">
         <div
+          aria-hidden={!expanded}
           className={cn(
-            'flex flex-col items-end gap-3 transition-all duration-200',
+            'absolute right-0 bottom-[68px] flex flex-col items-end gap-3 transition-all duration-200',
             expanded
-              ? 'pointer-events-auto translate-y-0 opacity-100'
-              : 'pointer-events-none translate-y-2 opacity-0',
+              ? 'pointer-events-auto visible translate-y-0 opacity-100'
+              : 'pointer-events-none invisible translate-y-2 opacity-0',
           )}>
           <button
             onClick={() => {
@@ -112,7 +113,7 @@ function CuentasSpeedDial({ accountOptions, cats }: FabProps) {
             expanded ? 'Cerrar opciones' : 'Agregar cuenta o suscripción'
           }
           aria-expanded={expanded}
-          className={cn(FAB_CLS, 'relative right-auto bottom-auto')}>
+          className={cn(FAB_CLS, 'pointer-events-auto relative right-auto bottom-auto')}>
           <Plus
             className={cn(
               'size-7 transition-transform duration-200',
