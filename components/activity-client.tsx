@@ -109,7 +109,13 @@ export function ActivityClient({
   cats: CatalogRow[]
   expiryAccounts?: ExpiryAccount[]
   /** Cuentas propias no ocultas para el filtro (débito y crédito). */
-  filterAccounts?: { id: string; name: string; type: string }[]
+  filterAccounts?: {
+    id: string
+    name: string
+    type: string
+    color?: string
+    isFavorite?: boolean
+  }[]
   /** Lo que le debo a mi pareja (origen Cuentas > Pareja). */
   partnerDebtItems?: PartnerPayItem[]
   partnerSums?: { key: string; confirmed: number; pending: number }[]
@@ -310,16 +316,26 @@ export function ActivityClient({
   // Opciones de cuenta para el diálogo de edición (solo las mías, ya filtradas;
   // las filas de pareja son solo lectura y no aportan cuentas).
   const accountOptionsAll = useMemo(() => {
+    const metaById = new Map(
+      filterAccounts.map((a) => [a.id, { color: a.color, fav: a.isFavorite }]),
+    )
     const map = new Map<string, { name: string; type: string }>()
     for (const t of txs)
       if (!t.partnerShare)
         map.set(t.accountId, { name: t.accountName, type: t.accountType })
-    return [...map.entries()].map(([id, v]) => ({
-      id,
-      name: v.name,
-      type: v.type,
-    }))
-  }, [txs])
+    return [...map.entries()]
+      .map(([id, v]) => ({
+        id,
+        name: v.name,
+        type: v.type,
+        color: metaById.get(id)?.color,
+      }))
+      .sort(
+        (x, y) =>
+          Number(metaById.get(y.id)?.fav ?? false) -
+          Number(metaById.get(x.id)?.fav ?? false),
+      )
+  }, [txs, filterAccounts])
 
   // Opciones: todas las cuentas propias no ocultas (débito y crédito),
   // ordenadas A–Z y sin contadores. Un traspaso involucra dos cuentas:

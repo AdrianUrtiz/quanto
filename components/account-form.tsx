@@ -2,12 +2,13 @@
 
 import { useState } from 'react'
 
-import { CreditCard, Landmark } from 'lucide-react'
+import { CreditCard, Landmark, Star } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Switch } from '@/components/ui/switch'
 
 import { createAccount, updateAccount } from '@/lib/actions'
 import { ACCOUNT_COLORS } from '@/lib/categories'
@@ -23,6 +24,7 @@ export type AccountEditData = {
   creditLimit?: number
   statementDay?: number
   dueDay?: number
+  isFavorite: boolean
 }
 
 function maskExpiry(v: string) {
@@ -47,6 +49,7 @@ export function AccountForm({
   const [lastFour, setLastFour] = useState(account?.lastFour ?? '')
   const [expiry, setExpiry] = useState(account?.expiry ?? '')
   const [color, setColor] = useState(account?.color ?? '#6366f1')
+  const [favorite, setFavorite] = useState(account?.isFavorite ?? false)
   const [initialBalance, setInitialBalance] = useState('')
   const [creditLimit, setCreditLimit] = useState(
     account?.creditLimit != null ? String(account.creditLimit) : '',
@@ -189,6 +192,31 @@ export function AccountForm({
           ))}
         </div>
         <input type="hidden" name="color" value={color} />
+      </div>
+
+      <div className="flex items-center justify-between rounded-2xl border border-(--border) px-4 py-3">
+        <div className="flex items-center gap-2.5">
+          <Star
+            className={cn(
+              'size-5',
+              favorite
+                ? 'fill-amber-400 text-amber-400'
+                : 'text-(--muted-foreground)',
+            )}
+          />
+          <div>
+            <p className="text-sm font-semibold">Cuenta favorita</p>
+            <p className="text-xs text-(--muted-foreground)">
+              Va primera y se preselecciona en formularios
+            </p>
+          </div>
+        </div>
+        <Switch
+          checked={favorite}
+          onCheckedChange={setFavorite}
+          aria-label="Cuenta favorita"
+        />
+        <input type="hidden" name="isFavorite" value={favorite ? '1' : ''} />
       </div>
 
       {type === 'DEBIT' ? (

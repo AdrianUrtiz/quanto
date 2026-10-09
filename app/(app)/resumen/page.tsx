@@ -116,12 +116,20 @@ export default async function ResumenPage() {
   const [cards, debitRows, balances] = await Promise.all([
     prisma.account.findMany({
       where: { userId: meId, isActive: true, isHidden: false, type: 'CREDIT' },
-      orderBy: { createdAt: 'asc' },
+      orderBy: [
+        { isFavorite: 'desc' },
+        { position: 'asc' },
+        { createdAt: 'asc' },
+      ],
     }),
     prisma.account.findMany({
       where: { userId: meId, isActive: true, isHidden: false, type: 'DEBIT' },
-      select: { id: true, name: true },
-      orderBy: { createdAt: 'asc' },
+      select: { id: true, name: true, type: true, color: true },
+      orderBy: [
+        { isFavorite: 'desc' },
+        { position: 'asc' },
+        { createdAt: 'asc' },
+      ],
     }),
     getAccountBalances(meId),
   ])
@@ -177,7 +185,12 @@ export default async function ResumenPage() {
         available: limit != null ? limit - debt : null,
       },
       currentKey,
-      debitOpts: debitRows.map((d) => ({ id: d.id, name: d.name })),
+      debitOpts: debitRows.map((d) => ({
+        id: d.id,
+        name: d.name,
+        type: d.type as 'DEBIT' | 'CREDIT',
+        color: d.color ?? '#6366f1',
+      })),
       periods: stmts.map((p) => ({
         ...p,
         start: p.start.toISOString(),

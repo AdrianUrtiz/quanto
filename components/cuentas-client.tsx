@@ -7,7 +7,9 @@ import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 
 import type { AccountRow } from '@/components/account-card'
+import { AccountBadge } from '@/components/account-badge'
 import { AccountForm } from '@/components/account-form'
+import { AccountsReorder } from '@/components/accounts-reorder'
 import {
   AccountSwipeRow,
   HiddenAccountSwipeRow,
@@ -123,6 +125,7 @@ export function CuentasClient({
   const setStmtCard = useStatementFilters((s) => s.setCardId)
   const setStmtPeriod = useStatementFilters((s) => s.setPeriod)
   const [openRow, setOpenRow] = useState<string | null>(null)
+  const [reordering, setReordering] = useState(false)
   const [paySheet, setPaySheet] = useState<{
     d: PartnerDebt
     mode: 'receive' | 'pay'
@@ -227,7 +230,7 @@ export function CuentasClient({
       onOpenChange={(o) => setOpenRow(o ? a.id : null)}
       debitOptions={mine
         .filter((m) => m.type === 'DEBIT')
-        .map((m) => ({ id: m.id, name: m.name, type: m.type }))}
+        .map((m) => ({ id: m.id, name: m.name, type: m.type, color: m.color }))}
     />
   )
 
@@ -255,7 +258,13 @@ export function CuentasClient({
   )
 
   const accountOpts = useMemo(
-    () => mine.map((a) => ({ id: a.id, name: a.name, type: a.type })),
+    () =>
+      mine.map((a) => ({
+        id: a.id,
+        name: a.name,
+        type: a.type,
+        color: a.color,
+      })),
     [mine],
   )
 
@@ -497,34 +506,58 @@ export function CuentasClient({
               active={accType !== 'all'}
               onClick={() => setAccSheet('type')}
             />
+            {mine.length > 1 && (
+              <button
+                type="button"
+                onClick={() => {
+                  setAccSort('default')
+                  setAccType('all')
+                  setReordering(true)
+                }}
+                className="max-w-55 shrink-0 truncate rounded-full border border-(--border) bg-(--card) px-4 py-2 text-xs font-semibold text-(--muted-foreground) transition">
+                ↕ Ordenar
+              </button>
+            )}
           </div>
-          {filteredMine.length === 0 && (
-            <Empty
-              text={
-                mine.length === 0 && hiddenMine.length === 0
-                  ? 'Sin cuentas aquí todavía.'
-                  : accType === 'hidden'
-                    ? 'Sin cuentas ocultas.'
-                    : 'Sin resultados para ese filtro.'
-              }
+          {reordering ? (
+            <AccountsReorder
+              key="reorder"
+              accounts={mine}
+              onClose={() => setReordering(false)}
             />
-          )}
-          {accType === 'hidden' && filteredMine.length > 0 && (
-            <p className="-mt-1 text-[11px] text-(--muted-foreground)">
-              Fuera de totales y selectores · desliza para mostrar ›
-            </p>
-          )}
-          {filteredMine.map((a) =>
-            accType === 'hidden' ? (
-              <HiddenAccountSwipeRow
-                key={a.id}
-                a={a}
-                open={openRow === `hidden:${a.id}`}
-                onOpenChange={(o) => setOpenRow(o ? `hidden:${a.id}` : null)}
-              />
-            ) : (
-              swipe(a)
-            ),
+          ) : (
+            <>
+              {filteredMine.length === 0 && (
+                <Empty
+                  text={
+                    mine.length === 0 && hiddenMine.length === 0
+                      ? 'Sin cuentas aquí todavía.'
+                      : accType === 'hidden'
+                        ? 'Sin cuentas ocultas.'
+                        : 'Sin resultados para ese filtro.'
+                  }
+                />
+              )}
+              {accType === 'hidden' && filteredMine.length > 0 && (
+                <p className="-mt-1 text-[11px] text-(--muted-foreground)">
+                  Fuera de totales y selectores · desliza para mostrar ›
+                </p>
+              )}
+              {filteredMine.map((a) =>
+                accType === 'hidden' ? (
+                  <HiddenAccountSwipeRow
+                    key={a.id}
+                    a={a}
+                    open={openRow === `hidden:${a.id}`}
+                    onOpenChange={(o) =>
+                      setOpenRow(o ? `hidden:${a.id}` : null)
+                    }
+                  />
+                ) : (
+                  swipe(a)
+                ),
+              )}
+            </>
           )}
         </TabsContent>
         <TabsContent value="pareja" className="space-y-4">
@@ -1052,7 +1085,7 @@ function SourceConfirmSheet({
   onDone,
 }: {
   p: SourceConfirmItem
-  accountOptions: { id: string; name: string }[]
+  accountOptions: { id: string; name: string; type?: string; color?: string }[]
   onDone: () => void
 }) {
   const [accountId, setAccountId] = useState(accountOptions[0]?.id ?? '')
@@ -1098,7 +1131,8 @@ function SourceConfirmSheet({
             <button
               type="button"
               onClick={() => setAccountId(a.id)}
-              className={`flex w-full items-center gap-2 rounded-2xl px-4 py-3 text-left transition hover:bg-(--muted) ${accountId === a.id ? 'bg-(--muted)' : ''}`}>
+              className={`flex w-full items-center gap-3 rounded-2xl px-4 py-2.5 text-left transition hover:bg-(--muted) ${accountId === a.id ? 'bg-(--muted)' : ''}`}>
+              <AccountBadge type={a.type} color={a.color} />
               <span className="flex-1 text-sm font-semibold">{a.name}</span>
               {accountId === a.id && (
                 <Check className="size-4 text-(--primary)" />

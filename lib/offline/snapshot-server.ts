@@ -52,7 +52,11 @@ export async function buildSnapshot(userId: string): Promise<SnapshotPayload> {
       prisma.account.findMany({
         where: { isActive: true, userId },
         include: { user: true },
-        orderBy: { createdAt: 'asc' },
+        orderBy: [
+          { isFavorite: 'desc' },
+          { position: 'asc' },
+          { createdAt: 'asc' },
+        ],
       }),
       getAccountBalances(userId),
       getCatalog(userId),
@@ -81,6 +85,8 @@ export async function buildSnapshot(userId: string): Promise<SnapshotPayload> {
     expiry: a.expiry ?? undefined,
     color: a.color ?? '#6366f1',
     isHidden: a.isHidden,
+    position: a.position,
+    isFavorite: a.isFavorite,
     updatedAt: a.updatedAt.toISOString(),
   }))
   const accById = new Map(accRows.map((a) => [a.id, a]))

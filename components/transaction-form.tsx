@@ -16,6 +16,7 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 
+import { AccountBadge } from '@/components/account-badge'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -48,7 +49,12 @@ import {
   ymdOfWall,
 } from '@/lib/walltime'
 
-export type AccountOpt = { id: string; name: string; type?: string }
+export type AccountOpt = {
+  id: string
+  name: string
+  type?: string
+  color?: string
+}
 
 export type TxEditData = {
   id: string
@@ -735,9 +741,10 @@ export function TransactionForm({
                       setPanel(null)
                     }}
                     className={cn(
-                      'flex w-full items-center gap-2 rounded-2xl px-4 py-3 text-left transition hover:bg-(--muted)',
+                      'flex w-full items-center gap-3 rounded-2xl px-4 py-2.5 text-left transition hover:bg-(--muted)',
                       selected && 'bg-(--muted)',
                     )}>
+                    <AccountBadge type={a.type} color={a.color} />
                     <span className="flex-1 text-sm font-semibold">
                       {a.name}
                     </span>

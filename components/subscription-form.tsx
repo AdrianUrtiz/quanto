@@ -6,6 +6,7 @@ import { Check, LayoutGrid, Plus, Repeat, Users, Wallet } from 'lucide-react'
 import { toast } from 'sonner'
 
 import type { AccountOpt } from '@/components/transaction-form'
+import { AccountBadge } from '@/components/account-badge'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -333,9 +334,10 @@ export function SubscriptionForm({
                     setAccOpen(false)
                   }}
                   className={cn(
-                    'flex w-full items-center gap-2 rounded-2xl px-4 py-3 text-left transition hover:bg-(--muted)',
+                    'flex w-full items-center gap-3 rounded-2xl px-4 py-2.5 text-left transition hover:bg-(--muted)',
                     accountId === a.id && 'bg-(--muted)',
                   )}>
+                  <AccountBadge type={a.type} color={a.color} />
                   <span className="flex-1 text-sm font-semibold">{a.name}</span>
                   {accountId === a.id && (
                     <Check className="size-4 text-(--primary)" />

@@ -34,6 +34,8 @@ export type OfflineAccount = {
   expiry?: string
   color: string
   isHidden: boolean
+  position: number
+  isFavorite: boolean
   updatedAt: string // ISO, para futura detección de cambios locales
 }
 

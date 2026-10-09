@@ -49,7 +49,11 @@ export default async function CuentasPage({
     prisma.account.findMany({
       where: { isActive: true, userId: meId },
       include: { user: true },
-      orderBy: { createdAt: 'asc' },
+      orderBy: [
+        { isFavorite: 'desc' },
+        { position: 'asc' },
+        { createdAt: 'asc' },
+      ],
     }),
     // Solo movimientos creados por mi pareja donde YO soy el deudor.
     prisma.transaction.findMany({
@@ -97,6 +101,8 @@ export default async function CuentasPage({
     expiry: a.expiry ?? undefined,
     color: a.color ?? '#6366f1',
     isHidden: a.isHidden,
+    position: a.position,
+    isFavorite: a.isFavorite,
   }))
   // Visibles en listas/totales/selectores; ocultas solo en su tab.
   const accounts = allAccounts.filter((a) => !a.isHidden)

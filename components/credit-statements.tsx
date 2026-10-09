@@ -115,6 +115,8 @@ function StatementPanel({
     lastFour: card.lastFour ?? undefined,
     color: card.color,
     isHidden: false,
+    position: 0,
+    isFavorite: false,
   }
 
   return (

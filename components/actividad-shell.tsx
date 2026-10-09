@@ -34,7 +34,13 @@ type Props = {
   txs: TxRow[]
   months: MonthOpt[]
   cats: CatalogRow[]
-  filterAccounts: { id: string; name: string; type: string }[]
+  filterAccounts: {
+    id: string
+    name: string
+    type: string
+    color?: string
+    isFavorite?: boolean
+  }[]
   expiryAccounts: ExpiryAccount[]
   partnerDebtItems: PartnerPayItem[]
   partnerSums: { key: string; confirmed: number; pending: number }[]

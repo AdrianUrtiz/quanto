@@ -52,9 +52,16 @@ export function toAccountRows(accounts: OfflineAccount[]): {
     expiry: a.expiry,
     color: a.color,
     isHidden: a.isHidden,
+    position: a.position,
+    isFavorite: a.isFavorite,
   })
+  const byOrder = (x: OfflineAccount, y: OfflineAccount) =>
+    Number(y.isFavorite) - Number(x.isFavorite) || x.position - y.position
   return {
-    visible: accounts.filter((a) => !a.isHidden).map(map),
+    visible: accounts
+      .filter((a) => !a.isHidden)
+      .sort(byOrder)
+      .map(map),
     hidden: accounts.filter((a) => a.isHidden).map(map),
   }
 }

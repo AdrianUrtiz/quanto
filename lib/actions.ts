@@ -31,6 +31,7 @@ const AccountSchema = z.object({
     .transform((v) => (v == null ? v : fromCents(toCents(v)))),
   statementDay: z.coerce.number().min(1).max(31).optional(),
   dueDay: z.coerce.number().min(1).max(31).optional(),
+  isFavorite: z.string().optional(),
 })
 
 const EXPIRY_RE = /^(0[1-9]|1[0-2])\/\d{2}$/
@@ -66,12 +67,27 @@ export async function createAccount(formData: FormData) {
       lastFour: v.lastFour || null,
       expiry,
       color: v.color || '#6366f1',
+      position: await prisma.account.count({ where: { userId } }),
+      isFavorite: v.isFavorite === '1',
       initialBalance: v.type === 'DEBIT' ? v.initialBalance : null,
       creditLimit: v.type === 'CREDIT' ? (v.creditLimit ?? null) : null,
       statementDay: v.type === 'CREDIT' ? (v.statementDay ?? null) : null,
       dueDay: v.type === 'CREDIT' ? (v.dueDay ?? null) : null,
     },
   })
+  if (v.isFavorite === '1') {
+    const fav = await prisma.account.findFirst({
+      where: { userId, isFavorite: true },
+      orderBy: { updatedAt: 'desc' },
+      select: { id: true },
+    })
+    if (fav) {
+      await prisma.account.updateMany({
+        where: { userId, id: { not: fav.id } },
+        data: { isFavorite: false },
+      })
+    }
+  }
 
   revalidatePath('/cuentas')
   return { ok: true }
@@ -90,6 +106,7 @@ const UpdateAccountSchema = z.object({
     .transform((v) => (v == null ? v : fromCents(toCents(v)))),
   statementDay: z.coerce.number().min(1).max(31).optional(),
   dueDay: z.coerce.number().min(1).max(31).optional(),
+  isFavorite: z.string().optional(),
 })
 
 // Edición solo del dueño. No se toca type ni initialBalance
@@ -131,6 +148,16 @@ export async function updateAccount(formData: FormData) {
         : {}),
     },
   })
+  if (v.isFavorite === '1') {
+    await prisma.account.updateMany({
+      where: { userId, id: { not: v.id } },
+      data: { isFavorite: false },
+    })
+    await prisma.account.update({
+      where: { id: v.id },
+      data: { isFavorite: true },
+    })
+  }
 
   revalidatePath('/cuentas')
   return { ok: true }
@@ -151,7 +178,10 @@ export async function deleteAccount(id: string) {
   })
   if (!acc) return { error: 'Cuenta no encontrada' }
 
-  await prisma.account.update({ where: { id }, data: { isActive: false } })
+  await prisma.account.update({
+    where: { id },
+    data: { isActive: false, isFavorite: false },
+  })
 
   revalidatePath('/cuentas')
   return { ok: true }
@@ -172,7 +202,66 @@ export async function setAccountHidden(id: string, hidden: boolean) {
   })
   if (!acc) return { error: 'Cuenta no encontrada' }
 
-  await prisma.account.update({ where: { id }, data: { isHidden: hidden } })
+  await prisma.account.update({
+    where: { id },
+    data: hidden ? { isHidden: true, isFavorite: false } : { isHidden: false },
+  })
+
+  revalidatePath('/cuentas')
+  revalidatePath('/actividad')
+  return { ok: true }
+}
+
+// Favorita: una sola por usuario; va primera en listas y preseleccionada
+// en formularios (los selectores usan accountOptions[0]).
+export async function setFavoriteAccount(id: string) {
+  const session = await auth()
+  const userId = (session?.user as { id?: string } | undefined)?.id
+  if (!userId) return { error: 'No autenticado' }
+  if (!process.env.DATABASE_URL)
+    return { error: 'Configura DATABASE_URL para guardar cambios' }
+
+  const acc = await prisma.account.findFirst({
+    where: { id, userId, isActive: true, isHidden: false },
+    select: { id: true },
+  })
+  if (!acc) return { error: 'Cuenta no encontrada' }
+
+  await prisma.$transaction([
+    prisma.account.updateMany({
+      where: { userId, isFavorite: true },
+      data: { isFavorite: false },
+    }),
+    prisma.account.update({ where: { id }, data: { isFavorite: true } }),
+  ])
+
+  revalidatePath('/cuentas')
+  revalidatePath('/actividad')
+  return { ok: true }
+}
+
+// Reorden manual: `ids` en el orden visual deseado (favorita excluida,
+// siempre va primera). Solo cuentas propias.
+export async function reorderAccounts(ids: string[]) {
+  const session = await auth()
+  const userId = (session?.user as { id?: string } | undefined)?.id
+  if (!userId) return { error: 'No autenticado' }
+  if (!process.env.DATABASE_URL)
+    return { error: 'Configura DATABASE_URL para guardar cambios' }
+
+  const mine = await prisma.account.findMany({
+    where: { userId, isActive: true, isHidden: false },
+    select: { id: true },
+  })
+  const mineIds = new Set(mine.map((a) => a.id))
+  const clean = ids.filter((id) => mineIds.has(id))
+  if (clean.length === 0) return { error: 'Sin cuentas para ordenar' }
+
+  await prisma.$transaction(
+    clean.map((id, i) =>
+      prisma.account.update({ where: { id }, data: { position: i } }),
+    ),
+  )
 
   revalidatePath('/cuentas')
   revalidatePath('/actividad')
