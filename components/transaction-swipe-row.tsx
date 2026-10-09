@@ -20,6 +20,7 @@ import {
 
 import { deleteTransaction } from '@/lib/actions'
 import type { CatalogRow } from '@/lib/catalog'
+import { isPendingId } from '@/lib/offline/pending'
 import { formatMoney } from '@/lib/utils'
 import { cn } from '@/lib/utils'
 
@@ -49,6 +50,15 @@ export function TransactionSwipeRow({
   const router = useRouter()
   const start = useRef<{ x: number; base: number } | null>(null)
   const moved = useRef(false)
+  // Eco offline aún no subido: no se edita ni se borra hasta que la
+  // central lo confirme (evita edición-vs-reemplazo). Solo lectura + badge.
+  const pending = isPendingId(t.id)
+
+  function guardPending(): boolean {
+    if (!pending) return false
+    toast.error('Aún no se sube: se podrá editar al sincronizar')
+    return true
+  }
 
   // Si se abre otra fila, esta se cierra.
   useEffect(() => {
@@ -129,6 +139,7 @@ export function TransactionSwipeRow({
           <button
             type="button"
             onClick={() => {
+              if (guardPending()) return
               close()
               setEditOpen(true)
             }}
@@ -139,6 +150,7 @@ export function TransactionSwipeRow({
           <button
             type="button"
             onClick={() => {
+              if (guardPending()) return
               close()
               setDelError(null)
               setConfirmOpen(true)

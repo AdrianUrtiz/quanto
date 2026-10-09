@@ -31,6 +31,8 @@ export type StatementMoveView = {
   kind: 'charge' | 'payment'
   amount: number
   tag: string | null
+  /** Eco local creado sin conexión, pendiente de subir a la central. */
+  pending?: boolean
 }
 
 export type StatementPeriodView = {
@@ -236,6 +238,12 @@ function StatementPanel({
               {m.tag && (
                 <span className="block text-[11px] text-(--muted-foreground)">
                   {m.tag}
+                </span>
+              )}
+              {m.pending && (
+                <span className="mt-0.5 inline-flex items-center gap-1 text-[11px] font-semibold text-amber-500">
+                  <span className="size-1.5 rounded-full bg-amber-500" />
+                  Pendiente
                 </span>
               )}
             </span>

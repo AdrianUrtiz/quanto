@@ -19,7 +19,6 @@ import { mexicoMonthKey } from '@/lib/walltime'
 import { auth } from '@/auth'
 
 export const metadata = { title: 'Actividad' }
-export const dynamic = 'force-dynamic' // el mes y los datos cambian por request
 
 export default async function ActividadPage() {
   const session = await auth()

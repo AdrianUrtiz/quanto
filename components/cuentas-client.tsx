@@ -40,6 +40,7 @@ import type { CardPayCandidate } from '@/lib/card-pay'
 import type { CatalogRow } from '@/lib/catalog'
 import { useCuentasFilters } from '@/lib/cuentas-filters'
 import { toCents } from '@/lib/money'
+import { isPendingId } from '@/lib/offline/pending'
 import {
   type DebtItemInput,
   type PartnerDebt,
@@ -942,6 +943,12 @@ function DebtCard({ d, meId }: { d: PartnerDebt; meId: string }) {
                   {formatMoney(l.monthly)}/mes
                 </span>
               </span>
+              {l.shareId != null && isPendingId(l.shareId) && (
+                <span className="mt-0.5 flex items-center gap-1 font-semibold text-amber-500">
+                  <span className="size-1.5 rounded-full bg-amber-500" />
+                  Pendiente
+                </span>
+              )}
               {l.shareId != null &&
                 (settled ? (
                   <span className="mt-0.5 flex items-center gap-1 font-semibold text-emerald-500">

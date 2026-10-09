@@ -487,6 +487,9 @@ const TxSchema = z.object({
   sharePct: z.coerce.number().min(1).max(100).default(50),
   shareAmount: optionalMoneySchema,
   debtorId: z.string().optional(),
+  // Llave de idempotencia de la cola offline (outbox): `temp-<uuid>`
+  // generado en el dispositivo. Solo la manda el drenado offline.
+  clientKey: z.string().min(1).max(64).optional(),
 })
 
 export async function createTransaction(formData: FormData) {
@@ -517,6 +520,21 @@ export async function createTransaction(formData: FormData) {
   })
   if (!account) return { error: 'Cuenta no encontrada' }
 
+  // Idempotencia offline: si esta llave ya se subió (reintento tras éxito),
+  // no se duplica; se devuelve ok para que el dispositivo limpie su cola.
+  if (v.clientKey) {
+    const dup = await prisma.transaction.findUnique({
+      where: { clientKey: v.clientKey },
+      select: { id: true },
+    })
+    if (dup) {
+      revalidatePath('/actividad')
+      revalidatePath('/resumen')
+      revalidatePath('/cuentas')
+      return { ok: true }
+    }
+  }
+
   // Traspaso entre cuentas propias: sale de un débito y llega a débito o crédito.
   if (v.type === 'TRANSFER') {
     const destId = v.transferToAccountId
@@ -529,23 +547,41 @@ export async function createTransaction(formData: FormData) {
     if (account.type !== 'DEBIT')
       return { error: 'El traspaso debe salir de una cuenta de débito' }
 
-    await prisma.transaction.create({
-      data: {
-        type: 'TRANSFER',
-        amount: v.amount,
-        concept: v.concept,
-        category: v.category,
-        date: parseWallInput(v.date),
-        accountId: v.accountId,
-        transferToAccountId: destId,
-        createdById: userId,
-        installments: 1,
-        isShared: false,
-        // Pago a crédito desde su botón Pagar: se aplica a ese período
-        // aunque la fecha sea posterior al vencimiento.
-        statementKey: dest.type === 'CREDIT' ? (v.statementKey ?? null) : null,
-      },
-    })
+    try {
+      await prisma.transaction.create({
+        data: {
+          type: 'TRANSFER',
+          amount: v.amount,
+          concept: v.concept,
+          category: v.category,
+          date: parseWallInput(v.date),
+          accountId: v.accountId,
+          transferToAccountId: destId,
+          createdById: userId,
+          installments: 1,
+          isShared: false,
+          // Pago a crédito desde su botón Pagar: se aplica a ese período
+          // aunque la fecha sea posterior al vencimiento.
+          statementKey: dest.type === 'CREDIT' ? (v.statementKey ?? null) : null,
+          clientKey: v.clientKey ?? null,
+        },
+      })
+    } catch (e) {
+      // Carrera de reintentos con la misma llave: el otro ya la guardó.
+      if (
+        v.clientKey &&
+        typeof e === 'object' &&
+        e !== null &&
+        'code' in e &&
+        (e as { code?: string }).code === 'P2002'
+      ) {
+        revalidatePath('/actividad')
+        revalidatePath('/resumen')
+        revalidatePath('/cuentas')
+        return { ok: true }
+      }
+      throw e
+    }
 
     revalidatePath('/actividad')
     revalidatePath('/resumen')
@@ -579,44 +615,62 @@ export async function createTransaction(formData: FormData) {
 
   // El saldo se deriva por suma (lib/balances.ts): solo se crean filas.
   // Movimiento + share en una transacción para no dejar mitades.
-  await prisma.$transaction(async (db) => {
-    const tx = await db.transaction.create({
-      data: {
-        type: v.type as 'EXPENSE' | 'INCOME' | 'TRANSFER',
-        amount: v.amount,
-        concept: v.concept,
-        category: v.category,
-        date: parseWallInput(v.date),
-        accountId: v.accountId,
-        createdById: userId,
-        installments: v.type === 'EXPENSE' ? Math.round(v.installments) : 1,
-        isShared: v.type === 'EXPENSE' && v.isShared,
-        // Abono directo a crédito desde su botón Pagar.
-        statementKey:
-          v.type === 'INCOME' && account.type === 'CREDIT'
-            ? (v.statementKey ?? null)
-            : null,
-      },
-    })
-
-    if (v.type === 'EXPENSE' && v.isShared && debtorId) {
-      // Cantidad fija pactada (ej. $125 de $400) o porcentaje (50/50 por defecto).
-      const n = Math.max(1, Math.round(v.installments))
-      await db.transactionShare.create({
+  try {
+    await prisma.$transaction(async (db) => {
+      const tx = await db.transaction.create({
         data: {
-          transactionId: tx.id,
-          debtorId,
-          sharePct: v.shareAmount
-            ? (toCents(v.shareAmount) / toCents(v.amount)) * 100
-            : v.sharePct,
-          monthlyAmount: v.shareAmount
-            ? fromCents(Math.round(toCents(v.shareAmount) / n))
-            : debtorMonthlyAmount(v.amount, v.installments, v.sharePct),
-          isFixedAmount: Boolean(v.shareAmount),
+          type: v.type as 'EXPENSE' | 'INCOME' | 'TRANSFER',
+          amount: v.amount,
+          concept: v.concept,
+          category: v.category,
+          date: parseWallInput(v.date),
+          accountId: v.accountId,
+          createdById: userId,
+          installments: v.type === 'EXPENSE' ? Math.round(v.installments) : 1,
+          isShared: v.type === 'EXPENSE' && v.isShared,
+          // Abono directo a crédito desde su botón Pagar.
+          statementKey:
+            v.type === 'INCOME' && account.type === 'CREDIT'
+              ? (v.statementKey ?? null)
+              : null,
+          clientKey: v.clientKey ?? null,
         },
       })
+
+      if (v.type === 'EXPENSE' && v.isShared && debtorId) {
+        // Cantidad fija pactada (ej. $125 de $400) o porcentaje (50/50 por defecto).
+        const n = Math.max(1, Math.round(v.installments))
+        await db.transactionShare.create({
+          data: {
+            transactionId: tx.id,
+            debtorId,
+            sharePct: v.shareAmount
+              ? (toCents(v.shareAmount) / toCents(v.amount)) * 100
+              : v.sharePct,
+            monthlyAmount: v.shareAmount
+              ? fromCents(Math.round(toCents(v.shareAmount) / n))
+              : debtorMonthlyAmount(v.amount, v.installments, v.sharePct),
+            isFixedAmount: Boolean(v.shareAmount),
+          },
+        })
+      }
+    })
+  } catch (e) {
+    // Carrera de reintentos con la misma llave: el otro ya la guardó.
+    if (
+      v.clientKey &&
+      typeof e === 'object' &&
+      e !== null &&
+      'code' in e &&
+      (e as { code?: string }).code === 'P2002'
+    ) {
+      revalidatePath('/actividad')
+      revalidatePath('/resumen')
+      revalidatePath('/cuentas')
+      return { ok: true }
     }
-  })
+    throw e
+  }
 
   revalidatePath('/actividad')
   revalidatePath('/resumen')

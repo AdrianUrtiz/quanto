@@ -15,6 +15,7 @@ import type {
   OfflineShare,
   OfflineTransaction,
 } from '@/lib/offline/db'
+import { isPendingId } from '@/lib/offline/pending'
 import { deriveMonths, toCatalog } from '@/lib/offline/derive-activity'
 import { type StatementTx, activePeriods } from '@/lib/statements'
 import { wallNow } from '@/lib/walltime'
@@ -34,6 +35,7 @@ export function toMineTxs(rows: OfflineTransaction[]): ResumenMineTx[] {
       amount: t.amount,
       date: t.date,
       accountName: t.accountName,
+      pendingSync: isPendingId(t.id),
     }))
 }
 
@@ -75,6 +77,7 @@ export function toInvolvedTxs(
         creatorName: t.creatorName,
         statementDay: acc?.statementDay ?? undefined,
         dueDay: acc?.dueDay ?? undefined,
+        pendingSync: isPendingId(t.id),
         shares: toShareRows(sharesByTx.get(t.id) ?? []),
       }
     })
@@ -90,6 +93,7 @@ export function toInvolvedTxs(
     creatorName: p.creatorName,
     statementDay: p.statementDay ?? undefined,
     dueDay: p.dueDay ?? undefined,
+    pendingSync: isPendingId(p.id),
     shares: toShareRows(sharesByTx.get(p.id) ?? []),
   }))
 
@@ -109,7 +113,12 @@ export function deriveStatements(
   transactions: OfflineTransaction[],
 ): CreditStatementView[] {
   const now = wallNow()
-  const cards = accounts.filter((a) => a.type === 'CREDIT' && !a.isHidden)
+  const cards = accounts
+    .filter((a) => a.type === 'CREDIT' && !a.isHidden)
+    .sort(
+      (x, y) =>
+        Number(y.isFavorite) - Number(x.isFavorite) || x.position - y.position,
+    )
   const cardIds = new Set(cards.map((c) => c.id))
   const balanceById = new Map(accounts.map((a) => [a.id, a.balance]))
 
@@ -133,7 +142,10 @@ export function deriveStatements(
 
   const debitOpts = accounts
     .filter((a) => a.type === 'DEBIT' && !a.isHidden)
-    .sort((x, y) => Number(y.isFavorite) - Number(x.isFavorite) || x.position - y.position)
+    .sort(
+      (x, y) =>
+        Number(y.isFavorite) - Number(x.isFavorite) || x.position - y.position,
+    )
     .map((d) => ({ id: d.id, name: d.name, type: d.type, color: d.color }))
 
   return cards.map((c) => {

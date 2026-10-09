@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 
+import { useLiveQuery } from 'dexie-react-hooks'
 import { Landmark, Plus, Repeat } from 'lucide-react'
 import { usePathname } from 'next/navigation'
 
@@ -11,6 +12,8 @@ import { SubscriptionForm } from '@/components/subscription-form'
 import { type AccountOpt, TransactionForm } from '@/components/transaction-form'
 
 import type { CatalogRow } from '@/lib/catalog'
+import { db } from '@/lib/offline/db'
+import { toCatalog } from '@/lib/offline/derive-activity'
 import { cn } from '@/lib/utils'
 
 const FAB_CLS =
@@ -138,6 +141,24 @@ function CuentasSpeedDial({ accountOptions, cats }: FabProps) {
 
 function TxFab({ accountOptions, cats }: FabProps) {
   const [open, setOpen] = useState(false)
+  // Dexie-first (coherente con los shells): con copia local, cuentas y
+  // catálogo salen de IndexedDB y el form funciona sin conexión. Los props
+  // del servidor quedan como fallback de primera carga.
+  const local = useLiveQuery(async () => {
+    const [accounts, categories] = await Promise.all([
+      db.accounts.toArray(),
+      db.categories.toArray(),
+    ])
+    return { accounts, categories }
+  }, [])
+  const hasLocal =
+    !!local && (local.accounts.length > 0 || local.categories.length > 0)
+  const opts: AccountOpt[] = hasLocal
+    ? local.accounts
+        .filter((a) => !a.isHidden)
+        .map((a) => ({ id: a.id, name: a.name, type: a.type, color: a.color }))
+    : accountOptions
+  const catalog: CatalogRow[] = hasLocal ? toCatalog(local.categories) : cats
   return (
     <>
       <button
@@ -148,8 +169,8 @@ function TxFab({ accountOptions, cats }: FabProps) {
       </button>
       <BottomSheet open={open} onOpenChange={setOpen}>
         <TransactionForm
-          accountOptions={accountOptions}
-          cats={cats}
+          accountOptions={opts}
+          cats={catalog}
           onDone={() => setOpen(false)}
         />
       </BottomSheet>

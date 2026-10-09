@@ -32,6 +32,8 @@ export type TxRow = {
   partnerShare?: boolean
   /** Movimiento huella de un pago CONFIRMED: sin acciones (solo lectura). */
   locked?: boolean
+  /** Eco local creado sin conexión, pendiente de subir a la central. */
+  pendingSync?: boolean
 }
 
 export function TransactionRow({ t, cats }: { t: TxRow; cats: CatalogRow[] }) {
@@ -43,7 +45,7 @@ export function TransactionRow({ t, cats }: { t: TxRow; cats: CatalogRow[] }) {
   return (
     <li className="flex items-center gap-3 rounded-3xl border border-(--border) bg-(--card) p-3.5">
       <span
-        className={`flex size-11 shrink-0 items-center justify-center rounded-2xl ${transfer ? 'bg-(--muted)' : ''}`}
+        className={`relative flex size-11 shrink-0 items-center justify-center rounded-2xl ${transfer ? 'bg-(--muted)' : ''}`}
         style={
           transfer
             ? undefined
@@ -53,6 +55,13 @@ export function TransactionRow({ t, cats }: { t: TxRow; cats: CatalogRow[] }) {
           <ArrowLeftRight className="size-5 text-(--primary)" />
         ) : (
           <CatIcon className="size-5" />
+        )}
+        {t.pendingSync && (
+          <span
+            aria-label="Pendiente de subir"
+            title="Pendiente de subir"
+            className="absolute -top-0.5 -right-0.5 size-3 rounded-full border-2 border-(--card) bg-amber-500"
+          />
         )}
       </span>
       <div className="min-w-0 flex-1">
@@ -66,6 +75,7 @@ export function TransactionRow({ t, cats }: { t: TxRow; cats: CatalogRow[] }) {
               : `${t.accountName} · ${t.creatorName}`}
         </p>
         <div className="mt-1 flex flex-wrap gap-1">
+          {t.pendingSync && <Badge variant="warning">Pendiente</Badge>}
           {t.installments > 1 && (
             <Badge variant="warning">
               <Repeat className="size-3" /> {t.installments} MSI

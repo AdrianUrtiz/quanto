@@ -38,6 +38,8 @@ export type ResumenMineTx = {
   amount: number
   date: string // ISO
   accountName: string
+  /** Eco local creado sin conexión, pendiente de subir a la central. */
+  pendingSync?: boolean
 }
 
 export type ResumenInvolvedTx = {
@@ -51,6 +53,8 @@ export type ResumenInvolvedTx = {
   creatorName: string
   statementDay?: number | null
   dueDay?: number | null
+  /** Eco local creado sin conexión, pendiente de subir a la central. */
+  pendingSync?: boolean
   shares: {
     id: string
     debtorId: string
@@ -283,9 +287,17 @@ export function ResumenClient({
               <p className="text-xl font-extrabold">{formatMoney(s.amount)}</p>
               <ul className="mt-1 space-y-0.5 text-xs text-(--muted-foreground)">
                 {s.details.map((d, i) => (
-                  <li key={i}>
-                    · {d.concept} — {formatMoney(d.monthly)}/mes (
-                    {d.installment})
+                  <li key={i} className="flex items-center gap-1.5">
+                    <span>
+                      · {d.concept} — {formatMoney(d.monthly)}/mes (
+                      {d.installment})
+                    </span>
+                    {d.pending && (
+                      <span className="inline-flex items-center gap-1 font-semibold text-amber-500">
+                        <span className="size-1.5 rounded-full bg-amber-500" />
+                        Pendiente
+                      </span>
+                    )}
                   </li>
                 ))}
               </ul>

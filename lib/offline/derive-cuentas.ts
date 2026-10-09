@@ -22,8 +22,10 @@ import type {
   OfflinePartnerShared,
   OfflineShare,
   OfflineSubscription,
+  OfflineTransaction,
 } from '@/lib/offline/db'
 import { toCardPayItems, toCatalog } from '@/lib/offline/derive-activity'
+import { isPendingId } from '@/lib/offline/pending'
 import { type DebtItemInput, buildDebts } from '@/lib/partner-debts'
 import type { DueCharge, SubInfo } from '@/lib/subscriptions'
 import { computeDues, monthHistory } from '@/lib/subscriptions'
@@ -93,6 +95,59 @@ export function toDebtItems(rows: OfflinePartnerDebt[]): {
     debtItems: rows.filter((d) => d.direction === 'owe').map(toDebtInput),
     owedItems: rows.filter((d) => d.direction === 'owed').map(toDebtInput),
   }
+}
+
+/**
+ * Ecos offline de MIS compartidos ("me deben"): aún no están en
+ * `partnerDebts` del snapshot (llegan al drenar), pero deben pintar igual
+ * que los sincronizados —con badge— en Cuentas > Pareja y el selector de
+ * meses. Sin pagos aún: `sums` no los trae y `buildDebts` los cuenta como
+ * por liquidar completos.
+ */
+export function toEchoOwedItems(
+  transactions: OfflineTransaction[],
+  accounts: OfflineAccount[],
+  shares: OfflineShare[],
+  meId: string,
+): DebtItemInput[] {
+  const accById = new Map(accounts.map((a) => [a.id, a]))
+  const sharesByTx = new Map<string, OfflineShare[]>()
+  for (const s of shares) {
+    const arr = sharesByTx.get(s.transactionId) ?? []
+    arr.push(s)
+    sharesByTx.set(s.transactionId, arr)
+  }
+  return transactions
+    .filter(
+      (t) =>
+        isPendingId(t.id) &&
+        !t.partnerShare &&
+        t.type === 'EXPENSE' &&
+        t.isShared &&
+        t.createdById === meId,
+    )
+    .flatMap((t) =>
+      (sharesByTx.get(t.id) ?? [])
+        .filter((s) => s.debtorId !== meId)
+        .map((s) => {
+          const acc = accById.get(t.accountId)
+          return {
+            shareId: s.id,
+            accountId: t.accountId,
+            accountName: t.accountName,
+            accountType: t.accountType as 'DEBIT' | 'CREDIT',
+            dueDay: acc?.dueDay ?? undefined,
+            debtorId: s.debtorId,
+            debtorName: s.debtorName,
+            creditorName: t.creatorName,
+            concept: t.concept,
+            monthly: s.monthlyAmount,
+            installments: t.installments,
+            date: t.date,
+            statementDay: acc?.statementDay ?? undefined,
+          } satisfies DebtItemInput
+        }),
+    )
 }
 
 export function toSums(rows: OfflineLineSum[]): {

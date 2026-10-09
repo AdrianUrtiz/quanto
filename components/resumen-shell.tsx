@@ -5,6 +5,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import type { MonthOpt } from '@/components/activity-client'
 import type { CreditStatementView } from '@/components/credit-statements'
 import { ResumenClient } from '@/components/resumen-client'
+import { PendingOutboxBanner } from '@/components/pending-outbox-banner'
 import type {
   ResumenInvolvedTx,
   ResumenMineTx,
@@ -21,6 +22,7 @@ import {
   toMineTxs,
 } from '@/lib/offline/derive-resumen'
 import { useOnlineStatus } from '@/lib/offline/useOnlineStatus'
+import { useSnapshotSync } from '@/lib/offline/useSnapshotSync'
 
 type Props = {
   months: MonthOpt[]
@@ -32,12 +34,14 @@ type Props = {
 }
 
 /**
- * Hidratación offline de Resumen: en línea renderiza los props del servidor
- * tal cual; sin conexión deriva el mismo view-model desde IndexedDB
- * (donut, liquidación, estados de cuenta) vía `useLiveQuery`.
+ * Hidratación Dexie-first de Resumen: si hay copia local (online u offline)
+ * se deriva el view-model desde IndexedDB y pinta al instante; los props
+ * del servidor solo son fallback de primera carga. La revalidación corre
+ * en background sin bloquear.
  */
 export function ResumenShell(server: Props) {
   const online = useOnlineStatus()
+  const { isRevalidating } = useSnapshotSync()
   const local = useLiveQuery(async () => {
     const [
       meta,
@@ -69,7 +73,8 @@ export function ResumenShell(server: Props) {
 
   const hasLocal =
     !!local && (local.transactions.length > 0 || local.accounts.length > 0)
-  const useLocal = !online && hasLocal
+  // Dexie-first: con copia local se usa siempre (online u offline).
+  const useLocal = hasLocal
 
   const mine = useLocal ? toMineTxs(local.transactions) : server.mine
   // Meses solo con MIS gastos (igual que el servidor: sin parte de pareja).
@@ -122,6 +127,14 @@ export function ResumenShell(server: Props) {
           Sin conexión · datos del {lastSync}
         </p>
       )}
+      {online && useLocal && isRevalidating && (
+        <p
+          role="status"
+          className="px-5 pt-3 text-center text-xs font-medium text-(--muted-foreground)">
+          Actualizando…
+        </p>
+      )}
+      <PendingOutboxBanner />
       <ResumenClient
         months={view.months}
         mine={view.mine}

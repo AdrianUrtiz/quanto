@@ -39,6 +39,14 @@ import {
 } from '@/lib/categories'
 import { createCategory } from '@/lib/category-actions'
 import { fromCents, normalizeMoney, toCents, toFixedCents } from '@/lib/money'
+import { isPendingId } from '@/lib/offline/pending'
+import {
+  enqueueOfflineCreate,
+  resolvePartner,
+  validateOfflineCreate,
+  type EnqueueInput,
+} from '@/lib/offline/outbox'
+import { useOnlineStatus } from '@/lib/offline/useOnlineStatus'
 import { cn } from '@/lib/utils'
 import {
   addWallDays,
@@ -158,6 +166,21 @@ export function TransactionForm({
   const [msg, setMsg] = useState<string | null>(null)
   const [pending, setPending] = useState(false)
   const [savingCat, setSavingCat] = useState(false)
+  const online = useOnlineStatus()
+  // Nombre de la pareja (desde la copia local) para el panel Compartir.
+  const [partnerName, setPartnerName] = useState<string | null>(null)
+  useEffect(() => {
+    if (editing) return
+    let alive = true
+    resolvePartner()
+      .then((p) => {
+        if (alive && p) setPartnerName(p.name)
+      })
+      .catch(() => undefined)
+    return () => {
+      alive = false
+    }
+  }, [editing])
 
   // Al crear una categoría, llega por `localRows` y —tras revalidar el
   // servidor— también por el prop `cats`: se deduplica por código para
@@ -315,6 +338,75 @@ export function TransactionForm({
         }
       }
     }
+    // Sin red: solo CREACIÓN → cola offline con eco local. La edición
+    // necesita la fila en la central (o ya subida): se bloquea con mensaje.
+    if (!online) {
+      if (editing) {
+        setMsg(
+          entry && isPendingId(entry.id)
+            ? 'Aún no se sube: se podrá editar al sincronizar'
+            : 'Sin conexión: conéctate para guardar cambios',
+        )
+        setPending(false)
+        return
+      }
+      // Deudor desde la copia local (el servidor ya no puede resolverlo).
+      let debtor: { id: string; name: string } | null = null
+      if (mode === 'cargo' && shared) {
+        try {
+          debtor = await resolvePartner()
+        } catch {
+          debtor = null
+        }
+      }
+      const strOrUndef = (v: FormDataEntryValue | null) =>
+        v == null ? undefined : String(v)
+      const transferId = strOrUndef(fd.get('transferToAccountId'))
+      const shareAmountRaw = strOrUndef(fd.get('shareAmount'))
+      const input: EnqueueInput = {
+        type: String(fd.get('type')) as 'EXPENSE' | 'INCOME' | 'TRANSFER',
+        amount: Number(fd.get('amount')),
+        concept: String(fd.get('concept')),
+        category: String(fd.get('category')),
+        date: String(fd.get('date')),
+        accountId: String(fd.get('accountId')),
+        accountType: accountOptions.find((a) => a.id === accountId)?.type,
+        transferToAccountId: transferId,
+        transferToAccountType: transferId
+          ? accountOptions.find((a) => a.id === transferId)?.type
+          : undefined,
+        installments: Number(fd.get('installments') ?? 1),
+        isShared: fd.get('isShared') === 'true',
+        sharePct: Number(fd.get('sharePct') ?? 50),
+        shareAmount: shareAmountRaw != null ? Number(shareAmountRaw) : null,
+        debtorId: debtor?.id,
+        debtorName: debtor?.name,
+      }
+      const invalid = validateOfflineCreate(input, {
+        accounts: accountOptions.map((a) => ({ id: a.id, type: a.type })),
+        categoryCodes: new Set([...cats, ...localRows].map((c) => c.code)),
+      })
+      if (invalid) {
+        setMsg(invalid)
+        setPending(false)
+        return
+      }
+      try {
+        await enqueueOfflineCreate(input)
+      } catch (e) {
+        const message =
+          e instanceof Error ? e.message : 'No se pudo guardar'
+        setMsg(message)
+        toast.error(message)
+        setPending(false)
+        return
+      }
+      setPending(false)
+      setMsg(null)
+      toast.success('Guardado en el dispositivo · se subirá solo')
+      onDone?.()
+      return
+    }
     const res = editing
       ? await updateTransaction(fd)
       : await createTransaction(fd)
@@ -332,6 +424,10 @@ export function TransactionForm({
   }
 
   async function saveCustomCat() {
+    if (!online) {
+      setMsg('Conéctate para crear categorías')
+      return
+    }
     if (newCatName.trim().length < 2) {
       setMsg('La categoría necesita al menos 2 letras')
       return
@@ -797,7 +893,9 @@ export function TransactionForm({
           </DialogHeader>
           <div className="flex items-center justify-between rounded-2xl border border-(--border) px-4 py-3">
             <div>
-              <p className="text-sm font-semibold">Compartir con mi pareja</p>
+              <p className="text-sm font-semibold">
+                Compartir con {partnerName ?? 'mi pareja'}
+              </p>
               <p className="text-xs text-(--muted-foreground)">
                 Define su aportación
               </p>

@@ -2,6 +2,16 @@ import type { NextConfig } from 'next'
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  // Client Cache: volver a una tab visitada reutiliza el RSC sin refetch.
+  // `dynamic: 120` = 2 min para páginas dinámicas (Actividad/Resumen/Cuentas);
+  // `static: 300` = 5 min para segmentos estáticos. La frescura de datos la
+  // garantiza Dexie-first + revalidación del snapshot en background.
+  experimental: {
+    staleTimes: {
+      dynamic: 120,
+      static: 300,
+    },
+  },
   async headers() {
     return [
       {

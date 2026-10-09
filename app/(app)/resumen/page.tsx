@@ -15,7 +15,6 @@ import { mexicoMonthKey, utc, wallNow } from '@/lib/walltime'
 import { auth } from '@/auth'
 
 export const metadata = { title: 'Resumen' }
-export const dynamic = 'force-dynamic'
 
 export default async function ResumenPage() {
   const session = await auth()

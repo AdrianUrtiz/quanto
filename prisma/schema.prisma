@@ -129,6 +129,11 @@ model Transaction {
   debtPayment DebtPayment? @relation("PaymentTransaction")
   debtorSourcePayment DebtPayment? @relation("DebtorPaymentTransaction")
 
+  // Llave de idempotencia para subidas offline (outbox): el cliente genera
+  // `temp-<uuid>` y el servidor la guarda una sola vez. Los reintentos con
+  // la misma llave devuelven ok sin duplicar. Null = creado online.
+  clientKey String? @unique
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

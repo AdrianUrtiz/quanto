@@ -22,6 +22,7 @@ import type {
   OfflineTransaction,
 } from '@/lib/offline/db'
 import type { PartnerPayItem } from '@/lib/partner-pay'
+import { isPendingId } from '@/lib/offline/pending'
 import { monthKey, monthLabelEs } from '@/lib/utils'
 import { mexicoMonthKey } from '@/lib/walltime'
 
@@ -44,6 +45,7 @@ export function toTxRows(rows: OfflineTransaction[]): TxRow[] {
     isShared: t.isShared,
     partnerShare: t.partnerShare ?? false,
     locked: t.locked ?? false,
+    pendingSync: isPendingId(t.id),
   }))
 }
 

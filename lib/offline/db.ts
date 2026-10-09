@@ -162,13 +162,17 @@ export type OfflinePartnerShared = {
 }
 
 // Reserva para el sprint de creación offline: cola de operaciones
-// pendientes de subir a la central. Vacía en v1 (solo lectura).
+// pendientes de subir a la central. `error` guarda el último rechazo del
+// servidor (p. ej. cuenta eliminada) para la tarjeta de acciones urgentes.
+// Campos no indexados: añadirlos no requiere subir DB_VERSION.
 export type OfflineOutboxOp = {
   localId?: number
   kind: string
   payload: string // JSON
   createdAt: string // ISO
   status: 'PENDING' | 'SENDING' | 'FAILED'
+  /** Último error del servidor (solo en FAILED). */
+  error?: string | null
 }
 
 class QuantoDB extends Dexie {

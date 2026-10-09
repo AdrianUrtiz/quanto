@@ -6,6 +6,7 @@
 'use client'
 
 import { SNAPSHOT_VERSION, clearLocalData, db } from '@/lib/offline/db'
+import { restoreEchoes } from '@/lib/offline/outbox'
 import type { SnapshotPayload } from '@/lib/offline/snapshot'
 
 export const SYNC_STALE_MS = 15 * 60 * 1000
@@ -119,5 +120,8 @@ async function saveSnapshot(snap: SnapshotPayload): Promise<void> {
 export async function syncNow(): Promise<SnapshotPayload> {
   const snap = await fetchSnapshot()
   await saveSnapshot(snap)
+  // La descarga (`clear()`) borra los ecos offline: se reponen los de las
+  // ops que sigan en cola (fallidas o aún no subidas).
+  await restoreEchoes()
   return snap
 }

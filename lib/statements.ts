@@ -43,6 +43,8 @@ export type StatementMove = {
   kind: 'charge' | 'payment'
   amount: number
   tag: string | null // "2/3 MSI" | "Pago" | "Abono"
+  /** Parcialidad/pago de un eco local aún no subido. */
+  pending?: boolean
 }
 
 export type Statement = StatementPeriod & {
@@ -55,6 +57,7 @@ export type Statement = StatementPeriod & {
 }
 
 import { fromCents, splitMoney, toCents } from '@/lib/money'
+import { isPendingId } from '@/lib/offline/pending'
 import {
   addWallMonths,
   daysInWallMonth,
@@ -444,6 +447,7 @@ export function buildStatements(
           kind: 'charge',
           amount: parts[i],
           tag: n > 1 ? `${i + 1}/${n} MSI` : null,
+          pending: isPendingId(tx.id),
         })
       }
     }
@@ -460,6 +464,7 @@ export function buildStatements(
         kind: 'payment',
         amount: round2(tx.amount),
         tag: tx.type === 'TRANSFER' ? 'Pago' : 'Abono',
+        pending: isPendingId(tx.id),
       })
     }
     // Vinculados a este período (botón Pagar del período): cuentan aquí
@@ -476,6 +481,7 @@ export function buildStatements(
         kind: 'payment',
         amount: round2(tx.amount),
         tag: late ? `${base} · Extemporáneo` : base,
+        pending: isPendingId(tx.id),
       })
     }
 

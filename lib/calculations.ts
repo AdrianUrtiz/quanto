@@ -10,6 +10,7 @@
 //   mes < mes de compra + installments.
 
 import { fromCents, toCents } from '@/lib/money'
+import { isPendingId } from '@/lib/offline/pending'
 import { installmentDate, periodContaining } from '@/lib/statements'
 import { fmtMonthLong, monthKeyOfWall } from '@/lib/walltime'
 
@@ -119,7 +120,13 @@ export type SettlementLine = {
   debtorName: string
   creditorName: string
   amount: number // lo que debe aportar este mes
-  details: { concept: string; monthly: number; installment: string }[]
+  details: {
+    concept: string
+    monthly: number
+    installment: string
+    /** Parcialidad de un eco local aún no subido. */
+    pending?: boolean
+  }[]
 }
 
 /**
@@ -188,6 +195,7 @@ export function settleMonth(
           concept: tx.concept,
           monthly: rest,
           installment: `${p.index + 1}/${tx.installments}`,
+          pending: isPendingId(tx.id),
         })
         map.set(key, line)
       }
