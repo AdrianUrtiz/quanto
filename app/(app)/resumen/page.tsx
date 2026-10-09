@@ -120,7 +120,7 @@ export default async function ResumenPage() {
     }),
     prisma.account.findMany({
       where: { userId: meId, isActive: true, isHidden: false, type: 'DEBIT' },
-      select: { id: true, name: true },
+      select: { id: true, name: true, type: true, color: true },
       orderBy: { createdAt: 'asc' },
     }),
     getAccountBalances(meId),
@@ -177,7 +177,12 @@ export default async function ResumenPage() {
         available: limit != null ? limit - debt : null,
       },
       currentKey,
-      debitOpts: debitRows.map((d) => ({ id: d.id, name: d.name })),
+      debitOpts: debitRows.map((d) => ({
+        id: d.id,
+        name: d.name,
+        type: d.type as 'DEBIT' | 'CREDIT',
+        color: d.color ?? '#6366f1',
+      })),
       periods: stmts.map((p) => ({
         ...p,
         start: p.start.toISOString(),

@@ -109,7 +109,7 @@ export function ActivityClient({
   cats: CatalogRow[]
   expiryAccounts?: ExpiryAccount[]
   /** Cuentas propias no ocultas para el filtro (débito y crédito). */
-  filterAccounts?: { id: string; name: string; type: string }[]
+  filterAccounts?: { id: string; name: string; type: string; color?: string }[]
   /** Lo que le debo a mi pareja (origen Cuentas > Pareja). */
   partnerDebtItems?: PartnerPayItem[]
   partnerSums?: { key: string; confirmed: number; pending: number }[]
@@ -310,6 +310,7 @@ export function ActivityClient({
   // Opciones de cuenta para el diálogo de edición (solo las mías, ya filtradas;
   // las filas de pareja son solo lectura y no aportan cuentas).
   const accountOptionsAll = useMemo(() => {
+    const colorById = new Map(filterAccounts.map((a) => [a.id, a.color]))
     const map = new Map<string, { name: string; type: string }>()
     for (const t of txs)
       if (!t.partnerShare)
@@ -318,8 +319,9 @@ export function ActivityClient({
       id,
       name: v.name,
       type: v.type,
+      color: colorById.get(id),
     }))
-  }, [txs])
+  }, [txs, filterAccounts])
 
   // Opciones: todas las cuentas propias no ocultas (débito y crédito),
   // ordenadas A–Z y sin contadores. Un traspaso involucra dos cuentas:

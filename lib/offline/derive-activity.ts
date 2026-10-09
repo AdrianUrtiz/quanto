@@ -81,10 +81,10 @@ export function toCatalog(rows: OfflineCategory[]): CatalogRow[] {
 /** Cuentas visibles (no ocultas) para filtros y banners. */
 export function toAccountOptions(
   rows: OfflineAccount[],
-): { id: string; name: string; type: string }[] {
+): { id: string; name: string; type: string; color: string }[] {
   return rows
     .filter((a) => !a.isHidden)
-    .map((a) => ({ id: a.id, name: a.name, type: a.type }))
+    .map((a) => ({ id: a.id, name: a.name, type: a.type, color: a.color }))
 }
 
 export function toExpiryAccounts(rows: OfflineAccount[]): ExpiryAccount[] {

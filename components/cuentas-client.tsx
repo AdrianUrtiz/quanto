@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 
 import type { AccountRow } from '@/components/account-card'
+import { AccountBadge } from '@/components/account-badge'
 import { AccountForm } from '@/components/account-form'
 import {
   AccountSwipeRow,
@@ -227,7 +228,7 @@ export function CuentasClient({
       onOpenChange={(o) => setOpenRow(o ? a.id : null)}
       debitOptions={mine
         .filter((m) => m.type === 'DEBIT')
-        .map((m) => ({ id: m.id, name: m.name, type: m.type }))}
+        .map((m) => ({ id: m.id, name: m.name, type: m.type, color: m.color }))}
     />
   )
 
@@ -255,7 +256,13 @@ export function CuentasClient({
   )
 
   const accountOpts = useMemo(
-    () => mine.map((a) => ({ id: a.id, name: a.name, type: a.type })),
+    () =>
+      mine.map((a) => ({
+        id: a.id,
+        name: a.name,
+        type: a.type,
+        color: a.color,
+      })),
     [mine],
   )
 
@@ -1052,7 +1059,7 @@ function SourceConfirmSheet({
   onDone,
 }: {
   p: SourceConfirmItem
-  accountOptions: { id: string; name: string }[]
+  accountOptions: { id: string; name: string; type?: string; color?: string }[]
   onDone: () => void
 }) {
   const [accountId, setAccountId] = useState(accountOptions[0]?.id ?? '')
@@ -1098,7 +1105,8 @@ function SourceConfirmSheet({
             <button
               type="button"
               onClick={() => setAccountId(a.id)}
-              className={`flex w-full items-center gap-2 rounded-2xl px-4 py-3 text-left transition hover:bg-(--muted) ${accountId === a.id ? 'bg-(--muted)' : ''}`}>
+              className={`flex w-full items-center gap-3 rounded-2xl px-4 py-2.5 text-left transition hover:bg-(--muted) ${accountId === a.id ? 'bg-(--muted)' : ''}`}>
+              <AccountBadge type={a.type} color={a.color} />
               <span className="flex-1 text-sm font-semibold">{a.name}</span>
               {accountId === a.id && (
                 <Check className="size-4 text-(--primary)" />

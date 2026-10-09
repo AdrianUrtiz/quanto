@@ -133,7 +133,7 @@ export function deriveStatements(
 
   const debitOpts = accounts
     .filter((a) => a.type === 'DEBIT' && !a.isHidden)
-    .map((d) => ({ id: d.id, name: d.name }))
+    .map((d) => ({ id: d.id, name: d.name, type: d.type, color: d.color }))
 
   return cards.map((c) => {
     const txs = cardTxs.filter(

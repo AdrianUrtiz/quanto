@@ -56,7 +56,7 @@ export default async function ActividadPage() {
     }),
     prisma.account.findMany({
       where: { userId: meId },
-      select: { id: true, name: true, type: true },
+      select: { id: true, name: true, type: true, color: true },
     }),
   ])
   const accById = new Map(accRows.map((a) => [a.id, a]))
@@ -198,6 +198,7 @@ export default async function ActividadPage() {
     id: a.id,
     name: a.name,
     type: a.type as 'DEBIT' | 'CREDIT',
+    color: a.color ?? '#6366f1',
   }))
   const toConfirm: ToConfirmItem[] = pendingRows
     .filter((p) => p.registeredById !== meId)
