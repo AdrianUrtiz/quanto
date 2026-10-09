@@ -69,6 +69,18 @@ body {
   scrollbar-width: none;
 }
 
+/* App tipo móvil: ocultar scrollbar global manteniendo el scroll.
+   Solo visual — el scroll táctil / rueda / teclado sigue funcionando. */
+html,
+body {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+html::-webkit-scrollbar,
+body::-webkit-scrollbar {
+  display: none;
+}
+
 /* Histograma de actividad */
 .bar-anim {
   transition: height 0.4s ease;
