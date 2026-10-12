@@ -4,6 +4,7 @@ import type { CreditStatementView } from '@/components/credit-statements'
 import { ResumenShell } from '@/components/resumen-shell'
 
 import { getAccountBalances } from '@/lib/balances'
+import { byAccountOrder } from '@/lib/accounts'
 import { getCatalog } from '@/lib/catalog'
 import { getLineSums } from '@/lib/debt-payments'
 import { normalizeMoney } from '@/lib/money'
@@ -15,7 +16,6 @@ import { mexicoMonthKey, utc, wallNow } from '@/lib/walltime'
 import { auth } from '@/auth'
 
 export const metadata = { title: 'Resumen' }
-export const dynamic = 'force-dynamic'
 
 export default async function ResumenPage() {
   const session = await auth()
@@ -124,7 +124,14 @@ export default async function ResumenPage() {
     }),
     prisma.account.findMany({
       where: { userId: meId, isActive: true, isHidden: false, type: 'DEBIT' },
-      select: { id: true, name: true, type: true, color: true },
+      select: {
+        id: true,
+        name: true,
+        type: true,
+        color: true,
+        isFavorite: true,
+        position: true,
+      },
       orderBy: [
         { isFavorite: 'desc' },
         { position: 'asc' },
@@ -201,6 +208,26 @@ export default async function ResumenPage() {
     }
   })
 
+  // Cuentas para iconos y orden del filtro (débito + crédito).
+  const filterAccounts = [
+    ...debitRows.map((d) => ({
+      id: d.id,
+      name: d.name,
+      type: d.type as 'DEBIT' | 'CREDIT',
+      color: d.color ?? '#6366f1',
+      isFavorite: d.isFavorite,
+      position: d.position,
+    })),
+    ...cards.map((c) => ({
+      id: c.id,
+      name: c.name,
+      type: 'CREDIT' as const,
+      color: c.color ?? '#6366f1',
+      isFavorite: c.isFavorite,
+      position: c.position,
+    })),
+  ].sort(byAccountOrder)
+
   return (
     <>
       <ResumenShell
@@ -210,6 +237,7 @@ export default async function ResumenPage() {
         confirmed={confirmed}
         cats={catalog}
         statements={statements}
+        filterAccounts={filterAccounts}
       />
     </>
   )

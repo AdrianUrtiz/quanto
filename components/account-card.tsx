@@ -29,24 +29,23 @@ export function AccountCard({ a }: { a: AccountRow }) {
   return (
     <div className="flex items-center gap-3 rounded-3xl border border-(--border) bg-(--card) p-4">
       <span
-        className="flex size-11 shrink-0 items-center justify-center rounded-2xl text-white"
+        className="relative flex size-11 shrink-0 items-center justify-center rounded-2xl text-white"
         style={{ background: a.color }}>
         <Icon className="size-5" />
+        {a.isFavorite && (
+          <span
+            aria-label="Cuenta favorita"
+            className="absolute -top-1.5 -right-1.5 flex size-5 items-center justify-center rounded-full bg-(--card) shadow">
+            <Star className="size-3.5 fill-amber-400 text-amber-400" />
+          </span>
+        )}
       </span>
       <div className="min-w-0 flex-1">
-        <p className="flex items-center gap-1.5 truncate text-sm font-semibold">
-          <span className="truncate">
-            {a.name}{' '}
-            {a.lastFour && (
-              <span className="text-(--muted-foreground)">· ·{a.lastFour}</span>
-            )}{' '}
-          </span>
-          {a.isFavorite && (
-            <Star
-              aria-label="Cuenta favorita"
-              className="size-3.5 shrink-0 fill-amber-400 text-amber-400"
-            />
-          )}
+        <p className="truncate text-sm font-semibold">
+          {a.name}{' '}
+          {a.lastFour && (
+            <span className="text-(--muted-foreground)">· ·{a.lastFour}</span>
+          )}{' '}
         </p>
         <p className="text-xs text-(--muted-foreground)">
           {a.expiry && (

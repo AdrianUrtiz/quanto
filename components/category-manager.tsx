@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react'
 
 import { Pencil, Plus, Trash2 } from 'lucide-react'
+import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 
 import { BottomSheet } from '@/components/bottom-sheet'
@@ -20,9 +21,11 @@ import {
 import type { CatalogRow } from '@/lib/catalog'
 import { ICONS } from '@/lib/categories'
 import { deleteCategory } from '@/lib/category-actions'
+import { syncForce } from '@/lib/offline/useSnapshotSync'
 import { cn } from '@/lib/utils'
 
 export function CategoryManager({ cats }: { cats: CatalogRow[] }) {
+  const router = useRouter()
   const [addOpen, setAddOpen] = useState(false)
   const [editing, setEditing] = useState<CategoryEditData | null>(null)
   const [deleting, setDeleting] = useState<CatalogRow | null>(null)
@@ -43,11 +46,15 @@ export function CategoryManager({ cats }: { cats: CatalogRow[] }) {
     if (!deleting) return
     setBusy(true)
     const res = await deleteCategory(deleting.id)
-    setBusy(false)
-    if ('error' in res && res.error) toast.error(res.error)
-    else {
+    if ('error' in res && res.error) {
+      setBusy(false)
+      toast.error(res.error)
+    } else {
+      await syncForce()
+      setBusy(false)
       toast.success('Categoría eliminada')
       setDeleting(null)
+      router.refresh()
     }
   }
 

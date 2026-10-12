@@ -16,7 +16,7 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 
-import { AccountBadge } from '@/components/account-badge'
+import { AccountIcon } from '@/components/account-icon'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -39,6 +39,15 @@ import {
 } from '@/lib/categories'
 import { createCategory } from '@/lib/category-actions'
 import { fromCents, normalizeMoney, toCents, toFixedCents } from '@/lib/money'
+import {
+  type EnqueueInput,
+  enqueueOfflineCreate,
+  resolvePartner,
+  validateOfflineCreate,
+} from '@/lib/offline/outbox'
+import { isPendingId } from '@/lib/offline/pending'
+import { useOnlineStatus } from '@/lib/offline/useOnlineStatus'
+import { syncForce } from '@/lib/offline/useSnapshotSync'
 import { cn } from '@/lib/utils'
 import {
   addWallDays,
@@ -54,6 +63,8 @@ export type AccountOpt = {
   name: string
   type?: string
   color?: string
+  isFavorite?: boolean
+  position?: number
 }
 
 export type TxEditData = {
@@ -158,6 +169,21 @@ export function TransactionForm({
   const [msg, setMsg] = useState<string | null>(null)
   const [pending, setPending] = useState(false)
   const [savingCat, setSavingCat] = useState(false)
+  const online = useOnlineStatus()
+  // Nombre de la pareja (desde la copia local) para el panel Compartir.
+  const [partnerName, setPartnerName] = useState<string | null>(null)
+  useEffect(() => {
+    if (editing) return
+    let alive = true
+    resolvePartner()
+      .then((p) => {
+        if (alive && p) setPartnerName(p.name)
+      })
+      .catch(() => undefined)
+    return () => {
+      alive = false
+    }
+  }, [editing])
 
   // Al crear una categoría, llega por `localRows` y —tras revalidar el
   // servidor— también por el prop `cats`: se deduplica por código para
@@ -306,7 +332,12 @@ export function TransactionForm({
           fd.set('sharePct', String(100 - sharePct)) // al servidor va el % del deudor
         } else {
           const amtC = toCents(shareAmt || '0')
-          if (!shareAmt || Number.isNaN(amtC) || amtC <= 0 || amtC > toCents(value)) {
+          if (
+            !shareAmt ||
+            Number.isNaN(amtC) ||
+            amtC <= 0 ||
+            amtC > toCents(value)
+          ) {
             setMsg('La aportación debe ser mayor a 0 y no mayor al total')
             setPending(false)
             return
@@ -315,14 +346,86 @@ export function TransactionForm({
         }
       }
     }
+    // Sin red: solo CREACIÓN → cola offline con eco local. La edición
+    // necesita la fila en la central (o ya subida): se bloquea con mensaje.
+    if (!online) {
+      if (editing) {
+        setMsg(
+          entry && isPendingId(entry.id)
+            ? 'Aún no se sube: se podrá editar al sincronizar'
+            : 'Sin conexión: conéctate para guardar cambios',
+        )
+        setPending(false)
+        return
+      }
+      // Deudor desde la copia local (el servidor ya no puede resolverlo).
+      let debtor: { id: string; name: string } | null = null
+      if (mode === 'cargo' && shared) {
+        try {
+          debtor = await resolvePartner()
+        } catch {
+          debtor = null
+        }
+      }
+      const strOrUndef = (v: FormDataEntryValue | null) =>
+        v == null ? undefined : String(v)
+      const transferId = strOrUndef(fd.get('transferToAccountId'))
+      const shareAmountRaw = strOrUndef(fd.get('shareAmount'))
+      const input: EnqueueInput = {
+        type: String(fd.get('type')) as 'EXPENSE' | 'INCOME' | 'TRANSFER',
+        amount: Number(fd.get('amount')),
+        concept: String(fd.get('concept')),
+        category: String(fd.get('category')),
+        date: String(fd.get('date')),
+        accountId: String(fd.get('accountId')),
+        accountType: accountOptions.find((a) => a.id === accountId)?.type,
+        transferToAccountId: transferId,
+        transferToAccountType: transferId
+          ? accountOptions.find((a) => a.id === transferId)?.type
+          : undefined,
+        installments: Number(fd.get('installments') ?? 1),
+        isShared: fd.get('isShared') === 'true',
+        sharePct: Number(fd.get('sharePct') ?? 50),
+        shareAmount: shareAmountRaw != null ? Number(shareAmountRaw) : null,
+        debtorId: debtor?.id,
+        debtorName: debtor?.name,
+      }
+      const invalid = validateOfflineCreate(input, {
+        accounts: accountOptions.map((a) => ({ id: a.id, type: a.type })),
+        categoryCodes: new Set([...cats, ...localRows].map((c) => c.code)),
+      })
+      if (invalid) {
+        setMsg(invalid)
+        setPending(false)
+        return
+      }
+      try {
+        await enqueueOfflineCreate(input)
+      } catch (e) {
+        const message = e instanceof Error ? e.message : 'No se pudo guardar'
+        setMsg(message)
+        toast.error(message)
+        setPending(false)
+        return
+      }
+      setPending(false)
+      setMsg(null)
+      toast.success('Guardado en el dispositivo · se subirá solo')
+      onDone?.()
+      return
+    }
     const res = editing
       ? await updateTransaction(fd)
       : await createTransaction(fd)
-    setPending(false)
     if ('error' in res && res.error) {
+      setPending(false)
       setMsg(res.error)
       toast.error(res.error)
     } else {
+      // Online: el Server Action ya guardó en Neon; forzar la descarga para
+      // que Dexie-first muestre el cambio sin esperar al sync de 15 min.
+      await syncForce()
+      setPending(false)
       setMsg(null)
       toast.success(
         editing ? 'Movimiento actualizado' : 'Movimiento registrado',
@@ -332,6 +435,10 @@ export function TransactionForm({
   }
 
   async function saveCustomCat() {
+    if (!online) {
+      setMsg('Conéctate para crear categorías')
+      return
+    }
     if (newCatName.trim().length < 2) {
       setMsg('La categoría necesita al menos 2 letras')
       return
@@ -369,6 +476,7 @@ export function TransactionForm({
       )
       setCategory(c.code)
       toast.success('Categoría creada')
+      void syncForce()
     }
     setNewCatName('')
     setPanel('cats')
@@ -741,10 +849,10 @@ export function TransactionForm({
                       setPanel(null)
                     }}
                     className={cn(
-                      'flex w-full items-center gap-3 rounded-2xl px-4 py-2.5 text-left transition hover:bg-(--muted)',
+                      'flex w-full items-center gap-2 rounded-2xl px-4 py-2.5 text-left transition hover:bg-(--muted)',
                       selected && 'bg-(--muted)',
                     )}>
-                    <AccountBadge type={a.type} color={a.color} />
+                    <AccountIcon type={a.type} color={a.color} />
                     <span className="flex-1 text-sm font-semibold">
                       {a.name}
                     </span>
@@ -797,7 +905,9 @@ export function TransactionForm({
           </DialogHeader>
           <div className="flex items-center justify-between rounded-2xl border border-(--border) px-4 py-3">
             <div>
-              <p className="text-sm font-semibold">Compartir con mi pareja</p>
+              <p className="text-sm font-semibold">
+                Compartir con {partnerName ?? 'mi pareja'}
+              </p>
               <p className="text-xs text-(--muted-foreground)">
                 Define su aportación
               </p>

@@ -21,7 +21,14 @@ export default async function AppLayout({
   // cuentas ajenas ni ocultas.
   const rows = await prisma.account.findMany({
     where: { isActive: true, isHidden: false, userId: meId },
-    select: { id: true, name: true, type: true, color: true },
+    select: {
+      id: true,
+      name: true,
+      type: true,
+      color: true,
+      isFavorite: true,
+      position: true,
+    },
     orderBy: [{ isFavorite: 'desc' }, { position: 'asc' }, { createdAt: 'asc' }],
   })
   const accounts = rows.map((r) => ({
@@ -29,6 +36,8 @@ export default async function AppLayout({
     name: r.name,
     type: r.type as 'DEBIT' | 'CREDIT',
     color: r.color ?? '#6366f1',
+    isFavorite: r.isFavorite,
+    position: r.position,
   }))
   const catalog = await getCatalog(meId)
   return (

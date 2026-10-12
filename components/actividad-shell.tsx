@@ -8,8 +8,10 @@ import type {
   ToConfirmItem,
 } from '@/components/cuentas-client'
 import type { ExpiryAccount } from '@/components/expiry-reminders'
+import { PendingOutboxBanner } from '@/components/pending-outbox-banner'
 import { PendingPaymentsBanner } from '@/components/pending-payments-banner'
 import { SourceConfirmBanner } from '@/components/source-confirm-banner'
+import type { AccountOpt } from '@/components/transaction-form'
 import type { TxRow } from '@/components/transaction-list'
 
 import type { CardPayCandidate } from '@/lib/card-pay'
@@ -28,19 +30,14 @@ import {
   toTxRows,
 } from '@/lib/offline/derive-activity'
 import { useOnlineStatus } from '@/lib/offline/useOnlineStatus'
+import { useSnapshotSync } from '@/lib/offline/useSnapshotSync'
 import type { PartnerPayItem } from '@/lib/partner-pay'
 
 type Props = {
   txs: TxRow[]
   months: MonthOpt[]
   cats: CatalogRow[]
-  filterAccounts: {
-    id: string
-    name: string
-    type: string
-    color?: string
-    isFavorite?: boolean
-  }[]
+  filterAccounts: AccountOpt[]
   expiryAccounts: ExpiryAccount[]
   partnerDebtItems: PartnerPayItem[]
   partnerSums: { key: string; confirmed: number; pending: number }[]
@@ -50,12 +47,14 @@ type Props = {
 }
 
 /**
- * Hidratación offline de Actividad: en línea renderiza los props del
- * servidor tal cual; sin conexión deriva el mismo view-model desde
- * IndexedDB (tablas pobladas por el snapshot) vía `useLiveQuery`.
+ * Hidratación Dexie-first de Actividad: si hay copia local (online u
+ * offline) se deriva el view-model desde IndexedDB y pinta al instante;
+ * los props del servidor solo son fallback de primera carga. La revalidación
+ * (`/api/snapshot` si la copia está vieja) corre en background sin bloquear.
  */
 export function ActividadShell(server: Props) {
   const online = useOnlineStatus()
+  const { isRevalidating } = useSnapshotSync()
   const local = useLiveQuery(async () => {
     const [
       meta,
@@ -90,7 +89,9 @@ export function ActividadShell(server: Props) {
 
   const hasLocal =
     !!local && (local.transactions.length > 0 || local.accounts.length > 0)
-  const useLocal = !online && hasLocal
+  // Dexie-first: con copia local se usa siempre (online u offline).
+  // Sin copia, se cae al fallback del servidor (primera carga).
+  const useLocal = hasLocal
 
   const view: Props = useLocal
     ? {
@@ -138,6 +139,14 @@ export function ActividadShell(server: Props) {
           Sin conexión · datos del {lastSync}
         </p>
       )}
+      {online && useLocal && isRevalidating && (
+        <p
+          role="status"
+          className="px-5 pt-3 text-center text-xs font-medium text-(--muted-foreground)">
+          Actualizando…
+        </p>
+      )}
+      <PendingOutboxBanner />
       <PendingPaymentsBanner
         items={view.toConfirm}
         accountOptions={view.filterAccounts}

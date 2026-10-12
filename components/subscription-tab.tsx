@@ -28,6 +28,7 @@ import {
   deleteSubscription,
   toggleSubscription,
 } from '@/lib/subscription-actions'
+import { syncForce } from '@/lib/offline/useSnapshotSync'
 import type { DueCharge } from '@/lib/subscriptions'
 import { formatMoney } from '@/lib/utils'
 
@@ -63,18 +64,26 @@ export function SubscriptionTab({
   async function toggle(s: SubRow) {
     setBusy(true)
     const res = await toggleSubscription(s.id, !s.isActive)
-    setBusy(false)
-    if ('error' in res && res.error) toast.error(res.error)
-    else toast.success(s.isActive ? `${s.name} pausada` : `${s.name} reanudada`)
+    if ('error' in res && res.error) {
+      setBusy(false)
+      toast.error(res.error)
+    } else {
+      await syncForce()
+      setBusy(false)
+      toast.success(s.isActive ? `${s.name} pausada` : `${s.name} reanudada`)
+    }
   }
 
   async function remove() {
     if (!deleting) return
     setBusy(true)
     const res = await deleteSubscription(deleting.id)
-    setBusy(false)
-    if ('error' in res && res.error) toast.error(res.error)
-    else {
+    if ('error' in res && res.error) {
+      setBusy(false)
+      toast.error(res.error)
+    } else {
+      await syncForce()
+      setBusy(false)
       toast.success('Suscripción eliminada')
       setDeleting(null)
     }

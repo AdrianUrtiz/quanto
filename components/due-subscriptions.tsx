@@ -12,6 +12,7 @@ import {
   confirmSubscriptionCharge,
   skipSubscriptionCharge,
 } from '@/lib/subscription-actions'
+import { syncForce } from '@/lib/offline/useSnapshotSync'
 import type { DueCharge } from '@/lib/subscriptions'
 import { formatMoney } from '@/lib/utils'
 import { cn } from '@/lib/utils'
@@ -32,9 +33,12 @@ export function DueSubscriptions({
     const k = `${d.id}:${d.monthKey}:confirm`
     setBusy(k)
     const res = await confirmSubscriptionCharge(d.id, d.monthKey)
-    setBusy(null)
-    if ('error' in res && res.error) toast.error(res.error)
-    else {
+    if ('error' in res && res.error) {
+      setBusy(null)
+      toast.error(res.error)
+    } else {
+      await syncForce()
+      setBusy(null)
       toast.success(`${d.name} confirmado`)
       router.refresh()
     }
@@ -44,9 +48,12 @@ export function DueSubscriptions({
     const k = `${d.id}:${d.monthKey}:skip`
     setBusy(k)
     const res = await skipSubscriptionCharge(d.id, d.monthKey)
-    setBusy(null)
-    if ('error' in res && res.error) toast.error(res.error)
-    else {
+    if ('error' in res && res.error) {
+      setBusy(null)
+      toast.error(res.error)
+    } else {
+      await syncForce()
+      setBusy(null)
       toast.success(`${d.name}: sin cobro en ${d.monthLabel}`)
       router.refresh()
     }

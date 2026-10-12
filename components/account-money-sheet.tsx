@@ -6,14 +6,15 @@ import { Check } from 'lucide-react'
 import { toast } from 'sonner'
 
 import type { AccountRow } from '@/components/account-card'
+import { AccountIcon } from '@/components/account-icon'
 import type { AccountOpt } from '@/components/transaction-form'
-import { AccountBadge } from '@/components/account-badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 
 import { createTransaction } from '@/lib/actions'
 import { fromCents, toCents } from '@/lib/money'
+import { syncForce } from '@/lib/offline/useSnapshotSync'
 import { formatMoney } from '@/lib/utils'
 import { cn } from '@/lib/utils'
 
@@ -76,11 +77,13 @@ export function AccountMoneySheet({
       fd.set('accountId', account.id)
     }
     const res = await createTransaction(fd)
-    setPending(false)
     if ('error' in res && res.error) {
+      setPending(false)
       setMsg(res.error)
       toast.error(res.error)
     } else {
+      await syncForce()
+      setPending(false)
       setMsg(null)
       toast.success(pay ? 'Tarjeta pagada' : 'Abono registrado')
       onDone?.()
@@ -163,10 +166,10 @@ export function AccountMoneySheet({
                     type="button"
                     onClick={() => setSourceId(a.id)}
                     className={cn(
-                      'flex w-full items-center gap-3 rounded-2xl px-4 py-2.5 text-left transition hover:bg-(--muted)',
+                      'flex w-full items-center gap-2 rounded-2xl px-4 py-2.5 text-left transition hover:bg-(--muted)',
                       sourceId === a.id && 'bg-(--muted)',
                     )}>
-                    <AccountBadge type={a.type} color={a.color} />
+                    <AccountIcon type={a.type} color={a.color} />
                     <span className="flex-1 text-sm font-semibold">
                       {a.name}
                     </span>

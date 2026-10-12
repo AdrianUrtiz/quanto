@@ -5,8 +5,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Check, LayoutGrid, Plus, Repeat, Users, Wallet } from 'lucide-react'
 import { toast } from 'sonner'
 
+import { AccountIcon } from '@/components/account-icon'
 import type { AccountOpt } from '@/components/transaction-form'
-import { AccountBadge } from '@/components/account-badge'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -26,11 +26,12 @@ import {
   lookupCategory,
 } from '@/lib/categories'
 import { createCategory } from '@/lib/category-actions'
+import { fromCents, normalizeMoney, toCents } from '@/lib/money'
 import {
   createSubscription,
   updateSubscription,
 } from '@/lib/subscription-actions'
-import { fromCents, normalizeMoney, toCents } from '@/lib/money'
+import { syncForce } from '@/lib/offline/useSnapshotSync'
 import { formatMoney } from '@/lib/utils'
 import { cn } from '@/lib/utils'
 
@@ -170,6 +171,7 @@ export function SubscriptionForm({
     setAddingCat(false)
     setMsg(null)
     toast.success('Categoría creada')
+    void syncForce()
   }
   const sliderRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -241,11 +243,13 @@ export function SubscriptionForm({
     const res = editing
       ? await updateSubscription(fd)
       : await createSubscription(fd)
-    setPending(false)
     if ('error' in res && res.error) {
+      setPending(false)
       setMsg(res.error)
       toast.error(res.error)
     } else {
+      await syncForce()
+      setPending(false)
       setMsg(null)
       toast.success(
         editing ? 'Suscripción actualizada' : 'Suscripción agregada',
@@ -334,10 +338,10 @@ export function SubscriptionForm({
                     setAccOpen(false)
                   }}
                   className={cn(
-                    'flex w-full items-center gap-3 rounded-2xl px-4 py-2.5 text-left transition hover:bg-(--muted)',
+                    'flex w-full items-center gap-2 rounded-2xl px-4 py-2.5 text-left transition hover:bg-(--muted)',
                     accountId === a.id && 'bg-(--muted)',
                   )}>
-                  <AccountBadge type={a.type} color={a.color} />
+                  <AccountIcon type={a.type} color={a.color} />
                   <span className="flex-1 text-sm font-semibold">{a.name}</span>
                   {accountId === a.id && (
                     <Check className="size-4 text-(--primary)" />

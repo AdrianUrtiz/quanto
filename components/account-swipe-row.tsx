@@ -29,6 +29,7 @@ import {
 } from '@/components/ui/dialog'
 
 import { deleteAccount, setAccountHidden } from '@/lib/actions'
+import { syncForce } from '@/lib/offline/useSnapshotSync'
 
 export function AccountSwipeRow({
   a,
@@ -57,9 +58,12 @@ export function AccountSwipeRow({
     close()
     setHiding(true)
     const res = await setAccountHidden(a.id, true)
-    setHiding(false)
-    if ('error' in res && res.error) toast.error(res.error)
-    else {
+    if ('error' in res && res.error) {
+      setHiding(false)
+      toast.error(res.error)
+    } else {
+      await syncForce()
+      setHiding(false)
       toast.success('Cuenta oculta')
       router.refresh()
     }
@@ -69,11 +73,13 @@ export function AccountSwipeRow({
     setDelError(null)
     setDeleting(true)
     const res = await deleteAccount(a.id)
-    setDeleting(false)
     if ('error' in res && res.error) {
+      setDeleting(false)
       setDelError(res.error)
       toast.error(res.error)
     } else {
+      await syncForce()
+      setDeleting(false)
       setConfirmOpen(false)
       toast.success('Cuenta eliminada')
       router.refresh()
@@ -160,6 +166,7 @@ export function AccountSwipeRow({
           sourceOptions={debitOptions.filter((d) => d.id !== a.id)}
           onDone={() => {
             setPayOpen(false)
+            void syncForce()
             router.refresh()
           }}
         />
@@ -215,9 +222,12 @@ export function HiddenAccountSwipeRow({
     onOpenChange(false)
     setShowing(true)
     const res = await setAccountHidden(a.id, false)
-    setShowing(false)
-    if ('error' in res && res.error) toast.error(res.error)
-    else {
+    if ('error' in res && res.error) {
+      setShowing(false)
+      toast.error(res.error)
+    } else {
+      await syncForce()
+      setShowing(false)
       toast.success('Cuenta visible')
       router.refresh()
     }

@@ -10,6 +10,7 @@ import {
   type SourceConfirmItem,
   type ToConfirmItem,
 } from '@/components/cuentas-client'
+import { PendingOutboxBanner } from '@/components/pending-outbox-banner'
 import type { SubRow } from '@/components/subscription-tab'
 
 import type { CardPayCandidate } from '@/lib/card-pay'
@@ -21,6 +22,7 @@ import {
   toCardPayItems,
   toCatalog,
   toDebtItems,
+  toEchoOwedItems,
   toMyPending,
   toSubs,
   toSums,
@@ -28,6 +30,7 @@ import {
   toToConfirmSource,
 } from '@/lib/offline/derive-cuentas'
 import { useOnlineStatus } from '@/lib/offline/useOnlineStatus'
+import { useSnapshotSync } from '@/lib/offline/useSnapshotSync'
 import type { DebtItemInput } from '@/lib/partner-debts'
 import type { DueCharge } from '@/lib/subscriptions'
 
@@ -50,16 +53,19 @@ type Props = {
 }
 
 /**
- * Hidratación offline de Cuentas: en línea renderiza los props del servidor
- * tal cual; sin conexión deriva el mismo view-model desde IndexedDB
- * (cuentas, pareja, suscripciones) vía `useLiveQuery`.
+ * Hidratación Dexie-first de Cuentas: si hay copia local (online u offline)
+ * se deriva el view-model desde IndexedDB y pinta al instante; los props
+ * del servidor solo son fallback de primera carga. La revalidación corre
+ * en background sin bloquear.
  */
 export function CuentasShell(server: Props) {
   const online = useOnlineStatus()
+  const { isRevalidating } = useSnapshotSync()
   const local = useLiveQuery(async () => {
     const [
       meta,
       accounts,
+      transactions,
       partnerDebts,
       lineSums,
       subscriptions,
@@ -72,6 +78,7 @@ export function CuentasShell(server: Props) {
     ] = await Promise.all([
       db.meta.get('sync'),
       db.accounts.toArray(),
+      db.transactions.toArray(),
       db.partnerDebts.toArray(),
       db.lineSums.toArray(),
       db.subscriptions.toArray(),
@@ -85,6 +92,7 @@ export function CuentasShell(server: Props) {
     return {
       meta,
       accounts,
+      transactions,
       partnerDebts,
       lineSums,
       subscriptions,
@@ -99,13 +107,25 @@ export function CuentasShell(server: Props) {
 
   const hasLocal =
     !!local && (local.accounts.length > 0 || local.subscriptions.length > 0)
-  const useLocal = !online && hasLocal
+  // Dexie-first: con copia local se usa siempre (online u offline).
+  const useLocal = hasLocal
   const meId = useLocal ? (local.meta?.userId ?? server.meId) : server.meId
 
   const view: Props = useLocal
-    ? (() => {
+    ?       (() => {
         const { visible, hidden } = toAccountRows(local.accounts)
         const { debtItems, owedItems } = toDebtItems(local.partnerDebts)
+        // Ecos offline de mis compartidos: pintan igual (con badge) aunque
+        // aún no estén en `partnerDebts` del snapshot.
+        const owed = [
+          ...owedItems,
+          ...toEchoOwedItems(
+            local.transactions,
+            local.accounts,
+            local.shares,
+            meId,
+          ),
+        ]
         const sums = toSums(local.lineSums)
         const { subs, dues } = toSubs(local.subscriptions, local.charges, meId)
         return {
@@ -114,9 +134,9 @@ export function CuentasShell(server: Props) {
           meId,
           editAccountId: server.editAccountId,
           debtItems,
-          owedItems,
+          owedItems: owed,
           sums: sums.list,
-          partnerMonths: derivePartnerMonths(debtItems, owedItems, sums.map),
+          partnerMonths: derivePartnerMonths(debtItems, owed, sums.map),
           subs,
           dues,
           cats: toCatalog(local.categories),
@@ -161,6 +181,14 @@ export function CuentasShell(server: Props) {
           Sin conexión · datos del {lastSync}
         </p>
       )}
+      {online && useLocal && isRevalidating && (
+        <p
+          role="status"
+          className="px-5 pt-3 text-center text-xs font-medium text-(--muted-foreground)">
+          Actualizando…
+        </p>
+      )}
+      <PendingOutboxBanner />
       <CuentasClient
         accounts={view.accounts}
         hiddenAccounts={view.hiddenAccounts}

@@ -7,13 +7,13 @@ import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 
 import type { AccountRow } from '@/components/account-card'
-import { AccountBadge } from '@/components/account-badge'
 import { AccountForm } from '@/components/account-form'
-import { AccountsReorder } from '@/components/accounts-reorder'
+import { AccountIcon } from '@/components/account-icon'
 import {
   AccountSwipeRow,
   HiddenAccountSwipeRow,
 } from '@/components/account-swipe-row'
+import { AccountsReorder } from '@/components/accounts-reorder'
 import type { MonthOpt } from '@/components/activity-client'
 import { BottomSheet } from '@/components/bottom-sheet'
 import { CardPayReminders } from '@/components/card-pay-reminders'
@@ -40,6 +40,8 @@ import type { CardPayCandidate } from '@/lib/card-pay'
 import type { CatalogRow } from '@/lib/catalog'
 import { useCuentasFilters } from '@/lib/cuentas-filters'
 import { toCents } from '@/lib/money'
+import { isPendingId } from '@/lib/offline/pending'
+import { syncForce } from '@/lib/offline/useSnapshotSync'
 import {
   type DebtItemInput,
   type PartnerDebt,
@@ -149,7 +151,12 @@ export function CuentasClient({
     router.replace('/cuentas')
   }
 
-  const refresh = () => router.refresh()
+  // Refresco post-mutación: Dexie primero (los shells son Dexie-first y
+  // no verían el cambio hasta el próximo sync) y luego el RSC.
+  const refresh = () => {
+    void syncForce()
+    router.refresh()
+  }
 
   const mine = useMemo(
     () => accounts.filter((a) => a.ownerId === meId),
@@ -942,6 +949,12 @@ function DebtCard({ d, meId }: { d: PartnerDebt; meId: string }) {
                   {formatMoney(l.monthly)}/mes
                 </span>
               </span>
+              {l.shareId != null && isPendingId(l.shareId) && (
+                <span className="mt-0.5 flex items-center gap-1 font-semibold text-amber-500">
+                  <span className="size-1.5 rounded-full bg-amber-500" />
+                  Pendiente
+                </span>
+              )}
               {l.shareId != null &&
                 (settled ? (
                   <span className="mt-0.5 flex items-center gap-1 font-semibold text-emerald-500">
@@ -1131,8 +1144,8 @@ function SourceConfirmSheet({
             <button
               type="button"
               onClick={() => setAccountId(a.id)}
-              className={`flex w-full items-center gap-3 rounded-2xl px-4 py-2.5 text-left transition hover:bg-(--muted) ${accountId === a.id ? 'bg-(--muted)' : ''}`}>
-              <AccountBadge type={a.type} color={a.color} />
+              className={`flex w-full items-center gap-2 rounded-2xl px-4 py-2.5 text-left transition hover:bg-(--muted) ${accountId === a.id ? 'bg-(--muted)' : ''}`}>
+              <AccountIcon type={a.type} color={a.color} />
               <span className="flex-1 text-sm font-semibold">{a.name}</span>
               {accountId === a.id && (
                 <Check className="size-4 text-(--primary)" />

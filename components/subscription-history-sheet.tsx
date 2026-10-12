@@ -14,6 +14,7 @@ import {
   skipSubscriptionCharge,
   unskipSubscriptionCharge,
 } from '@/lib/subscription-actions'
+import { syncForce } from '@/lib/offline/useSnapshotSync'
 import { chargeDate, monthLabelOf } from '@/lib/subscriptions'
 import { formatMoney } from '@/lib/utils'
 import { monthKeyOfWall, startOfWallDay, wallNow } from '@/lib/walltime'
@@ -44,9 +45,12 @@ export function SubscriptionHistorySheet({ sub }: { sub: SubRow }) {
   ) {
     setBusy(`${key}:${kind}`)
     const res = await fn()
-    setBusy(null)
-    if ('error' in res && res.error) toast.error(res.error)
-    else {
+    if ('error' in res && res.error) {
+      setBusy(null)
+      toast.error(res.error)
+    } else {
+      await syncForce()
+      setBusy(null)
       toast.success(okMsg)
       router.refresh()
     }

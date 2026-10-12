@@ -12,6 +12,7 @@ import { Switch } from '@/components/ui/switch'
 
 import { createAccount, updateAccount } from '@/lib/actions'
 import { ACCOUNT_COLORS } from '@/lib/categories'
+import { syncForce } from '@/lib/offline/useSnapshotSync'
 import { cn } from '@/lib/utils'
 
 export type AccountEditData = {
@@ -72,11 +73,13 @@ export function AccountForm({
     const res = editing
       ? await updateAccount(new FormData(e.currentTarget))
       : await createAccount(new FormData(e.currentTarget))
-    setPending(false)
     if ('error' in res && res.error) {
+      setPending(false)
       setMsg(res.error)
       toast.error(res.error)
     } else {
+      await syncForce()
+      setPending(false)
       setMsg(null)
       toast.success(editing ? 'Cuenta actualizada' : 'Cuenta agregada')
       onDone?.()

@@ -19,7 +19,6 @@ import { mexicoMonthKey } from '@/lib/walltime'
 import { auth } from '@/auth'
 
 export const metadata = { title: 'Actividad' }
-export const dynamic = 'force-dynamic' // el mes y los datos cambian por request
 
 export default async function ActividadPage() {
   const session = await auth()
@@ -170,6 +169,7 @@ export default async function ActividadPage() {
         expiry: true,
         color: true,
         isFavorite: true,
+        position: true,
       },
       orderBy: [
         { isFavorite: 'desc' },
@@ -210,6 +210,7 @@ export default async function ActividadPage() {
     type: a.type as 'DEBIT' | 'CREDIT',
     color: a.color ?? '#6366f1',
     isFavorite: a.isFavorite,
+    position: a.position,
   }))
   const toConfirm: ToConfirmItem[] = pendingRows
     .filter((p) => p.registeredById !== meId)

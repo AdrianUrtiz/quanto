@@ -6,6 +6,7 @@ import { Check, CreditCard } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 
 import type { AccountRow } from '@/components/account-card'
+import { AccountIcon } from '@/components/account-icon'
 import { AccountMoneySheet } from '@/components/account-money-sheet'
 import { BottomSheet } from '@/components/bottom-sheet'
 import type { AccountOpt } from '@/components/transaction-form'
@@ -21,8 +22,8 @@ import {
 import { toCents } from '@/lib/money'
 import { useStatementFilters } from '@/lib/resumen-filters'
 import { formatMoney } from '@/lib/utils'
-import { fmtMonthShort } from '@/lib/walltime'
 import { cn } from '@/lib/utils'
+import { fmtMonthShort } from '@/lib/walltime'
 
 export type StatementMoveView = {
   id: string
@@ -31,6 +32,8 @@ export type StatementMoveView = {
   kind: 'charge' | 'payment'
   amount: number
   tag: string | null
+  /** Eco local creado sin conexión, pendiente de subir a la central. */
+  pending?: boolean
 }
 
 export type StatementPeriodView = {
@@ -238,6 +241,12 @@ function StatementPanel({
                   {m.tag}
                 </span>
               )}
+              {m.pending && (
+                <span className="mt-0.5 inline-flex items-center gap-1 text-[11px] font-semibold text-amber-500">
+                  <span className="size-1.5 rounded-full bg-amber-500" />
+                  Pendiente
+                </span>
+              )}
             </span>
             <span
               className={cn(
@@ -353,6 +362,7 @@ export function CreditStatements({
                   value: s.card.id,
                   label: cardLabel(s.card),
                   total: s.card.currentDebt,
+                  color: s.card.color,
                 }))}
                 value={view.card.id}
                 onPick={(v) => {
@@ -410,7 +420,13 @@ function Options({
   value,
   onPick,
 }: {
-  items: { value: string; label: string; total?: number; cap?: boolean }[]
+  items: {
+    value: string
+    label: string
+    total?: number
+    cap?: boolean
+    color?: string
+  }[]
   value: string
   onPick: (v: string) => void
 }) {
@@ -423,6 +439,7 @@ function Options({
             className={`flex w-full items-center gap-2 rounded-2xl px-4 py-3 text-left transition hover:bg-(--muted) ${
               it.value === value ? 'bg-(--muted)' : ''
             }`}>
+            {it.color && <AccountIcon type="CREDIT" color={it.color} />}
             <span
               className={`flex-1 text-sm font-semibold ${it.cap ? 'capitalize' : ''}`}>
               {it.label}
