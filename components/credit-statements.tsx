@@ -6,6 +6,7 @@ import { Check, CreditCard } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 
 import type { AccountRow } from '@/components/account-card'
+import { AccountIcon } from '@/components/account-icon'
 import { AccountMoneySheet } from '@/components/account-money-sheet'
 import { BottomSheet } from '@/components/bottom-sheet'
 import type { AccountOpt } from '@/components/transaction-form'
@@ -21,8 +22,8 @@ import {
 import { toCents } from '@/lib/money'
 import { useStatementFilters } from '@/lib/resumen-filters'
 import { formatMoney } from '@/lib/utils'
-import { fmtMonthShort } from '@/lib/walltime'
 import { cn } from '@/lib/utils'
+import { fmtMonthShort } from '@/lib/walltime'
 
 export type StatementMoveView = {
   id: string
@@ -361,6 +362,7 @@ export function CreditStatements({
                   value: s.card.id,
                   label: cardLabel(s.card),
                   total: s.card.currentDebt,
+                  color: s.card.color,
                 }))}
                 value={view.card.id}
                 onPick={(v) => {
@@ -418,7 +420,13 @@ function Options({
   value,
   onPick,
 }: {
-  items: { value: string; label: string; total?: number; cap?: boolean }[]
+  items: {
+    value: string
+    label: string
+    total?: number
+    cap?: boolean
+    color?: string
+  }[]
   value: string
   onPick: (v: string) => void
 }) {
@@ -431,6 +439,7 @@ function Options({
             className={`flex w-full items-center gap-2 rounded-2xl px-4 py-3 text-left transition hover:bg-(--muted) ${
               it.value === value ? 'bg-(--muted)' : ''
             }`}>
+            {it.color && <AccountIcon type="CREDIT" color={it.color} />}
             <span
               className={`flex-1 text-sm font-semibold ${it.cap ? 'capitalize' : ''}`}>
               {it.label}

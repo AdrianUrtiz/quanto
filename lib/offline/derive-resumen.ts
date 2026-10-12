@@ -7,6 +7,7 @@ import type {
   ResumenInvolvedTx,
   ResumenMineTx,
 } from '@/components/resumen-client'
+import type { AccountOpt } from '@/components/transaction-form'
 
 import type {
   OfflineAccount,
@@ -21,6 +22,24 @@ import { type StatementTx, activePeriods } from '@/lib/statements'
 import { wallNow } from '@/lib/walltime'
 
 export { deriveMonths, toCatalog }
+
+/** Cuentas visibles para iconos y orden del filtro. */
+export function toAccountOptions(accounts: OfflineAccount[]): AccountOpt[] {
+  return accounts
+    .filter((a) => !a.isHidden)
+    .sort(
+      (x, y) =>
+        Number(y.isFavorite) - Number(x.isFavorite) || x.position - y.position,
+    )
+    .map((a) => ({
+      id: a.id,
+      name: a.name,
+      type: a.type,
+      color: a.color,
+      isFavorite: a.isFavorite,
+      position: a.position,
+    }))
+}
 
 /** MIS movimientos (donut): EXPENSE/INCOME propios, sin parte de pareja. */
 export function toMineTxs(rows: OfflineTransaction[]): ResumenMineTx[] {

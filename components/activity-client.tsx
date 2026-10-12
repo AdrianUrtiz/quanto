@@ -6,6 +6,7 @@ import { Check, Search } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 
 import { ActivityChart } from '@/components/activity-chart'
+import { AccountIcon } from '@/components/account-icon'
 import { CardPayReminders } from '@/components/card-pay-reminders'
 import {
   type ExpiryAccount,
@@ -14,6 +15,7 @@ import {
 import { PartnerPayReminders } from '@/components/partner-pay-reminders'
 import { TransactionRow, type TxRow } from '@/components/transaction-list'
 import { TransactionSwipeRow } from '@/components/transaction-swipe-row'
+import type { AccountOpt } from '@/components/transaction-form'
 import {
   Dialog,
   DialogContent,
@@ -26,6 +28,7 @@ import {
   type ActivityRange,
   useActivityFilters,
 } from '@/lib/activity-filters'
+import { byAccountOrder } from '@/lib/accounts'
 import type { CardPayCandidate } from '@/lib/card-pay'
 import type { CatalogRow } from '@/lib/catalog'
 import { lookupCategory } from '@/lib/categories'
@@ -109,13 +112,7 @@ export function ActivityClient({
   cats: CatalogRow[]
   expiryAccounts?: ExpiryAccount[]
   /** Cuentas propias no ocultas para el filtro (débito y crédito). */
-  filterAccounts?: {
-    id: string
-    name: string
-    type: string
-    color?: string
-    isFavorite?: boolean
-  }[]
+  filterAccounts?: AccountOpt[]
   /** Lo que le debo a mi pareja (origen Cuentas > Pareja). */
   partnerDebtItems?: PartnerPayItem[]
   partnerSums?: { key: string; confirmed: number; pending: number }[]
@@ -316,34 +313,31 @@ export function ActivityClient({
   // Opciones de cuenta para el diálogo de edición (solo las mías, ya filtradas;
   // las filas de pareja son solo lectura y no aportan cuentas).
   const accountOptionsAll = useMemo(() => {
-    const metaById = new Map(
-      filterAccounts.map((a) => [a.id, { color: a.color, fav: a.isFavorite }]),
-    )
+    const metaById = new Map(filterAccounts.map((a) => [a.id, a]))
     const map = new Map<string, { name: string; type: string }>()
     for (const t of txs)
       if (!t.partnerShare)
         map.set(t.accountId, { name: t.accountName, type: t.accountType })
     return [...map.entries()]
-      .map(([id, v]) => ({
-        id,
-        name: v.name,
-        type: v.type,
-        color: metaById.get(id)?.color,
-      }))
-      .sort(
-        (x, y) =>
-          Number(metaById.get(y.id)?.fav ?? false) -
-          Number(metaById.get(x.id)?.fav ?? false),
-      )
+      .map(([id, v]) => {
+        const meta = metaById.get(id)
+        return {
+          id,
+          name: v.name,
+          type: v.type,
+          color: meta?.color,
+          isFavorite: meta?.isFavorite,
+          position: meta?.position,
+        }
+      })
+      .sort(byAccountOrder)
   }, [txs, filterAccounts])
 
   // Opciones: todas las cuentas propias no ocultas (débito y crédito),
-  // ordenadas A–Z y sin contadores. Un traspaso involucra dos cuentas:
-  // aparece al filtrar por cualquiera de las dos (sin duplicarse).
+  // en orden global (favorita primero, luego manual). Un traspaso involucra
+  // dos cuentas: aparece al filtrar por cualquiera de las dos (sin duplicarse).
   const accountOpts = useMemo(() => {
-    return filterAccounts
-      .map((a) => a.name)
-      .sort((a, b) => a.localeCompare(b, 'es'))
+    return [...filterAccounts].sort(byAccountOrder)
   }, [filterAccounts])
 
   const categoryOpts = useMemo(() => {
@@ -517,9 +511,11 @@ export function ActivityClient({
             <Options
               items={[
                 { value: 'todas', label: 'Todas las cuentas' },
-                ...accountOpts.map((name) => ({
-                  value: name,
-                  label: name,
+                ...accountOpts.map((a) => ({
+                  value: a.name,
+                  label: a.name,
+                  iconType: a.type,
+                  iconColor: a.color,
                 })),
               ]}
               value={account}
@@ -579,7 +575,14 @@ function Options({
   value,
   onPick,
 }: {
-  items: { value: string; label: string; total?: number; cap?: boolean }[]
+  items: {
+    value: string
+    label: string
+    total?: number
+    cap?: boolean
+    iconType?: string
+    iconColor?: string
+  }[]
   value: string
   onPick: (v: string) => void
 }) {
@@ -592,6 +595,9 @@ function Options({
             className={`flex w-full items-center gap-2 rounded-2xl px-4 py-3 text-left transition hover:bg-(--muted) ${
               it.value === value ? 'bg-(--muted)' : ''
             }`}>
+            {it.iconColor && (
+              <AccountIcon type={it.iconType} color={it.iconColor} />
+            )}
             <span
               className={`flex-1 text-sm font-semibold ${it.cap ? 'capitalize' : ''}`}>
               {it.label}

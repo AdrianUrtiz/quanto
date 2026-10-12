@@ -8,6 +8,7 @@ import type {
   ToConfirmItem,
 } from '@/components/cuentas-client'
 import type { ExpiryAccount } from '@/components/expiry-reminders'
+import type { AccountOpt } from '@/components/transaction-form'
 import type { TxRow } from '@/components/transaction-list'
 
 import type { CardPayCandidate } from '@/lib/card-pay'
@@ -81,15 +82,7 @@ export function toCatalog(rows: OfflineCategory[]): CatalogRow[] {
 }
 
 /** Cuentas visibles (no ocultas) para filtros y banners. */
-export function toAccountOptions(
-  rows: OfflineAccount[],
-): {
-  id: string
-  name: string
-  type: string
-  color: string
-  isFavorite: boolean
-}[] {
+export function toAccountOptions(rows: OfflineAccount[]): AccountOpt[] {
   return rows
     .filter((a) => !a.isHidden)
     .sort(
@@ -102,6 +95,7 @@ export function toAccountOptions(
       type: a.type,
       color: a.color,
       isFavorite: a.isFavorite,
+      position: a.position,
     }))
 }
 

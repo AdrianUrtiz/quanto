@@ -7,7 +7,9 @@ import { AlertTriangle, CloudUpload } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
+import type { AccountOpt } from '@/components/transaction-form'
 
+import { byAccountOrder, toAccountOpt } from '@/lib/accounts'
 import { db, type OfflineOutboxOp } from '@/lib/offline/db'
 import {
   OUTBOX_KIND_CREATE_TX,
@@ -36,7 +38,7 @@ function FailedOpCard({
 }: {
   op: OfflineOutboxOp
   payload: CreateTxPayload
-  accountOptions: { id: string; name: string; type: string }[]
+  accountOptions: AccountOpt[]
 }) {
   const [accountId, setAccountId] = useState(payload.accountId)
   const [destId, setDestId] = useState(payload.transferToAccountId ?? '')
@@ -167,7 +169,8 @@ export function PendingOutboxBanner({ compact }: { compact?: boolean }) {
     () =>
       (data?.accounts ?? [])
         .filter((a) => !a.isHidden)
-        .map((a) => ({ id: a.id, name: a.name, type: a.type })),
+        .map(toAccountOpt)
+        .sort(byAccountOrder),
     [data],
   )
 

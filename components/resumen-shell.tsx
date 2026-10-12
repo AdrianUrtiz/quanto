@@ -10,12 +10,14 @@ import type {
   ResumenInvolvedTx,
   ResumenMineTx,
 } from '@/components/resumen-client'
+import type { AccountOpt } from '@/components/transaction-form'
 
 import type { CatalogRow } from '@/lib/catalog'
 import { db } from '@/lib/offline/db'
 import {
   deriveMonths,
   deriveStatements,
+  toAccountOptions,
   toCatalog,
   toConfirmed,
   toInvolvedTxs,
@@ -31,6 +33,7 @@ type Props = {
   confirmed: { key: string; amount: number }[]
   cats: CatalogRow[]
   statements: CreditStatementView[]
+  filterAccounts: AccountOpt[]
 }
 
 /**
@@ -96,6 +99,7 @@ export function ResumenShell(server: Props) {
         confirmed: toConfirmed(local.lineSums),
         cats: toCatalog(local.categories),
         statements: deriveStatements(local.accounts, local.transactions),
+        filterAccounts: toAccountOptions(local.accounts),
       }
     : server
 
@@ -142,6 +146,7 @@ export function ResumenShell(server: Props) {
         confirmed={view.confirmed}
         cats={view.cats}
         statements={view.statements}
+        filterAccounts={view.filterAccounts}
       />
     </>
   )

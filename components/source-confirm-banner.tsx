@@ -6,10 +6,10 @@ import { ArrowUpRight, BellRing, Check } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 
+import { AccountIcon } from '@/components/account-icon'
 import { BottomSheet } from '@/components/bottom-sheet'
 import type { SourceConfirmItem } from '@/components/cuentas-client'
 import type { AccountOpt } from '@/components/transaction-form'
-import { AccountBadge } from '@/components/account-badge'
 import { Button } from '@/components/ui/button'
 
 import { confirmPaymentSource } from '@/lib/payment-actions'
@@ -120,8 +120,8 @@ export function SourceConfirmBanner({
                   <button
                     type="button"
                     onClick={() => setAccountId(a.id)}
-                    className={`flex w-full items-center gap-3 rounded-2xl px-4 py-2.5 text-left transition hover:bg-(--muted) ${accountId === a.id ? 'bg-(--muted)' : ''}`}>
-                    <AccountBadge type={a.type} color={a.color} />
+                    className={`flex w-full items-center gap-2 rounded-2xl px-4 py-2.5 text-left transition hover:bg-(--muted) ${accountId === a.id ? 'bg-(--muted)' : ''}`}>
+                    <AccountIcon type={a.type} color={a.color} />
                     <span className="flex-1 text-sm font-semibold">
                       {a.name}
                     </span>

@@ -12,6 +12,7 @@ import { SubscriptionForm } from '@/components/subscription-form'
 import { type AccountOpt, TransactionForm } from '@/components/transaction-form'
 
 import type { CatalogRow } from '@/lib/catalog'
+import { byAccountOrder, toAccountOpt } from '@/lib/accounts'
 import { db } from '@/lib/offline/db'
 import { toCatalog } from '@/lib/offline/derive-activity'
 import { cn } from '@/lib/utils'
@@ -156,7 +157,8 @@ function TxFab({ accountOptions, cats }: FabProps) {
   const opts: AccountOpt[] = hasLocal
     ? local.accounts
         .filter((a) => !a.isHidden)
-        .map((a) => ({ id: a.id, name: a.name, type: a.type, color: a.color }))
+        .map(toAccountOpt)
+        .sort(byAccountOrder)
     : accountOptions
   const catalog: CatalogRow[] = hasLocal ? toCatalog(local.categories) : cats
   return (

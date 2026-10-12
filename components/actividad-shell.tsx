@@ -11,6 +11,7 @@ import type { ExpiryAccount } from '@/components/expiry-reminders'
 import { PendingOutboxBanner } from '@/components/pending-outbox-banner'
 import { PendingPaymentsBanner } from '@/components/pending-payments-banner'
 import { SourceConfirmBanner } from '@/components/source-confirm-banner'
+import type { AccountOpt } from '@/components/transaction-form'
 import type { TxRow } from '@/components/transaction-list'
 
 import type { CardPayCandidate } from '@/lib/card-pay'
@@ -36,13 +37,7 @@ type Props = {
   txs: TxRow[]
   months: MonthOpt[]
   cats: CatalogRow[]
-  filterAccounts: {
-    id: string
-    name: string
-    type: string
-    color?: string
-    isFavorite?: boolean
-  }[]
+  filterAccounts: AccountOpt[]
   expiryAccounts: ExpiryAccount[]
   partnerDebtItems: PartnerPayItem[]
   partnerSums: { key: string; confirmed: number; pending: number }[]

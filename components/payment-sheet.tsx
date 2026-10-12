@@ -5,18 +5,18 @@ import { useState } from 'react'
 import { Check } from 'lucide-react'
 import { toast } from 'sonner'
 
+import { AccountIcon } from '@/components/account-icon'
 import type { AccountOpt } from '@/components/transaction-form'
-import { AccountBadge } from '@/components/account-badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 
+import { fromCents, toCents } from '@/lib/money'
 import {
   confirmPayment,
   registerPayment,
   rejectPayment,
 } from '@/lib/payment-actions'
-import { fromCents, toCents } from '@/lib/money'
 import { formatMoney } from '@/lib/utils'
 import { cn } from '@/lib/utils'
 
@@ -284,10 +284,10 @@ export function PaymentSheet({
                       type="button"
                       onClick={() => setAccountId(a.id)}
                       className={cn(
-                        'flex w-full items-center gap-3 rounded-2xl px-4 py-2.5 text-left transition hover:bg-(--muted)',
+                        'flex w-full items-center gap-2 rounded-2xl px-4 py-2.5 text-left transition hover:bg-(--muted)',
                         accountId === a.id && 'bg-(--muted)',
                       )}>
-                      <AccountBadge type={a.type} color={a.color} />
+                      <AccountIcon type={a.type} color={a.color} />
                       <span className="flex-1 text-sm font-semibold">
                         {a.name}
                       </span>

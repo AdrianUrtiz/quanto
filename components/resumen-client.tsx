@@ -5,11 +5,13 @@ import { useMemo, useState } from 'react'
 import { Check, HandCoins } from 'lucide-react'
 
 import type { MonthOpt } from '@/components/activity-client'
+import { AccountIcon } from '@/components/account-icon'
 import {
   type CreditStatementView,
   CreditStatements,
 } from '@/components/credit-statements'
 import { DonutChart } from '@/components/donut-chart'
+import type { AccountOpt } from '@/components/transaction-form'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
   Dialog,
@@ -19,6 +21,7 @@ import {
 } from '@/components/ui/dialog'
 
 import type { ActivityKind, ActivityRange } from '@/lib/activity-filters'
+import { byAccountOrder } from '@/lib/accounts'
 import { settleMonth } from '@/lib/calculations'
 import type { CatalogRow } from '@/lib/catalog'
 import { lookupCategory } from '@/lib/categories'
@@ -107,6 +110,7 @@ export function ResumenClient({
   confirmed,
   cats,
   statements = [],
+  filterAccounts = [],
 }: {
   months: MonthOpt[]
   mine: ResumenMineTx[]
@@ -114,6 +118,8 @@ export function ResumenClient({
   confirmed: { key: string; amount: number }[]
   cats: CatalogRow[]
   statements?: CreditStatementView[]
+  /** Cuentas propias para iconos y orden del filtro. */
+  filterAccounts?: AccountOpt[]
 }) {
   const [sheet, setSheet] = useState<Sheet>(null)
   const storedMonth = useResumenFilters((s) => s.month)
@@ -176,16 +182,26 @@ export function ResumenClient({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rangeTxs, kind, account, category, cats])
 
-  // Opciones con totales (respetan el tipo activo).
+  // Opciones con totales (respetan el tipo activo), en orden global
+  // (favorita primero, luego manual) con icono de cada cuenta.
   const accountOpts = useMemo(() => {
+    const metaByName = new Map(filterAccounts.map((a) => [a.name, a]))
     const map = new Map<string, number>()
     for (const t of rangeTxs) {
       if (!inKind(t)) continue
       map.set(t.accountName, (map.get(t.accountName) ?? 0) + t.amount)
     }
-    return [...map.entries()].sort((a, b) => b[1] - a[1])
+    return [...map.entries()]
+      .map(([name, total]) => ({ name, total, meta: metaByName.get(name) }))
+      .sort(
+        (x, y) =>
+          byAccountOrder(
+            x.meta ?? { isFavorite: false, position: Number.MAX_SAFE_INTEGER },
+            y.meta ?? { isFavorite: false, position: Number.MAX_SAFE_INTEGER },
+          ) || x.name.localeCompare(y.name, 'es'),
+      )
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rangeTxs, kind])
+  }, [rangeTxs, kind, filterAccounts])
 
   const categoryOpts = useMemo(() => {
     const map = new Map<string, number>()
@@ -358,10 +374,12 @@ export function ResumenClient({
             <Options
               items={[
                 { value: 'todas', label: 'Todas las cuentas' },
-                ...accountOpts.map(([name, total]) => ({
-                  value: name,
-                  label: name,
-                  total,
+                ...accountOpts.map((o) => ({
+                  value: o.name,
+                  label: o.name,
+                  total: o.total,
+                  iconType: o.meta?.type,
+                  iconColor: o.meta?.color,
                 })),
               ]}
               value={account}
@@ -421,7 +439,14 @@ function Options({
   value,
   onPick,
 }: {
-  items: { value: string; label: string; total?: number; cap?: boolean }[]
+  items: {
+    value: string
+    label: string
+    total?: number
+    cap?: boolean
+    iconType?: string
+    iconColor?: string
+  }[]
   value: string
   onPick: (v: string) => void
 }) {
@@ -434,6 +459,9 @@ function Options({
             className={`flex w-full items-center gap-2 rounded-2xl px-4 py-3 text-left transition hover:bg-(--muted) ${
               it.value === value ? 'bg-(--muted)' : ''
             }`}>
+            {it.iconColor && (
+              <AccountIcon type={it.iconType} color={it.iconColor} />
+            )}
             <span
               className={`flex-1 text-sm font-semibold ${it.cap ? 'capitalize' : ''}`}>
               {it.label}
