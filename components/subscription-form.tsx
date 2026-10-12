@@ -31,6 +31,7 @@ import {
   createSubscription,
   updateSubscription,
 } from '@/lib/subscription-actions'
+import { syncForce } from '@/lib/offline/useSnapshotSync'
 import { formatMoney } from '@/lib/utils'
 import { cn } from '@/lib/utils'
 
@@ -170,6 +171,7 @@ export function SubscriptionForm({
     setAddingCat(false)
     setMsg(null)
     toast.success('Categoría creada')
+    void syncForce()
   }
   const sliderRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -241,11 +243,13 @@ export function SubscriptionForm({
     const res = editing
       ? await updateSubscription(fd)
       : await createSubscription(fd)
-    setPending(false)
     if ('error' in res && res.error) {
+      setPending(false)
       setMsg(res.error)
       toast.error(res.error)
     } else {
+      await syncForce()
+      setPending(false)
       setMsg(null)
       toast.success(
         editing ? 'Suscripción actualizada' : 'Suscripción agregada',

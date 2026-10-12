@@ -21,6 +21,7 @@ import {
 import { deleteTransaction } from '@/lib/actions'
 import type { CatalogRow } from '@/lib/catalog'
 import { isPendingId } from '@/lib/offline/pending'
+import { syncForce } from '@/lib/offline/useSnapshotSync'
 import { formatMoney } from '@/lib/utils'
 import { cn } from '@/lib/utils'
 
@@ -116,11 +117,13 @@ export function TransactionSwipeRow({
     setDelError(null)
     setDeleting(true)
     const res = await deleteTransaction(t.id)
-    setDeleting(false)
     if ('error' in res && res.error) {
+      setDeleting(false)
       setDelError(res.error)
       toast.error(res.error)
     } else {
+      await syncForce()
+      setDeleting(false)
       setConfirmOpen(false)
       toast.success('Movimiento eliminado')
       router.refresh()

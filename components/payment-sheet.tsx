@@ -17,6 +17,7 @@ import {
   registerPayment,
   rejectPayment,
 } from '@/lib/payment-actions'
+import { syncForce } from '@/lib/offline/useSnapshotSync'
 import { formatMoney } from '@/lib/utils'
 import { cn } from '@/lib/utils'
 
@@ -111,6 +112,7 @@ export function PaymentSheet({
       setMsg(res.error)
       toast.error(res.error)
     } else {
+      await syncForce()
       setMsg(null)
       toast.success(
         mode === 'confirm'
@@ -128,11 +130,13 @@ export function PaymentSheet({
     setMsg(null)
     setPending(true)
     const res = await rejectPayment(payment.id)
-    setPending(false)
     if ('error' in res && res.error) {
+      setPending(false)
       setMsg(res.error)
       toast.error(res.error)
     } else {
+      await syncForce()
+      setPending(false)
       toast.success('Pago rechazado')
       onDone?.()
     }

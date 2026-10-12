@@ -14,6 +14,7 @@ import { Label } from '@/components/ui/label'
 
 import { createTransaction } from '@/lib/actions'
 import { fromCents, toCents } from '@/lib/money'
+import { syncForce } from '@/lib/offline/useSnapshotSync'
 import { formatMoney } from '@/lib/utils'
 import { cn } from '@/lib/utils'
 
@@ -76,11 +77,13 @@ export function AccountMoneySheet({
       fd.set('accountId', account.id)
     }
     const res = await createTransaction(fd)
-    setPending(false)
     if ('error' in res && res.error) {
+      setPending(false)
       setMsg(res.error)
       toast.error(res.error)
     } else {
+      await syncForce()
+      setPending(false)
       setMsg(null)
       toast.success(pay ? 'Tarjeta pagada' : 'Abono registrado')
       onDone?.()

@@ -41,6 +41,7 @@ import type { CatalogRow } from '@/lib/catalog'
 import { useCuentasFilters } from '@/lib/cuentas-filters'
 import { toCents } from '@/lib/money'
 import { isPendingId } from '@/lib/offline/pending'
+import { syncForce } from '@/lib/offline/useSnapshotSync'
 import {
   type DebtItemInput,
   type PartnerDebt,
@@ -150,7 +151,12 @@ export function CuentasClient({
     router.replace('/cuentas')
   }
 
-  const refresh = () => router.refresh()
+  // Refresco post-mutación: Dexie primero (los shells son Dexie-first y
+  // no verían el cambio hasta el próximo sync) y luego el RSC.
+  const refresh = () => {
+    void syncForce()
+    router.refresh()
+  }
 
   const mine = useMemo(
     () => accounts.filter((a) => a.ownerId === meId),

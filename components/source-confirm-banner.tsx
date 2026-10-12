@@ -13,6 +13,7 @@ import type { AccountOpt } from '@/components/transaction-form'
 import { Button } from '@/components/ui/button'
 
 import { confirmPaymentSource } from '@/lib/payment-actions'
+import { syncForce } from '@/lib/offline/useSnapshotSync'
 import { formatMoney } from '@/lib/utils'
 import { cn } from '@/lib/utils'
 
@@ -49,11 +50,13 @@ export function SourceConfirmBanner({
     fd.set('paymentId', target.id)
     fd.set('accountId', accountId)
     const res = await confirmPaymentSource(fd)
-    setPending(false)
     if ('error' in res && res.error) {
+      setPending(false)
       setMsg(res.error)
       toast.error(res.error)
     } else {
+      await syncForce()
+      setPending(false)
       toast.success('Origen confirmado')
       setTarget(null)
       router.refresh()

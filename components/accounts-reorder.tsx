@@ -27,6 +27,7 @@ import { AccountIcon } from '@/components/account-icon'
 import { Button } from '@/components/ui/button'
 
 import { reorderAccounts } from '@/lib/actions'
+import { syncForce } from '@/lib/offline/useSnapshotSync'
 import { cn } from '@/lib/utils'
 
 function SortableRow({ a }: { a: AccountRow }) {
@@ -109,11 +110,13 @@ export function AccountsReorder({
   async function save() {
     setSaving(true)
     const res = await reorderAccounts(order)
-    setSaving(false)
     if ('error' in res && res.error) {
+      setSaving(false)
       toast.error(res.error)
       return
     }
+    await syncForce()
+    setSaving(false)
     toast.success('Orden guardado')
     onClose()
     router.refresh()

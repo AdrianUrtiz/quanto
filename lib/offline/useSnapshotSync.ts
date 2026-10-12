@@ -21,6 +21,21 @@ let inFlight: Promise<boolean> | null = null
  * sincronizó (offline, fresca o fallo best-effort).
  */
 export async function syncIfStale(): Promise<boolean> {
+  return runSync({ force: false })
+}
+
+/**
+ * Fuerza drain + descarga ignorando la ventana stale. Para llamar tras una
+ * mutación online exitosa: el Server Action ya guardó en Neon, pero Dexie
+ * sigue vieja y los shells Dexie-first no mostrarían el cambio hasta el
+ * próximo sync (hasta 15 min). Deduplica igual que `syncIfStale` y nunca
+ * lanza.
+ */
+export async function syncForce(): Promise<boolean> {
+  return runSync({ force: true })
+}
+
+async function runSync(opts: { force: boolean }): Promise<boolean> {
   if (typeof navigator !== 'undefined' && !navigator.onLine) return false
   if (inFlight) {
     try {
@@ -63,7 +78,8 @@ export async function syncIfStale(): Promise<boolean> {
       await syncNow()
       return true
     }
-    if (last && Date.now() - new Date(last).getTime() < SYNC_STALE_MS)
+    // Tras mutación se fuerza la descarga aunque la copia esté fresca.
+    if (!opts.force && last && Date.now() - new Date(last).getTime() < SYNC_STALE_MS)
       return false
     await syncNow()
     return true

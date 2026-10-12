@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 
+import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
@@ -11,6 +12,7 @@ import { Label } from '@/components/ui/label'
 import { CATEGORY_COLORS, ICONS, ICON_PRESETS } from '@/lib/categories'
 import type { CatKind } from '@/lib/categories'
 import { createCategory, updateCategory } from '@/lib/category-actions'
+import { syncForce } from '@/lib/offline/useSnapshotSync'
 import { cn } from '@/lib/utils'
 
 export type CategoryEditData = {
@@ -41,6 +43,7 @@ export function CategoryForm({
   const [kind, setKind] = useState<CatKind>(initial?.kind ?? 'expense')
   const [msg, setMsg] = useState<string | null>(null)
   const [pending, setPending] = useState(false)
+  const router = useRouter()
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -57,14 +60,17 @@ export function CategoryForm({
     fd.set('color', color)
     fd.set('kind', kind)
     const res = editing ? await updateCategory(fd) : await createCategory(fd)
-    setPending(false)
     if ('error' in res && res.error) {
+      setPending(false)
       setMsg(res.error)
       toast.error(res.error)
     } else {
+      await syncForce()
+      setPending(false)
       setMsg(null)
       toast.success(editing ? 'Categoría actualizada' : 'Categoría creada')
       onDone?.()
+      router.refresh()
     }
   }
 

@@ -47,6 +47,7 @@ import {
 } from '@/lib/offline/outbox'
 import { isPendingId } from '@/lib/offline/pending'
 import { useOnlineStatus } from '@/lib/offline/useOnlineStatus'
+import { syncForce } from '@/lib/offline/useSnapshotSync'
 import { cn } from '@/lib/utils'
 import {
   addWallDays,
@@ -416,11 +417,15 @@ export function TransactionForm({
     const res = editing
       ? await updateTransaction(fd)
       : await createTransaction(fd)
-    setPending(false)
     if ('error' in res && res.error) {
+      setPending(false)
       setMsg(res.error)
       toast.error(res.error)
     } else {
+      // Online: el Server Action ya guardó en Neon; forzar la descarga para
+      // que Dexie-first muestre el cambio sin esperar al sync de 15 min.
+      await syncForce()
+      setPending(false)
       setMsg(null)
       toast.success(
         editing ? 'Movimiento actualizado' : 'Movimiento registrado',
@@ -471,6 +476,7 @@ export function TransactionForm({
       )
       setCategory(c.code)
       toast.success('Categoría creada')
+      void syncForce()
     }
     setNewCatName('')
     setPanel('cats')
