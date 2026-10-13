@@ -25,7 +25,6 @@ import {
 import { FilterOptions, FilterPill } from '@/components/filter-dialog'
 import { PartnerPayReminders } from '@/components/partner-pay-reminders'
 import { PaymentSheet } from '@/components/payment-sheet'
-import { SubscriptionSummaryRow } from '@/components/subscription-swipe-row'
 import { type SubRow, SubscriptionTab } from '@/components/subscription-tab'
 import { SwipeRow } from '@/components/swipe-row'
 import { Button } from '@/components/ui/button'
@@ -174,7 +173,7 @@ export function CuentasClient({
     [hiddenAccounts, meId],
   )
 
-  // Recordatorio de renovación (tabs Todas y Cuentas): abre la edición directo.
+  // Recordatorio de renovación: abre la edición de la cuenta directamente.
   const expiryAccounts: ExpiryAccount[] = useMemo(
     () =>
       mine.map((a) => ({
@@ -220,8 +219,7 @@ export function CuentasClient({
     () => buildDebts(owedItems, partnerMonth, sumsMap),
     [owedItems, partnerMonth, sumsMap],
   )
-  // Recordatorio de pago a la pareja (tabs Todas y Cuentas): abre Pareja
-  // en el mes exigible del vencimiento.
+  // Recordatorio de pago a la pareja: abre Compartidos en el mes exigible.
   const openPartnerPay = (it: { dueKey: string }) => {
     setPartnerMonth(it.dueKey)
     setTab('compartidos')
@@ -286,11 +284,6 @@ export function CuentasClient({
   const accType = useCuentasFilters((s) => s.accType)
   const setAccType = useCuentasFilters((s) => s.setAccType)
   const [accSheet, setAccSheet] = useState<null | 'sort' | 'type'>(null)
-  const allSection = useCuentasFilters((s) => s.allSection)
-  const setAllSection = useCuentasFilters((s) => s.setAllSection)
-  const allSort = useCuentasFilters((s) => s.allSort)
-  const setAllSort = useCuentasFilters((s) => s.setAllSort)
-  const [allSheet, setAllSheet] = useState<null | 'section' | 'sort'>(null)
   const [partnerSheet, setPartnerSheet] = useState<null | 'month'>(null)
 
   // Monto representativo: saldo en débito, disponible en crédito.
@@ -351,48 +344,6 @@ export function CuentasClient({
     { value: 'low', label: 'Menor monto' },
     { value: 'az', label: 'Nombre A–Z' },
   ]
-  const SECTION_OPTS = [
-    { value: 'all', label: 'Todo' },
-    { value: 'accounts', label: 'Cuentas' },
-    { value: 'debts', label: 'Pareja' },
-    { value: 'subs', label: 'Suscripciones' },
-  ]
-
-  function sortAccounts(list: AccountRow[]) {
-    const sorted = [...list]
-    if (allSort === 'high') sorted.sort((a, b) => effValue(b) - effValue(a))
-    else if (allSort === 'low') sorted.sort((a, b) => effValue(a) - effValue(b))
-    return sorted
-  }
-
-  const allMine = sortAccounts(mine)
-  const allDebts = useMemo(() => {
-    const sorted = [...debts]
-    if (allSort === 'high') sorted.sort((a, b) => b.remaining - a.remaining)
-    else if (allSort === 'low') sorted.sort((a, b) => a.remaining - b.remaining)
-    return sorted
-  }, [debts, allSort])
-  const allOwed = useMemo(() => {
-    const sorted = [...owed]
-    if (allSort === 'high') sorted.sort((a, b) => b.remaining - a.remaining)
-    else if (allSort === 'low') sorted.sort((a, b) => a.remaining - b.remaining)
-    return sorted
-  }, [owed, allSort])
-  const allSubs = useMemo(() => {
-    const list = subs.filter((s) => s.isActive)
-    const sorted = [...list]
-    if (allSort === 'high') sorted.sort((a, b) => b.amount - a.amount)
-    else if (allSort === 'low') sorted.sort((a, b) => a.amount - b.amount)
-    return sorted
-  }, [subs, allSort])
-
-  const showAccounts = allSection === 'all' || allSection === 'accounts'
-  const showDebts = allSection === 'all' || allSection === 'debts'
-  const showSubs = allSection === 'all' || allSection === 'subs'
-  const allEmpty =
-    (!showAccounts || allMine.length === 0) &&
-    (!showDebts || (allDebts.length === 0 && allOwed.length === 0)) &&
-    (!showSubs || allSubs.length === 0)
   const TYPE_OPTS = [
     { value: 'all', label: 'Todas' },
     { value: 'debit', label: 'Débito' },
@@ -434,71 +385,10 @@ export function CuentasClient({
 
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList>
-          <TabsTrigger value="todas">Todas</TabsTrigger>
           <TabsTrigger value="mias">Cuentas</TabsTrigger>
           <TabsTrigger value="subs">Suscripciones</TabsTrigger>
           <TabsTrigger value="compartidos">Compartidos</TabsTrigger>
         </TabsList>
-        <TabsContent value="todas" className="space-y-2">
-          <ExpiryReminders accounts={expiryAccounts} onRenew={openRenew} />
-          <PartnerPayReminders
-            debtItems={debtItems}
-            sums={sumsMap}
-            onPay={openPartnerPay}
-          />
-          <CardPayReminders items={cardPayItems ?? []} onPay={openCardPay} />
-          <div className="no-scrollbar -mx-5 flex gap-2 overflow-x-auto px-5 pb-1">
-            <FilterPill
-              label={SECTION_OPTS.find((o) => o.value === allSection)!.label}
-              active={allSection !== 'all'}
-              onClick={() => setAllSheet('section')}
-            />
-            <FilterPill
-              label={SORT_OPTS.find((o) => o.value === allSort)!.label}
-              active={allSort !== 'default'}
-              onClick={() => setAllSheet('sort')}
-            />
-          </div>
-          {showAccounts && allMine.map(swipe)}
-          {showDebts &&
-            allDebts.map((d) => (
-              <DebtSummaryRow
-                key={`${d.accountId}:${d.debtorId}`}
-                d={d}
-                meId={meId}
-                onOpen={() => setTab('compartidos')}
-              />
-            ))}
-          {showDebts &&
-            allOwed.map((d) => (
-              <DebtSummaryRow
-                key={`${d.accountId}:${d.debtorId}`}
-                d={d}
-                meId={meId}
-                onOpen={() => setTab('compartidos')}
-              />
-            ))}
-          {showSubs &&
-            allSubs.map((s) => (
-              <SubscriptionSummaryRow
-                key={s.id}
-                s={s}
-                onOpen={() => setTab('subs')}
-              />
-            ))}
-          {allEmpty && (
-            <Empty
-              text={
-                mine.length === 0 &&
-                debts.length === 0 &&
-                owed.length === 0 &&
-                subs.filter((s) => s.isActive).length === 0
-                  ? 'Sin cuentas aquí todavía.'
-                  : 'Sin resultados para ese filtro.'
-              }
-            />
-          )}
-        </TabsContent>
         <TabsContent value="mias" className="space-y-2">
           <ExpiryReminders accounts={expiryAccounts} onRenew={openRenew} />
           <PartnerPayReminders
@@ -811,37 +701,6 @@ export function CuentasClient({
       </Dialog>
 
       <Dialog
-        open={allSheet !== null}
-        onOpenChange={(o) => !o && setAllSheet(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>
-              {allSheet === 'sort' ? 'Ordenar todo' : 'Secciones visibles'}
-            </DialogTitle>
-          </DialogHeader>
-          {allSheet === 'sort' ? (
-            <FilterOptions
-              items={SORT_OPTS.filter((o) => o.value !== 'az')}
-              value={allSort}
-              onPick={(v) => {
-                setAllSort(v)
-                setAllSheet(null)
-              }}
-            />
-          ) : (
-            <FilterOptions
-              items={SECTION_OPTS}
-              value={allSection}
-              onPick={(v) => {
-                setAllSection(v)
-                setAllSheet(null)
-              }}
-            />
-          )}
-        </DialogContent>
-      </Dialog>
-
-      <Dialog
         open={partnerSheet !== null}
         onOpenChange={(o) => !o && setPartnerSheet(null)}>
         <DialogContent>
@@ -864,47 +723,6 @@ export function CuentasClient({
         </DialogContent>
       </Dialog>
     </div>
-  )
-}
-
-function DebtSummaryRow({
-  d,
-  meId,
-  onOpen,
-}: {
-  d: PartnerDebt
-  meId: string
-  onOpen: () => void
-}) {
-  const n = d.lines.length
-  const owe = d.debtorId === meId
-  return (
-    <button
-      onClick={onOpen}
-      className={`flex w-full items-center gap-3 rounded-3xl border p-4 text-left transition active:scale-[.99] ${owe ? 'debt-owe' : 'debt-owed'}`}>
-      <span
-        className={`flex size-11 shrink-0 items-center justify-center rounded-2xl ${owe ? 'debt-owe-solid' : 'debt-owed-solid'}`}>
-        <HandCoins className="size-5" />
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm font-semibold">
-          {d.accountName}
-        </span>
-        <span className="block truncate text-xs text-(--muted-foreground)">
-          {owe ? `Le debes a ${d.creditorName}` : `${d.debtorName} te debe`} ·{' '}
-          {n} {n === 1 ? 'movimiento' : 'movimientos'}
-        </span>
-      </span>
-      <span className="shrink-0 text-right">
-        <span className="block text-base font-extrabold">
-          {formatMoney(d.remaining)}
-        </span>
-        <span
-          className={`block text-[11px] font-semibold ${owe ? 'debt-owe-text' : 'debt-owed-text'}`}>
-          Ver detalle ›
-        </span>
-      </span>
-    </button>
   )
 }
 

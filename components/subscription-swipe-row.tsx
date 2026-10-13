@@ -1,6 +1,6 @@
 'use client'
 
-import { History, Pause, Pencil, Play, Repeat, Trash2 } from 'lucide-react'
+import { History, Pause, Pencil, Play, Trash2 } from 'lucide-react'
 
 import type { SubRow } from '@/components/subscription-tab'
 import { SwipeRow } from '@/components/swipe-row'
@@ -55,7 +55,6 @@ function HistoryStrip({ s }: { s: SubRow }) {
     </div>
   )
 }
-
 function SubFront({ s, cats }: { s: SubRow; cats: CatalogRow[] }) {
   const cat = lookupCategory(s.category, cats)
   const share = shareLine(s)
@@ -189,38 +188,5 @@ export function SubscriptionSwipeRow({
       }>
       <SubFront s={s} cats={cats} />
     </SwipeRow>
-  )
-}
-
-/** Concentrado para la pestaña Todas: solo total, el detalle vive en Suscripciones. */
-export function SubscriptionSummaryRow({
-  s,
-  onOpen,
-}: {
-  s: SubRow
-  onOpen: () => void
-}) {
-  return (
-    <button
-      onClick={onOpen}
-      className="flex w-full items-center gap-3 rounded-3xl border border-(--border) bg-(--card) p-4 text-left transition active:scale-[.99]">
-      <span className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-(--primary) text-white">
-        <Repeat className="size-5" />
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm font-semibold">{s.name}</span>
-        <span className="block truncate text-xs text-(--muted-foreground)">
-          Suscripción · día {s.chargeDay}
-        </span>
-      </span>
-      <span className="shrink-0 text-right">
-        <span className="block text-base font-extrabold">
-          {formatMoney(s.amount)}
-        </span>
-        <span className="block text-[11px] font-semibold text-(--primary)">
-          Ver detalle ›
-        </span>
-      </span>
-    </button>
   )
 }
