@@ -8,10 +8,10 @@ import type { CardPayCandidate } from '@/lib/card-pay'
 
 // Versión del esquema Dexie. Subir en cada migración futura
 // (el sprint de creación offline añadirá índices/flags sin romper v2).
-export const DB_VERSION = 4
+export const DB_VERSION = 6
 export const DB_NAME = 'quanto-db'
 // Versión del payload de /api/snapshot que esta DB sabe guardar.
-export const SNAPSHOT_VERSION = 4
+export const SNAPSHOT_VERSION = 6
 
 export type SyncMeta = {
   key: string // siempre 'sync'
@@ -161,6 +161,26 @@ export type OfflinePartnerShared = {
   dueDay?: number | null
 }
 
+// Resumen de grupo para la tab Compartidos (serializable; lo calcula el
+// servidor en el snapshot y en /cuentas, el cliente lo pinta tal cual).
+export type OfflineGroup = {
+  id: string
+  code: string | null
+  name: string
+  isCreator: boolean
+  memberCount: number
+  memberNames: string[]
+  myOwe: number
+  myOwed: number
+  expenseCount: number
+}
+
+// Solicitud de vínculo de pareja (serializable, solo nombre).
+export type OfflineInvite = {
+  id: string
+  fromName: string
+}
+
 // Reserva para el sprint de creación offline: cola de operaciones
 // pendientes de subir a la central. `error` guarda el último rechazo del
 // servidor (p. ej. cuenta eliminada) para la tarjeta de acciones urgentes.
@@ -188,6 +208,8 @@ class QuantoDB extends Dexie {
   partnerDebts!: Table<OfflinePartnerDebt, string>
   cardPay!: Table<CardPayCandidate, string>
   partnerShared!: Table<OfflinePartnerShared, string>
+  groups!: Table<OfflineGroup, string>
+  invites!: Table<OfflineInvite, string>
   outbox!: Table<OfflineOutboxOp, number>
 
   constructor() {
@@ -205,6 +227,8 @@ class QuantoDB extends Dexie {
       partnerDebts: 'shareId, direction',
       cardPay: 'cardId',
       partnerShared: 'id',
+      groups: 'id',
+      invites: 'id',
       outbox: '++localId, createdAt, status',
     })
   }
@@ -245,6 +269,8 @@ export async function clearLocalData(): Promise<void> {
       db.partnerDebts,
       db.cardPay,
       db.partnerShared,
+      db.groups,
+      db.invites,
       db.outbox,
     ],
     async () => {
@@ -261,6 +287,8 @@ export async function clearLocalData(): Promise<void> {
         db.partnerDebts.clear(),
         db.cardPay.clear(),
         db.partnerShared.clear(),
+        db.groups.clear(),
+        db.invites.clear(),
         db.outbox.clear(),
       ])
     },

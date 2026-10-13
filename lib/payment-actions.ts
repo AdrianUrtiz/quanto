@@ -12,9 +12,9 @@ import {
   lineRemaining,
   syncSubscriptionCheck,
 } from '@/lib/debt-payments'
-import { formatMoney } from '@/lib/utils'
 import { fromCents, moneySchema, toCents } from '@/lib/money'
 import { prisma } from '@/lib/prisma'
+import { formatMoney } from '@/lib/utils'
 import { wallNow } from '@/lib/walltime'
 
 import { auth } from '@/auth'
@@ -23,6 +23,7 @@ function revalidateDebts() {
   revalidatePath('/cuentas')
   revalidatePath('/resumen')
   revalidatePath('/actividad')
+  revalidatePath('/grupos')
 }
 
 async function meId() {
@@ -91,11 +92,18 @@ export async function registerPayment(formData: FormData) {
 
   const share = await prisma.transactionShare.findUnique({
     where: { id: v.shareId },
-    include: { transaction: { include: { createdBy: true } } },
+    include: {
+      transaction: { include: { createdBy: true } },
+      debtor: { select: { name: true } },
+      seat: { select: { displayName: true, userId: true } },
+    },
   })
   if (!share) return { error: 'Aportación no encontrada' }
   const tx = share.transaction
-  const debtorId = share.debtorId
+  // Deudor efectivo: user directo (pareja) u ocupante del seat (grupo).
+  const debtorId = share.debtorId ?? share.seat?.userId ?? null
+  if (!debtorId) return { error: 'Ese lugar aún no fue reclamado' }
+  const debtorName = share.debtor?.name ?? share.seat?.displayName ?? 'pareja'
   const creditorId = tx.createdById
   if (userId !== debtorId && userId !== creditorId) {
     return { error: 'No participas en esta deuda' }
@@ -132,14 +140,16 @@ export async function registerPayment(formData: FormData) {
     if (!account) return { error: 'Cuenta no encontrada' }
     const catError = await checkCategory(userId, 'TRANSFERENCIA', 'INCOME')
     if (catError) return { error: catError }
-    const debtor = await prisma.user.findUnique({
-      where: { id: debtorId },
-      select: { name: true },
-    })
+    const debtor = share.debtorId
+      ? await prisma.user.findUnique({
+          where: { id: share.debtorId },
+          select: { name: true },
+        })
+      : null
 
     const incomeId = await createCreditorIncome(prisma, {
       amount: v.amount,
-      concept: `Pago de ${debtor?.name ?? 'pareja'} · ${tx.concept}`,
+      concept: `Pago de ${debtor?.name ?? debtorName} · ${tx.concept}`,
       accountId,
       userId,
     })
@@ -221,7 +231,13 @@ export async function confirmPayment(formData: FormData) {
       const p = await db.debtPayment.findUnique({
         where: { id: v.paymentId },
         include: {
-          share: { include: { transaction: { include: { createdBy: true } } } },
+          share: {
+            include: {
+              transaction: { include: { createdBy: true } },
+              debtor: { select: { name: true } },
+              seat: { select: { displayName: true } },
+            },
+          },
         },
       })
       if (!p) throw new Error('Pago no encontrado')
@@ -242,13 +258,16 @@ export async function confirmPayment(formData: FormData) {
         throw new Error('El monto excede lo restante de la parcialidad')
       }
 
-      const debtor = await db.user.findUnique({
-        where: { id: p.share.debtorId },
-        select: { name: true },
-      })
+      const debtor = p.share.debtorId
+        ? await db.user.findUnique({
+            where: { id: p.share.debtorId },
+            select: { name: true },
+          })
+        : null
+      const debtorName = debtor?.name ?? p.share.seat?.displayName ?? 'pareja'
       const incomeId = await createCreditorIncome(db, {
         amount: fromCents(toCents(p.amount)),
-        concept: `Pago de ${debtor?.name ?? 'pareja'} · ${p.share.transaction.concept}`,
+        concept: `Pago de ${debtorName} · ${p.share.transaction.concept}`,
         accountId: v.accountId,
         userId,
       })
@@ -355,13 +374,19 @@ export async function confirmPaymentSource(formData: FormData) {
   const p = await prisma.debtPayment.findUnique({
     where: { id: v.paymentId },
     include: {
-      share: { include: { transaction: { include: { createdBy: true } } } },
+      share: {
+        include: {
+          transaction: { include: { createdBy: true } },
+          seat: { select: { userId: true } },
+        },
+      },
     },
   })
   if (!p) return { error: 'Pago no encontrado' }
   if (p.status !== 'CONFIRMED')
     return { error: 'El pago aún no está confirmado' }
-  if (p.share.debtorId !== userId)
+  const debtorId = p.share.debtorId ?? p.share.seat?.userId ?? null
+  if (debtorId !== userId)
     return { error: 'Solo quien pagó confirma el origen' }
   if (p.registeredById === userId) return { error: 'Tú registraste este pago' }
   if (p.debtorConfirmedAt) return { error: 'El origen ya fue confirmado' }

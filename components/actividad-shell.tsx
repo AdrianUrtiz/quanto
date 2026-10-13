@@ -8,6 +8,7 @@ import type {
   ToConfirmItem,
 } from '@/components/cuentas-client'
 import type { ExpiryAccount } from '@/components/expiry-reminders'
+import { PairingBanner } from '@/components/pairing-banner'
 import { PendingOutboxBanner } from '@/components/pending-outbox-banner'
 import { PendingPaymentsBanner } from '@/components/pending-payments-banner'
 import { SourceConfirmBanner } from '@/components/source-confirm-banner'
@@ -29,6 +30,7 @@ import {
   toToConfirmSource,
   toTxRows,
 } from '@/lib/offline/derive-activity'
+import type { PairingInviteItem } from '@/lib/offline/snapshot'
 import { useOnlineStatus } from '@/lib/offline/useOnlineStatus'
 import { useSnapshotSync } from '@/lib/offline/useSnapshotSync'
 import type { PartnerPayItem } from '@/lib/partner-pay'
@@ -44,6 +46,8 @@ type Props = {
   cardPayItems: CardPayCandidate[]
   toConfirm: ToConfirmItem[]
   toConfirmSource: SourceConfirmItem[]
+  /** Solicitudes de pareja pendientes (del servidor; aceptar es online). */
+  pairingInvites: PairingInviteItem[]
 }
 
 /**
@@ -65,6 +69,7 @@ export function ActividadShell(server: Props) {
       lineSums,
       partnerDebts,
       cardPay,
+      invites,
     ] = await Promise.all([
       db.meta.get('sync'),
       db.transactions.toArray(),
@@ -74,6 +79,7 @@ export function ActividadShell(server: Props) {
       db.lineSums.toArray(),
       db.partnerDebts.toArray(),
       db.cardPay.toArray(),
+      db.invites.toArray().catch(() => []),
     ])
     return {
       meta,
@@ -84,6 +90,7 @@ export function ActividadShell(server: Props) {
       lineSums,
       partnerDebts,
       cardPay,
+      invites,
     }
   }, [])
 
@@ -107,6 +114,7 @@ export function ActividadShell(server: Props) {
         cardPayItems: toCardPayItems(local.cardPay),
         toConfirm: toToConfirm(local.debtPayments, local.meta?.userId ?? ''),
         toConfirmSource: toToConfirmSource(local.debtPayments),
+        pairingInvites: local.invites,
       }
     : server
 
@@ -147,6 +155,7 @@ export function ActividadShell(server: Props) {
         </p>
       )}
       <PendingOutboxBanner />
+      <PairingBanner items={view.pairingInvites} />
       <PendingPaymentsBanner
         items={view.toConfirm}
         accountOptions={view.filterAccounts}

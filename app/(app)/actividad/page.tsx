@@ -10,6 +10,7 @@ import type { TxRow } from '@/components/transaction-list'
 
 import { getCardPayCandidates } from '@/lib/card-pay-server'
 import { getCatalog } from '@/lib/catalog'
+import { getPairingInvites } from '@/lib/couple-actions'
 import { getLineSums } from '@/lib/debt-payments'
 import { fromCents, normalizeMoney, toCents } from '@/lib/money'
 import { prisma } from '@/lib/prisma'
@@ -44,6 +45,7 @@ export default async function ActividadPage() {
       where: {
         type: 'EXPENSE',
         isShared: true,
+        householdId: null,
         createdById: { not: meId },
         shares: { some: { debtorId: meId } },
       },
@@ -181,6 +183,7 @@ export default async function ActividadPage() {
       where: {
         status: 'PENDING',
         share: {
+          transaction: { householdId: null },
           OR: [{ debtorId: meId }, { transaction: { createdById: meId } }],
         },
       },
@@ -195,7 +198,7 @@ export default async function ActividadPage() {
         status: 'CONFIRMED',
         debtorConfirmedAt: null,
         registeredById: { not: meId },
-        share: { debtorId: meId },
+        share: { debtorId: meId, transaction: { householdId: null } },
       },
       include: {
         share: { include: { transaction: { include: { createdBy: true } } } },
@@ -239,13 +242,16 @@ export default async function ActividadPage() {
     }
   })
 
+  // Solicitudes de vínculo de pareja pendientes (banner en Actividad).
+  const pairingInvites = await getPairingInvites(meId)
   // Recordatorio "Pagar a tu pareja": lo que YO debo de sus tarjetas
-  // (mismo origen que Cuentas > Pareja; sin datos de sus cuentas, solo
+  // (mismo origen que Cuentas > Compartidos; sin datos de sus cuentas, solo
   // concepto, corte/límite y mi parte). Si no debo nada, lista vacía.
   const meName = session?.user?.name ?? 'Tú'
   const sharedOwed = await prisma.transaction.findMany({
     where: {
       isShared: true,
+      householdId: null,
       createdById: { not: meId },
       shares: { some: { debtorId: meId } },
     },
@@ -300,6 +306,7 @@ export default async function ActividadPage() {
       cardPayItems={cardPayItems}
       toConfirm={toConfirm}
       toConfirmSource={toConfirmSource}
+      pairingInvites={pairingInvites}
     />
   )
 }

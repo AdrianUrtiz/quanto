@@ -30,18 +30,24 @@ model User {
   password  String // hash bcrypt (Auth.js Credentials)
   name      String
   avatar    String?
+  // Código personal de vínculo Q-XXXXXX (Ajustes > Pareja). Se genera al primer uso.
+  pairCode  String?  @unique
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   accounts           Account[]
-  transactions       Transaction[]      @relation("CreatedBy")
-  debts              TransactionShare[] @relation("Debtor")
+  transactions       Transaction[]        @relation("CreatedBy")
+  debts              TransactionShare[]   @relation("Debtor")
   subscriptions      Subscription[]
   categories         Category[]
-  paymentsRegistered DebtPayment[]      @relation("PaymentRegistrar")
-  paymentsConfirmed  DebtPayment[]      @relation("PaymentConfirmer")
+  paymentsRegistered DebtPayment[]        @relation("PaymentRegistrar")
+  paymentsConfirmed  DebtPayment[]        @relation("PaymentConfirmer")
   chargesOwnerPaid   SubscriptionCharge[] @relation("ChargeOwnerPayer")
   chargesPartnerPaid SubscriptionCharge[] @relation("ChargePartnerPayer")
+  householdMembers   HouseholdMember[]
+  householdsCreated  Household[]          @relation("HouseholdCreator")
+  invitesSent        CoupleInvite[]       @relation("InviteFrom")
+  invitesReceived    CoupleInvite[]       @relation("InviteTo")
 }
 
 model Account {
@@ -51,18 +57,18 @@ model Account {
   userId String
   user   User        @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  lastFour String?
-  expiry   String? // vencimiento MM/AA
-  color    String? @default("#6366f1")
+  lastFour   String?
+  expiry     String? // vencimiento MM/AA
+  color      String? @default("#6366f1")
   // Orden manual (menor = primero) y favorita (siempre primera y
   // preseleccionada en formularios). Una sola favorita por usuario
   // (se garantiza en los server actions).
   position   Int     @default(0)
   isFavorite Boolean @default(false)
-  isActive Boolean @default(true)
+  isActive   Boolean @default(true)
   // Oculta manual (cuentas en ceros que casi no se usan): fuera de listas,
   // totales y selectores; el historial se conserva.
-  isHidden Boolean @default(false)
+  isHidden   Boolean @default(false)
 
   // — Débito: solo saldo inicial; los ingresos se registran manual —
   initialBalance Decimal? @db.Decimal(12, 2)
@@ -82,7 +88,7 @@ model Account {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  debtPayments DebtPayment[] @relation("PaymentAccount")
+  debtPayments         DebtPayment[] @relation("PaymentAccount")
   debtorSourcePayments DebtPayment[] @relation("DebtorPaymentAccount")
 
   @@index([userId])
@@ -123,10 +129,14 @@ model Transaction {
   subscriptionId String?
   subscription   Subscription? @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
 
+  // Grupo al que pertenece el gasto (GROUP). Null = personal o pareja (compat legacy).
+  householdId String?
+  household   Household? @relation(fields: [householdId], references: [id], onDelete: SetNull)
+
   // Cargo mensual de suscripción (nuevo modelo checklist).
   charges SubscriptionCharge[]
 
-  debtPayment DebtPayment? @relation("PaymentTransaction")
+  debtPayment         DebtPayment? @relation("PaymentTransaction")
   debtorSourcePayment DebtPayment? @relation("DebtorPaymentTransaction")
 
   // Llave de idempotencia para subidas offline (outbox): el cliente genera
@@ -142,6 +152,7 @@ model Transaction {
   @@index([createdById])
   @@index([subscriptionId])
   @@index([statementKey])
+  @@index([householdId])
 }
 
 // Catálogo de categorías: filas globales del sistema (userId null, isDefault)
@@ -180,7 +191,7 @@ model Subscription {
 
   chargeDay Int // día de cobro 1-31 (se ajusta al último día del mes si no existe)
 
-  isShared Boolean @default(false)
+  isShared    Boolean  @default(false)
   // Reparto de la pareja: porcentaje o cantidad fija total. Solo referencia
   // para el split al confirmar; los pagos se registran en Pareja, no aquí.
   sharePct    Float    @default(50)
@@ -242,8 +253,15 @@ model TransactionShare {
   transaction   Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
 
   // Quién DEBE aportar (normalmente la pareja del creador).
-  debtorId String
-  debtor   User   @relation("Debtor", fields: [debtorId], references: [id], onDelete: Cascade)
+  // - Pareja: userId de la pareja (siempre presente).
+  // - Grupo: seat del grupo (siempre presente); debtorId se rellena al
+  //   reclamar el seat (dual-write para que los flujos por shareId/debtorId
+  //   existentes sigan funcionando). Null = seat aún libre.
+  debtorId String?
+  debtor   User?   @relation("Debtor", fields: [debtorId], references: [id], onDelete: Cascade)
+
+  seatId String?
+  seat   HouseholdMember? @relation("SeatDebtor", fields: [seatId], references: [id], onDelete: SetNull)
 
   // Porcentaje del total que le toca al deudor (50 = mitad).
   sharePct Float @default(50)
@@ -263,12 +281,89 @@ model TransactionShare {
 
   @@index([transactionId])
   @@index([debtorId])
+  @@index([seatId])
 }
 
 enum PaymentStatus {
   PENDING
   CONFIRMED
   REJECTED
+}
+
+enum HouseholdKind {
+  COUPLE
+  GROUP
+}
+
+enum InviteStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  EXPIRED
+}
+
+// Hogar compartido: COUPLE (máx 2, vínculo con aceptación) o GROUP
+// (seats libres por nombre, claim directo con código reutilizable).
+// Un usuario puede estar en 1 COUPLE + N GROUP a la vez.
+model Household {
+  id           String            @id @default(cuid())
+  // GROUP: código reutilizable G-XXXXXX que se comparte.
+  // COUPLE: código Q-XXXXXX de referencia (el vínculo real va por invite).
+  code         String?           @unique
+  kind         HouseholdKind
+  name         String?
+  createdById  String
+  createdBy    User              @relation("HouseholdCreator", fields: [createdById], references: [id], onDelete: Cascade)
+  members      HouseholdMember[]
+  transactions Transaction[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([kind])
+}
+
+// Miembro o seat de un household.
+// - COUPLE: siempre con userId (2 miembros).
+// - GROUP: seat con displayName libre; userId null = libre, con userId = ocupado.
+//   El displayName no tiene por qué matchear el username (ej. seat "Chispa" reclamado por Brenda).
+model HouseholdMember {
+  id          String    @id @default(cuid())
+  householdId String
+  household   Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  displayName String
+  joinedAt    DateTime @default(now())
+
+  // Shares de gastos grupales que debe este seat (dual-write con debtorId).
+  seatShares TransactionShare[] @relation("SeatDebtor")
+
+  // Un usuario ocupa un solo seat por household (NULLs múltiples permitidos en PG).
+  @@unique([householdId, userId])
+  // Sin seats duplicados por nombre dentro del mismo household.
+  @@unique([householdId, displayName])
+  @@index([userId])
+}
+
+// Solicitud de vínculo de pareja: A pega el pairCode de B → PENDING para B.
+// Al aceptar se crea el Household COUPLE con ambos. Expira en 48h.
+model CoupleInvite {
+  id         String       @id @default(cuid())
+  fromUserId String
+  fromUser   User         @relation("InviteFrom", fields: [fromUserId], references: [id], onDelete: Cascade)
+  toUserId   String
+  toUser     User         @relation("InviteTo", fields: [toUserId], references: [id], onDelete: Cascade)
+  status     InviteStatus @default(PENDING)
+  expiresAt  DateTime
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([toUserId, status])
+  @@index([fromUserId, status])
 }
 
 // Abono a la parcialidad de un mes de un gasto compartido.
@@ -302,11 +397,11 @@ model DebtPayment {
 
   // Lado deudor: de qué cuenta salió el dinero que el acreedor dice recibido.
   // Se llena cuando el deudor confirma el origen (o al confirmar su propio registro).
-  debtorAccountId String?
-  debtorAccount   Account? @relation("DebtorPaymentAccount", fields: [debtorAccountId], references: [id], onDelete: SetNull)
+  debtorAccountId     String?
+  debtorAccount       Account?     @relation("DebtorPaymentAccount", fields: [debtorAccountId], references: [id], onDelete: SetNull)
   debtorTransactionId String?      @unique
   debtorTransaction   Transaction? @relation("DebtorPaymentTransaction", fields: [debtorTransactionId], references: [id], onDelete: SetNull)
-  debtorConfirmedAt DateTime?
+  debtorConfirmedAt   DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

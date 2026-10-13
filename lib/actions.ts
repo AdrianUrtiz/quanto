@@ -6,9 +6,14 @@ import { z } from 'zod'
 import { debtorMonthlyAmount } from '@/lib/calculations'
 import { checkCategory } from '@/lib/catalog'
 import { getLineSums, lineKey } from '@/lib/debt-payments'
-import { formatMoney } from '@/lib/utils'
-import { fromCents, moneySchema, optionalMoneySchema, toCents } from '@/lib/money'
+import {
+  fromCents,
+  moneySchema,
+  optionalMoneySchema,
+  toCents,
+} from '@/lib/money'
 import { prisma } from '@/lib/prisma'
+import { formatMoney } from '@/lib/utils'
 import { parseWallInput, wallNow } from '@/lib/walltime'
 
 import { auth } from '@/auth'
@@ -562,7 +567,8 @@ export async function createTransaction(formData: FormData) {
           isShared: false,
           // Pago a crédito desde su botón Pagar: se aplica a ese período
           // aunque la fecha sea posterior al vencimiento.
-          statementKey: dest.type === 'CREDIT' ? (v.statementKey ?? null) : null,
+          statementKey:
+            dest.type === 'CREDIT' ? (v.statementKey ?? null) : null,
           clientKey: v.clientKey ?? null,
         },
       })
@@ -589,19 +595,24 @@ export async function createTransaction(formData: FormData) {
     return { ok: true }
   }
 
-  // Determina al deudor: el otro miembro de la pareja.
+  // Determina al deudor: solo el miembro de MI pareja vinculada.
+  // Sin pareja no se puede compartir (individual por defecto).
   let debtorId: string | null = null
   if (v.isShared) {
     if (v.debtorId) {
+      const { getPartnerId } = await import('@/lib/households')
+      const partnerId = await getPartnerId(userId)
+      if (!partnerId)
+        return { error: 'Vincula una pareja en Ajustes para compartir' }
+      if (v.debtorId !== partnerId)
+        return { error: 'Solo puedes compartir con tu pareja vinculada' }
       debtorId = v.debtorId
     } else {
-      const other = await prisma.user.findFirst({
-        where: { id: { not: userId } },
-      })
-      debtorId = other?.id ?? null
+      const { getPartnerId } = await import('@/lib/households')
+      debtorId = await getPartnerId(userId)
     }
     if (!debtorId || debtorId === userId)
-      return { error: 'No se pudo determinar quién debe aportar' }
+      return { error: 'Vincula una pareja en Ajustes para compartir' }
   }
 
   if (

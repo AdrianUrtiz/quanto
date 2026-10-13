@@ -3,16 +3,18 @@
 import { useState } from 'react'
 
 import { useLiveQuery } from 'dexie-react-hooks'
-import { Landmark, Plus, Repeat } from 'lucide-react'
+import { Landmark, Plus, Repeat, UserPlus, Users } from 'lucide-react'
 import { usePathname } from 'next/navigation'
 
 import { AccountForm } from '@/components/account-form'
 import { BottomSheet } from '@/components/bottom-sheet'
+import { GroupCreateSheet, GroupJoinSheet } from '@/components/group-sheets'
 import { SubscriptionForm } from '@/components/subscription-form'
 import { type AccountOpt, TransactionForm } from '@/components/transaction-form'
 
-import type { CatalogRow } from '@/lib/catalog'
 import { byAccountOrder, toAccountOpt } from '@/lib/accounts'
+import type { CatalogRow } from '@/lib/catalog'
+import { useCuentasFilters } from '@/lib/cuentas-filters'
 import { db } from '@/lib/offline/db'
 import { toCatalog } from '@/lib/offline/derive-activity'
 import { cn } from '@/lib/utils'
@@ -28,11 +30,13 @@ type FabProps = {
 export function Fab({ accountOptions, cats }: FabProps) {
   const pathname = usePathname()
 
-  // Resumen, Ajustes y Categorías: sin botón flotante.
+  // Resumen, Ajustes, Categorías y Grupos: sin botón flotante
+  // (el detalle del grupo trae su propio + Gasto grupal).
   if (
     pathname.startsWith('/resumen') ||
     pathname.startsWith('/ajustes') ||
-    pathname.startsWith('/categorias')
+    pathname.startsWith('/categorias') ||
+    pathname.startsWith('/grupos')
   )
     return null
 
@@ -56,6 +60,12 @@ function CuentasSpeedDial({ accountOptions, cats }: FabProps) {
   const [expanded, setExpanded] = useState(false)
   const [accountOpen, setAccountOpen] = useState(false)
   const [subOpen, setSubOpen] = useState(false)
+  const [groupCreateOpen, setGroupCreateOpen] = useState(false)
+  const [groupJoinOpen, setGroupJoinOpen] = useState(false)
+  // Dialer contextual: en Compartidos ofrece Nuevo/Unirse a grupo (oculta
+  // Cuenta/Suscripción); en el resto, Cuenta/Suscripción como siempre.
+  const tab = useCuentasFilters((s) => s.tab)
+  const sharedTab = tab === 'compartidos'
   // NOTA: el menú NO usa useBackToClose a propósito. Si empujara su propia
   // entrada al historial, al abrir Cuenta/Suscripción en el mismo tap la
   // limpieza del menú se comería la entrada del modal (race) y el botón
@@ -82,42 +92,84 @@ function CuentasSpeedDial({ accountOptions, cats }: FabProps) {
               ? 'pointer-events-auto visible translate-y-0 opacity-100'
               : 'pointer-events-none invisible translate-y-2 opacity-0',
           )}>
-          <button
-            onClick={() => {
-              setExpanded(false)
-              setAccountOpen(true)
-            }}
-            aria-label="Añadir cuenta"
-            className="flex cursor-pointer items-center justify-end gap-2">
-            <span className="rounded-full border border-(--border) bg-(--card) px-2.5 py-1 text-[11px] font-semibold whitespace-nowrap shadow-lg">
-              Cuenta
-            </span>
-            <span className="mr-1 flex size-12 items-center justify-center rounded-full border border-(--border) bg-(--card) shadow-xl transition active:scale-95">
-              <Landmark className="size-5" />
-            </span>
-          </button>
-          <button
-            onClick={() => {
-              setExpanded(false)
-              setSubOpen(true)
-            }}
-            aria-label="Añadir suscripción"
-            className="flex cursor-pointer items-center justify-end gap-2">
-            <span className="rounded-full border border-(--border) bg-(--card) px-2.5 py-1 text-[11px] font-semibold whitespace-nowrap shadow-lg">
-              Suscripción
-            </span>
-            <span className="mr-1 flex size-12 items-center justify-center rounded-full border border-(--border) bg-(--card) shadow-xl transition active:scale-95">
-              <Repeat className="size-5" />
-            </span>
-          </button>
+          {sharedTab ? (
+            <>
+              <button
+                onClick={() => {
+                  setExpanded(false)
+                  setGroupCreateOpen(true)
+                }}
+                aria-label="Crear grupo"
+                className="flex cursor-pointer items-center justify-end gap-2">
+                <span className="rounded-full border border-(--border) bg-(--card) px-2.5 py-1 text-[11px] font-semibold whitespace-nowrap shadow-lg">
+                  Nuevo grupo
+                </span>
+                <span className="mr-1 flex size-12 items-center justify-center rounded-full border border-(--border) bg-(--card) shadow-xl transition active:scale-95">
+                  <Users className="size-5" />
+                </span>
+              </button>
+              <button
+                onClick={() => {
+                  setExpanded(false)
+                  setGroupJoinOpen(true)
+                }}
+                aria-label="Unirse a grupo"
+                className="flex cursor-pointer items-center justify-end gap-2">
+                <span className="rounded-full border border-(--border) bg-(--card) px-2.5 py-1 text-[11px] font-semibold whitespace-nowrap shadow-lg">
+                  Unirse
+                </span>
+                <span className="mr-1 flex size-12 items-center justify-center rounded-full border border-(--border) bg-(--card) shadow-xl transition active:scale-95">
+                  <UserPlus className="size-5" />
+                </span>
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                onClick={() => {
+                  setExpanded(false)
+                  setAccountOpen(true)
+                }}
+                aria-label="Añadir cuenta"
+                className="flex cursor-pointer items-center justify-end gap-2">
+                <span className="rounded-full border border-(--border) bg-(--card) px-2.5 py-1 text-[11px] font-semibold whitespace-nowrap shadow-lg">
+                  Cuenta
+                </span>
+                <span className="mr-1 flex size-12 items-center justify-center rounded-full border border-(--border) bg-(--card) shadow-xl transition active:scale-95">
+                  <Landmark className="size-5" />
+                </span>
+              </button>
+              <button
+                onClick={() => {
+                  setExpanded(false)
+                  setSubOpen(true)
+                }}
+                aria-label="Añadir suscripción"
+                className="flex cursor-pointer items-center justify-end gap-2">
+                <span className="rounded-full border border-(--border) bg-(--card) px-2.5 py-1 text-[11px] font-semibold whitespace-nowrap shadow-lg">
+                  Suscripción
+                </span>
+                <span className="mr-1 flex size-12 items-center justify-center rounded-full border border-(--border) bg-(--card) shadow-xl transition active:scale-95">
+                  <Repeat className="size-5" />
+                </span>
+              </button>
+            </>
+          )}
         </div>
         <button
           onClick={() => setExpanded((v) => !v)}
           aria-label={
-            expanded ? 'Cerrar opciones' : 'Agregar cuenta o suscripción'
+            expanded
+              ? 'Cerrar opciones'
+              : sharedTab
+                ? 'Crear o unirte a un grupo'
+                : 'Agregar cuenta o suscripción'
           }
           aria-expanded={expanded}
-          className={cn(FAB_CLS, 'pointer-events-auto relative right-auto bottom-auto')}>
+          className={cn(
+            FAB_CLS,
+            'pointer-events-auto relative right-auto bottom-auto',
+          )}>
           <Plus
             className={cn(
               'size-7 transition-transform duration-200',
@@ -135,6 +187,12 @@ function CuentasSpeedDial({ accountOptions, cats }: FabProps) {
           cats={cats}
           onDone={() => setSubOpen(false)}
         />
+      </BottomSheet>
+      <BottomSheet open={groupCreateOpen} onOpenChange={setGroupCreateOpen}>
+        <GroupCreateSheet onDone={() => setGroupCreateOpen(false)} />
+      </BottomSheet>
+      <BottomSheet open={groupJoinOpen} onOpenChange={setGroupJoinOpen}>
+        <GroupJoinSheet onDone={() => setGroupJoinOpen(false)} />
       </BottomSheet>
     </>
   )

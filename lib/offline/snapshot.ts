@@ -9,6 +9,8 @@ import type {
   OfflineCategory,
   OfflineCharge,
   OfflineDebtPayment,
+  OfflineGroup,
+  OfflineInvite,
   OfflineLineSum,
   OfflinePartnerDebt,
   OfflinePartnerShared,
@@ -16,6 +18,9 @@ import type {
   OfflineSubscription,
   OfflineTransaction,
 } from '@/lib/offline/db'
+
+/** Solicitud de vínculo de pareja (solo nombre, sin datos privados). */
+export type PairingInviteItem = OfflineInvite
 
 export type SnapshotPayload = {
   v: number
@@ -38,6 +43,10 @@ export type SnapshotPayload = {
   partnerDebts: OfflinePartnerDebt[]
   /** Compras compartidas de mi pareja en bruto (liquidación del Resumen). */
   partnerShared: OfflinePartnerShared[]
+  /** Resúmenes de mis grupos (tab Compartidos). Detalle online. */
+  groups: OfflineGroup[]
+  /** Solicitudes de pareja pendientes (banner en Actividad). */
+  pairingInvites: PairingInviteItem[]
   /** Mes actual "YYYY-MM" (hora-muro) con el que se tomó el snapshot. */
   currentMonth: string
 }

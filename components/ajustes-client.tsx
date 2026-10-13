@@ -20,9 +20,11 @@ import Link from 'next/link'
 import { toast } from 'sonner'
 
 import { BottomSheet } from '@/components/bottom-sheet'
+import { PairingSection } from '@/components/pairing-section'
 import { PasswordForm } from '@/components/password-form'
 import { type Theme, useTheme } from '@/components/theme-provider'
 
+import type { PairingState } from '@/lib/couple-actions'
 import { db } from '@/lib/offline/db'
 import { OfflineError, syncNow } from '@/lib/offline/sync'
 import { useOnlineStatus } from '@/lib/offline/useOnlineStatus'
@@ -34,7 +36,13 @@ const THEMES: { value: Theme; label: string; icon: typeof Sun }[] = [
   { value: 'system', label: 'Sistema', icon: MonitorSmartphone },
 ]
 
-export function AjustesClient({ username }: { username?: string }) {
+export function AjustesClient({
+  username,
+  initialPairing,
+}: {
+  username?: string
+  initialPairing?: PairingState | null
+}) {
   const { theme, setTheme } = useTheme()
   const [pwOpen, setPwOpen] = useState(false)
   const online = useOnlineStatus()
@@ -141,11 +149,10 @@ export function AjustesClient({ username }: { username?: string }) {
             <RefreshCw className={cn('size-4', syncing && 'animate-spin')} />
             {syncing ? 'Sincronizando…' : 'Sincronizar ahora'}
           </button>
-          <p className="text-xs text-(--muted-foreground)">
-            La app sincroniza sola al abrirla. Sin internet verás la última
-            copia guardada (12 meses).
-          </p>
         </section>
+
+        {/* Pareja (requiere conexión) */}
+        <PairingSection initial={initialPairing ?? null} />
 
         {/* Categorías (requiere conexión) */}
         <Link

@@ -128,11 +128,15 @@ async function main() {
     }
   }
 
-  // Usuarios alfa (los únicos; no hay registro público).
+  // Usuarios alfa (alta manual; no hay registro público).
   const password = await bcrypt.hash('quanto123', 10)
   const seeds = [
     { username: 'adrian', name: 'Adrián' },
     { username: 'michi', name: 'Michi' },
+    { username: 'brenda', name: 'Brenda' },
+    { username: 'luis', name: 'Luis' },
+    { username: 'antonio', name: 'Antonio' },
+    { username: 'pao', name: 'Pao' },
   ]
   for (const s of seeds) {
     await prisma.user.upsert({
@@ -142,7 +146,9 @@ async function main() {
     })
   }
 
-  console.log('Seed OK: categorías + usuarios alfa (adrian, michi)')
+  console.log(
+    'Seed OK: categorías + usuarios alfa (adrian, michi, brenda, luis, antonio, pao)',
+  )
 }
 
 main()

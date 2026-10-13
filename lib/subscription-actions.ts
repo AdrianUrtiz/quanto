@@ -6,12 +6,13 @@ import { z } from 'zod'
 
 import { debtorMonthlyAmount } from '@/lib/calculations'
 import { checkCategory } from '@/lib/catalog'
-import { fromCents, moneySchema, optionalMoneySchema, toCents } from '@/lib/money'
-import { prisma } from '@/lib/prisma'
 import {
-  startOfWallDay,
-  wallNow,
-} from '@/lib/walltime'
+  fromCents,
+  moneySchema,
+  optionalMoneySchema,
+  toCents,
+} from '@/lib/money'
+import { prisma } from '@/lib/prisma'
 import {
   type ChargeRow,
   type DueCharge,
@@ -20,6 +21,7 @@ import {
   computeDues,
   monthHistory,
 } from '@/lib/subscriptions'
+import { startOfWallDay, wallNow } from '@/lib/walltime'
 
 import { auth } from '@/auth'
 
@@ -79,6 +81,11 @@ export async function createSubscription(formData: FormData) {
     where: { id: v.accountId, userId },
   })
   if (!account) return { error: 'Cuenta no encontrada' }
+  if (v.isShared) {
+    const { getPartnerId } = await import('@/lib/households')
+    if (!(await getPartnerId(userId)))
+      return { error: 'Vincula una pareja en Ajustes para compartir' }
+  }
   const parts = partsOf(v)
   if ('error' in parts) return { error: parts.error }
 
@@ -126,6 +133,11 @@ export async function updateSubscription(formData: FormData) {
     where: { id: v.accountId, userId },
   })
   if (!account) return { error: 'Cuenta no encontrada' }
+  if (v.isShared) {
+    const { getPartnerId } = await import('@/lib/households')
+    if (!(await getPartnerId(userId)))
+      return { error: 'Vincula una pareja en Ajustes para compartir' }
+  }
   const parts = partsOf(v)
   if ('error' in parts) return { error: parts.error }
 
@@ -240,19 +252,20 @@ export async function confirmSubscriptionCharge(
       })
 
       if (sub.isShared) {
-        const other = await db.user.findFirst({
-          where: { id: { not: userId } },
-          select: { id: true },
-        })
-        const debtorId = other?.id
+        const { getPartnerId } = await import('@/lib/households')
+        const debtorId = await getPartnerId(userId)
         if (!debtorId || debtorId === userId)
-          throw new Error('No se pudo determinar quién debe aportar')
-        const fixed = sub.shareAmount ? fromCents(toCents(sub.shareAmount)) : null
+          throw new Error('Vincula una pareja en Ajustes para compartir')
+        const fixed = sub.shareAmount
+          ? fromCents(toCents(sub.shareAmount))
+          : null
         await db.transactionShare.create({
           data: {
             transactionId: tx.id,
             debtorId,
-            sharePct: fixed ? (toCents(fixed) / toCents(amount)) * 100 : sub.sharePct,
+            sharePct: fixed
+              ? (toCents(fixed) / toCents(amount)) * 100
+              : sub.sharePct,
             monthlyAmount:
               fixed ?? debtorMonthlyAmount(amount, 1, sub.sharePct),
             isFixedAmount: Boolean(fixed),
@@ -392,25 +405,31 @@ export async function getSubscriptionData(
 ): Promise<{ subs: SubFull[]; dues: DueCharge[] }> {
   if (!process.env.DATABASE_URL || !userId) return { subs: [], dues: [] }
   try {
+    const { getPartnerId } = await import('@/lib/households')
+    const partnerId = await getPartnerId(userId)
     const [me, partner, mySubs, partnerSubs] = await Promise.all([
       prisma.user.findUnique({ where: { id: userId }, select: { name: true } }),
-      prisma.user.findFirst({
-        where: { id: { not: userId } },
-        select: { id: true, name: true },
-      }),
+      partnerId
+        ? prisma.user.findUnique({
+            where: { id: partnerId },
+            select: { id: true, name: true },
+          })
+        : Promise.resolve(null),
       prisma.subscription.findMany({
         where: { userId },
         include: { account: true, user: { select: { name: true } } },
         orderBy: { createdAt: 'asc' },
       }),
-      prisma.subscription.findMany({
-        where: { userId: { not: userId }, isShared: true },
-        include: {
-          account: { select: { id: true, type: true } },
-          user: { select: { name: true } },
-        },
-        orderBy: { createdAt: 'asc' },
-      }),
+      partnerId
+        ? prisma.subscription.findMany({
+            where: { userId: partnerId, isShared: true },
+            include: {
+              account: { select: { id: true, type: true } },
+              user: { select: { name: true } },
+            },
+            orderBy: { createdAt: 'asc' },
+          })
+        : Promise.resolve([]),
     ])
     if (!me) return { subs: [], dues: [] }
     // Nombre del otro miembro (para "¿Te pagó X?"). En las suyas es la dueña.

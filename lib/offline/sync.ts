@@ -1,8 +1,3 @@
-// Motor de sincronización offline (Etapa 1: descarga, solo lectura).
-//
-// La central es la fuente de verdad: cada sync reemplaza la copia local.
-// Sin cola de subida en v1 (la tabla `outbox` queda reservada para el
-// sprint de creación offline).
 'use client'
 
 import { SNAPSHOT_VERSION, clearLocalData, db } from '@/lib/offline/db'
@@ -74,6 +69,8 @@ async function saveSnapshot(snap: SnapshotPayload): Promise<void> {
       db.partnerDebts,
       db.cardPay,
       db.partnerShared,
+      db.groups,
+      db.invites,
     ],
     async () => {
       await Promise.all([
@@ -88,6 +85,8 @@ async function saveSnapshot(snap: SnapshotPayload): Promise<void> {
         db.partnerDebts.clear(),
         db.cardPay.clear(),
         db.partnerShared.clear(),
+        db.groups.clear(),
+        db.invites.clear(),
       ])
       await Promise.all([
         db.accounts.bulkPut(snap.accounts),
@@ -105,6 +104,8 @@ async function saveSnapshot(snap: SnapshotPayload): Promise<void> {
         db.partnerDebts.bulkPut(snap.partnerDebts),
         db.cardPay.bulkPut(snap.cardPayItems),
         db.partnerShared.bulkPut(snap.partnerShared),
+        db.groups.bulkPut(snap.groups ?? []),
+        db.invites.bulkPut(snap.pairingInvites ?? []),
       ])
       await db.meta.put({
         key: 'sync',
@@ -124,4 +125,70 @@ export async function syncNow(): Promise<SnapshotPayload> {
   // ops que sigan en cola (fallidas o aún no subidas).
   await restoreEchoes()
   return snap
+}
+
+let lightInFlight: Promise<boolean> | null = null
+
+/**
+ * Poll ligero de notificaciones (banners): pagos pendientes, solicitudes de
+ * pareja y sus sumas. Sin la ventana de 15 min: la pareja pudo haber actuado
+ * hace segundos. Escribe las mismas tablas que el snapshot para que los
+ * derives existentes lo pinten. Si hay ops locales en cola no toca nada
+ * (el sync completo lo resuelve tras drenar). Nunca lanza.
+ */
+export async function pollLightUpdates(): Promise<boolean> {
+  if (typeof navigator !== 'undefined') {
+    if (!navigator.onLine) return false
+    if (document.visibilityState !== 'visible') return false
+  }
+  if (lightInFlight) {
+    try {
+      return await lightInFlight
+    } catch {
+      return false
+    }
+  }
+  const run = (async () => {
+    const res = await fetch('/api/updates', { cache: 'no-store' })
+    if (!res.ok) return false
+    const data = (await res.json()) as {
+      v?: number
+      debtPayments?: SnapshotPayload['debtPayments']
+      lineSums?: SnapshotPayload['lineSums']
+      pairingInvites?: { id: string; fromName: string }[]
+    }
+    if (!data || data.v !== SNAPSHOT_VERSION) return false
+    const pendingOps = await db.outbox.count().catch(() => 0)
+    if (pendingOps > 0) return false
+    const lists = data.debtPayments ?? {
+      toConfirm: [],
+      myPending: [],
+      toConfirmSource: [],
+    }
+    await db.transaction(
+      'rw',
+      [db.debtPayments, db.lineSums, db.invites],
+      async () => {
+        await db.debtPayments.clear()
+        await db.debtPayments.bulkPut([
+          ...lists.toConfirm,
+          ...lists.myPending,
+          ...lists.toConfirmSource,
+        ])
+        if (Array.isArray(data.lineSums))
+          await db.lineSums.bulkPut(data.lineSums)
+        await db.invites.clear()
+        await db.invites.bulkPut(data.pairingInvites ?? [])
+      },
+    )
+    return true
+  })()
+  lightInFlight = run
+  try {
+    return await run
+  } catch {
+    return false
+  } finally {
+    if (lightInFlight === run) lightInFlight = null
+  }
 }

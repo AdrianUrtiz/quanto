@@ -2,7 +2,8 @@
 
 import { useMemo, useState } from 'react'
 
-import { ArrowUpRight, Check, HandCoins } from 'lucide-react'
+import { ArrowUpRight, Check, HandCoins, Users } from 'lucide-react'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 
@@ -39,6 +40,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import type { CardPayCandidate } from '@/lib/card-pay'
 import type { CatalogRow } from '@/lib/catalog'
 import { useCuentasFilters } from '@/lib/cuentas-filters'
+import type { GroupSummary } from '@/lib/group-actions'
 import { toCents } from '@/lib/money'
 import { isPendingId } from '@/lib/offline/pending'
 import { syncForce } from '@/lib/offline/useSnapshotSync'
@@ -102,6 +104,7 @@ export function CuentasClient({
   toConfirmSource = [],
   editAccountId = null,
   cardPayItems = [],
+  groups = [],
 }: {
   accounts: AccountRow[]
   hiddenAccounts?: AccountRow[]
@@ -120,6 +123,8 @@ export function CuentasClient({
   editAccountId?: string | null
   /** Cierre de MIS tarjetas (propietario): pago para no generar intereses. */
   cardPayItems?: CardPayCandidate[]
+  /** Resúmenes de mis grupos (sección Grupos de Compartidos). */
+  groups?: GroupSummary[]
 }) {
   const router = useRouter()
   const tab = useCuentasFilters((s) => s.tab)
@@ -219,7 +224,7 @@ export function CuentasClient({
   // en el mes exigible del vencimiento.
   const openPartnerPay = (it: { dueKey: string }) => {
     setPartnerMonth(it.dueKey)
-    setTab('pareja')
+    setTab('compartidos')
   }
   // Recordatorio de pago de mis tarjetas (propietario): abre el corte
   // en Resumen > Estados de cuenta.
@@ -407,7 +412,7 @@ export function CuentasClient({
         }
       : tab === 'subs'
         ? { label: 'Comprometido/mes', value: monthly }
-        : tab === 'pareja'
+        : tab === 'compartidos'
           ? {
               label: isCurrentMonth
                 ? 'Le debes este mes'
@@ -432,7 +437,7 @@ export function CuentasClient({
           <TabsTrigger value="todas">Todas</TabsTrigger>
           <TabsTrigger value="mias">Cuentas</TabsTrigger>
           <TabsTrigger value="subs">Suscripciones</TabsTrigger>
-          <TabsTrigger value="pareja">Pareja</TabsTrigger>
+          <TabsTrigger value="compartidos">Compartidos</TabsTrigger>
         </TabsList>
         <TabsContent value="todas" className="space-y-2">
           <ExpiryReminders accounts={expiryAccounts} onRenew={openRenew} />
@@ -461,7 +466,7 @@ export function CuentasClient({
                 key={`${d.accountId}:${d.debtorId}`}
                 d={d}
                 meId={meId}
-                onOpen={() => setTab('pareja')}
+                onOpen={() => setTab('compartidos')}
               />
             ))}
           {showDebts &&
@@ -470,7 +475,7 @@ export function CuentasClient({
                 key={`${d.accountId}:${d.debtorId}`}
                 d={d}
                 meId={meId}
-                onOpen={() => setTab('pareja')}
+                onOpen={() => setTab('compartidos')}
               />
             ))}
           {showSubs &&
@@ -567,7 +572,7 @@ export function CuentasClient({
             </>
           )}
         </TabsContent>
-        <TabsContent value="pareja" className="space-y-4">
+        <TabsContent value="compartidos" className="space-y-4">
           <div className="flex items-center justify-center">
             <button
               onClick={() => setPartnerSheet('month')}
@@ -579,15 +584,12 @@ export function CuentasClient({
             owed.length === 0 &&
             toConfirm.length === 0 &&
             myPending.length === 0 &&
-            toConfirmSource.length === 0 && (
-              <Empty
-                text={
-                  isCurrentMonth
-                    ? 'No hay cuentas pendientes con tu pareja este mes. 🎉'
-                    : `No hay cuentas pendientes con tu pareja en ${partnerLabel}. 🎉`
-                }
-              />
-            )}
+            toConfirmSource.length === 0 &&
+            (groups.length === 0 ? (
+              <Empty text="Sin compartidos todavía. Usa + para crear o unirte a un grupo, o vincula tu pareja en Ajustes." />
+            ) : (
+              <Empty text="Sin pendientes con tu pareja. Tus grupos están abajo. 🎉" />
+            ))}
           {toConfirmSource.length > 0 && (
             <section className="space-y-2">
               <p className="text-xs font-semibold text-(--muted-foreground)">
@@ -669,6 +671,16 @@ export function CuentasClient({
                   }
                   onPay={(mode) => setPaySheet({ d, mode })}
                 />
+              ))}
+            </section>
+          )}
+          {groups.length > 0 && (
+            <section className="space-y-2">
+              <p className="text-xs font-semibold text-(--muted-foreground)">
+                Grupos · {groups.length}
+              </p>
+              {groups.map((g) => (
+                <GroupCard key={g.id} g={g} />
               ))}
             </section>
           )}
@@ -1203,6 +1215,49 @@ function MyPendingRow({ p, onDone }: { p: MyPendingItem; onDone: () => void }) {
         </button>
       </span>
     </div>
+  )
+}
+
+function GroupCard({ g }: { g: GroupSummary }) {
+  const net = g.myOwed - g.myOwe
+  return (
+    <Link
+      href={`/grupos/${g.id}`}
+      className="flex w-full items-center gap-3 rounded-3xl border border-(--border) p-4 text-left transition active:scale-[.99]">
+      <span className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-sky-500/15">
+        <Users className="size-5 text-sky-500" />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-sm font-semibold">{g.name}</span>
+        <span className="block truncate text-xs text-(--muted-foreground)">
+          {g.memberCount} {g.memberCount === 1 ? 'integrante' : 'integrantes'} ·{' '}
+          {g.expenseCount} {g.expenseCount === 1 ? 'gasto' : 'gastos'}
+        </span>
+      </span>
+      <span className="shrink-0 text-right">
+        {net === 0 ? (
+          <span className="block text-base font-extrabold">A mano</span>
+        ) : net > 0 ? (
+          <>
+            <span className="block text-base font-extrabold text-emerald-500">
+              {formatMoney(net)}
+            </span>
+            <span className="block text-[11px] font-semibold text-(--muted-foreground)">
+              a tu favor
+            </span>
+          </>
+        ) : (
+          <>
+            <span className="block text-base font-extrabold text-amber-500">
+              {formatMoney(-net)}
+            </span>
+            <span className="block text-[11px] font-semibold text-(--muted-foreground)">
+              debes
+            </span>
+          </>
+        )}
+      </span>
+    </Link>
   )
 }
 

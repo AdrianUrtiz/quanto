@@ -7,6 +7,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
+
 import { useLiveQuery } from 'dexie-react-hooks'
 
 import { SNAPSHOT_VERSION, db } from '@/lib/offline/db'
@@ -19,9 +20,13 @@ let inFlight: Promise<boolean> | null = null
  * Revalida la copia local solo si está vieja o es de un snapshot anterior.
  * Deduplica llamadas concurrentes. Nunca lanza: devuelve `false` si no
  * sincronizó (offline, fresca o fallo best-effort).
+ * `maxAgeMs` permite ventanas más cortas (p. ej. al volver a la app, donde
+ * la pareja pudo haber registrado pagos hace segundos).
  */
-export async function syncIfStale(): Promise<boolean> {
-  return runSync({ force: false })
+export async function syncIfStale(
+  maxAgeMs: number = SYNC_STALE_MS,
+): Promise<boolean> {
+  return runSync({ force: false, maxAgeMs })
 }
 
 /**
@@ -35,7 +40,10 @@ export async function syncForce(): Promise<boolean> {
   return runSync({ force: true })
 }
 
-async function runSync(opts: { force: boolean }): Promise<boolean> {
+async function runSync(opts: {
+  force: boolean
+  maxAgeMs?: number
+}): Promise<boolean> {
   if (typeof navigator !== 'undefined' && !navigator.onLine) return false
   if (inFlight) {
     try {
@@ -79,7 +87,8 @@ async function runSync(opts: { force: boolean }): Promise<boolean> {
       return true
     }
     // Tras mutación se fuerza la descarga aunque la copia esté fresca.
-    if (!opts.force && last && Date.now() - new Date(last).getTime() < SYNC_STALE_MS)
+    const maxAge = opts.maxAgeMs ?? SYNC_STALE_MS
+    if (!opts.force && last && Date.now() - new Date(last).getTime() < maxAge)
       return false
     await syncNow()
     return true
