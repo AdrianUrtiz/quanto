@@ -15,9 +15,9 @@ import { createTransaction } from '@/lib/actions'
 import { debtorMonthlyAmount } from '@/lib/calculations'
 import { fromCents, toCents } from '@/lib/money'
 import {
-  db,
   type OfflineShare,
   type OfflineTransaction,
+  db,
 } from '@/lib/offline/db'
 import { isPendingId, newTempShareId, newTempTxId } from '@/lib/offline/pending'
 import { parseWallInput } from '@/lib/walltime'
@@ -47,13 +47,20 @@ export type CreateTxPayload = {
   shareAmount?: number | null
   debtorId?: string
   debtorName?: string
+  /** Compartido con alguien sin cuenta (ej. "Mamá"). */
+  externalName?: string
   creatorName: string
   createdById: string
 }
 
 export type EnqueueInput = Omit<
   CreateTxPayload,
-  'clientKey' | 'tempTxId' | 'accountName' | 'accountType' | 'creatorName' | 'createdById'
+  | 'clientKey'
+  | 'tempTxId'
+  | 'accountName'
+  | 'accountType'
+  | 'creatorName'
+  | 'createdById'
 > & {
   accountName?: string
   accountType?: string
@@ -67,9 +74,12 @@ export async function resolvePartner(): Promise<{
   const meta = await db.meta.get('sync').catch(() => undefined)
   const meId = meta?.userId
   if (!meId) return null
+  // Dato de pareja del snapshot: la fuente más fiable (existe aunque aún no
+  // haya compras compartidas).
+  if (meta?.partner?.id) return { id: meta.partner.id, name: meta.partner.name }
   const shares = await db.shares.toArray().catch(() => [])
   const other = shares.find((s) => s.debtorId && s.debtorId !== meId)
-  if (other) return { id: other.debtorId, name: other.debtorName }
+  if (other?.debtorId) return { id: other.debtorId, name: other.debtorName }
   const partnerShared = await db.partnerShared.toArray().catch(() => [])
   if (partnerShared.length > 0) {
     return {
@@ -90,7 +100,8 @@ export function validateOfflineCreate(
 ): string | null {
   if (!(p.amount > 0)) return 'Ingresa un monto mayor a 0'
   if (p.concept.trim().length < 2) return 'Agrega un concepto'
-  if (!ctx.categoryCodes.has(p.category)) return 'Categoría no disponible sin conexión'
+  if (!ctx.categoryCodes.has(p.category))
+    return 'Categoría no disponible sin conexión'
   const origin = ctx.accounts.find(
     (a) => a.id === p.accountId && a.isHidden !== true,
   )
@@ -110,7 +121,9 @@ export function validateOfflineCreate(
     return 'Parcialidades inválidas (1–24)'
   if (p.isShared) {
     if (p.type !== 'EXPENSE') return 'Solo los gastos se comparten'
-    if (!p.debtorId) return 'Sin datos de tu pareja: conéctate una vez'
+    // Con pareja hace falta su id (dato descargado); con externo, el nombre.
+    if (!p.debtorId && !p.externalName)
+      return 'Escribe con quién compartes el gasto'
     if (p.shareAmount != null && p.shareAmount > p.amount)
       return 'La aportación no puede ser mayor al total'
     if (!(p.sharePct >= 1 && p.sharePct <= 100))
@@ -142,7 +155,9 @@ async function adjustBalancesForEcho(p: CreateTxPayload): Promise<void> {
     })
   }
   if (p.type === 'TRANSFER' && p.transferToAccountId) {
-    const dest = await db.accounts.get(p.transferToAccountId).catch(() => undefined)
+    const dest = await db.accounts
+      .get(p.transferToAccountId)
+      .catch(() => undefined)
     if (dest) {
       const delta = dest.type === 'CREDIT' ? -p.amount : p.amount
       await db.accounts.update(p.transferToAccountId, {
@@ -175,7 +190,9 @@ async function revertBalancesForEcho(p: CreateTxPayload): Promise<void> {
     })
   }
   if (p.type === 'TRANSFER' && p.transferToAccountId) {
-    const dest = await db.accounts.get(p.transferToAccountId).catch(() => undefined)
+    const dest = await db.accounts
+      .get(p.transferToAccountId)
+      .catch(() => undefined)
     if (dest) {
       const delta = dest.type === 'CREDIT' ? -p.amount : p.amount
       await db.accounts.update(p.transferToAccountId, {
@@ -187,6 +204,18 @@ async function revertBalancesForEcho(p: CreateTxPayload): Promise<void> {
 /** Inserta el eco local (filas temp) + ajusta saldos. Idempotente por `put`. */
 async function applyEcho(p: CreateTxPayload): Promise<void> {
   const now = new Date().toISOString()
+  const sharedTx = p.type === 'EXPENSE' && p.isShared
+  // Misma matemática que `createTransaction` (actions.ts): sharePct y
+  // monthlyAmount del deudor (fijo pactado o porcentaje).
+  const n = Math.max(1, Math.round(p.installments))
+  const echoSharePct =
+    p.shareAmount != null
+      ? (toCents(p.shareAmount) / toCents(p.amount)) * 100
+      : p.sharePct
+  const echoShareMonthly =
+    p.shareAmount != null
+      ? fromCents(Math.round(toCents(p.shareAmount) / n))
+      : debtorMonthlyAmount(p.amount, p.installments, p.sharePct)
   const tx: OfflineTransaction = {
     id: p.tempTxId,
     concept: p.concept,
@@ -204,32 +233,25 @@ async function applyEcho(p: CreateTxPayload): Promise<void> {
     createdById: p.createdById,
     installments:
       p.type === 'EXPENSE' ? Math.max(1, Math.round(p.installments)) : 1,
-    isShared: p.type === 'EXPENSE' && p.isShared,
+    isShared: sharedTx,
+    sharePct: sharedTx ? echoSharePct : undefined,
+    shareMonthly: sharedTx ? echoShareMonthly : undefined,
+    shareFixed: sharedTx ? p.shareAmount != null : undefined,
+    shareExternalName: sharedTx ? (p.externalName ?? null) : undefined,
     statementKey: null,
     partnerShare: false,
     locked: false,
     updatedAt: now,
   }
   await db.transactions.put(tx)
-  if (tx.isShared && p.debtorId) {
-    // Misma matemática que `createTransaction` (actions.ts): sharePct y
-    // monthlyAmount del deudor (fijo pactado o porcentaje).
-    const n = Math.max(1, Math.round(p.installments))
-    const sharePct =
-      p.shareAmount != null
-        ? (toCents(p.shareAmount) / toCents(p.amount)) * 100
-        : p.sharePct
-    const monthlyAmount =
-      p.shareAmount != null
-        ? fromCents(Math.round(toCents(p.shareAmount) / n))
-        : debtorMonthlyAmount(p.amount, p.installments, p.sharePct)
+  if (tx.isShared && (p.debtorId || p.externalName)) {
     const share: OfflineShare = {
       id: newTempShareId(),
       transactionId: p.tempTxId,
-      debtorId: p.debtorId,
-      debtorName: p.debtorName ?? 'Mi pareja',
-      sharePct,
-      monthlyAmount,
+      debtorId: p.debtorId ?? null,
+      debtorName: p.debtorName ?? p.externalName ?? 'Mi pareja',
+      sharePct: echoSharePct,
+      monthlyAmount: echoShareMonthly,
       isFixedAmount: p.shareAmount != null,
     }
     await db.shares.put(share)
@@ -293,6 +315,7 @@ function rebuildFormData(p: CreateTxPayload): FormData {
     fd.set('sharePct', String(p.sharePct))
     if (p.shareAmount != null) fd.set('shareAmount', String(p.shareAmount))
     if (p.debtorId) fd.set('debtorId', p.debtorId)
+    if (p.externalName) fd.set('externalName', p.externalName)
   }
   fd.set('clientKey', p.clientKey)
   return fd
@@ -428,13 +451,15 @@ export async function restoreEchoes(): Promise<void> {
       .get(payload.tempTxId)
       .catch(() => undefined)
     if (exists) continue
-    await db.transaction(
-      'rw',
-      [db.transactions, db.shares, db.accounts],
-      async () => {
-        await applyEcho(payload)
-      },
-    ).catch(() => undefined)
+    await db
+      .transaction(
+        'rw',
+        [db.transactions, db.shares, db.accounts],
+        async () => {
+          await applyEcho(payload)
+        },
+      )
+      .catch(() => undefined)
   }
 }
 
@@ -512,22 +537,26 @@ export async function discardFailedOp(localId: number): Promise<void> {
   try {
     const payload = JSON.parse(op.payload) as CreateTxPayload
     if (payload.tempTxId && isPendingId(payload.tempTxId)) {
-      await db.transaction(
-        'rw',
-        [db.transactions, db.shares, db.accounts],
-        async () => {
-          await revertBalancesForEcho(payload).catch(() => undefined)
-          await db.transactions.delete(payload.tempTxId).catch(() => undefined)
-          const oldShares = await db.shares
-            .where('transactionId')
-            .equals(payload.tempTxId)
-            .toArray()
-            .catch(() => [])
-          await db.shares
-            .bulkDelete(oldShares.map((s) => s.id))
-            .catch(() => undefined)
-        },
-      ).catch(() => undefined)
+      await db
+        .transaction(
+          'rw',
+          [db.transactions, db.shares, db.accounts],
+          async () => {
+            await revertBalancesForEcho(payload).catch(() => undefined)
+            await db.transactions
+              .delete(payload.tempTxId)
+              .catch(() => undefined)
+            const oldShares = await db.shares
+              .where('transactionId')
+              .equals(payload.tempTxId)
+              .toArray()
+              .catch(() => [])
+            await db.shares
+              .bulkDelete(oldShares.map((s) => s.id))
+              .catch(() => undefined)
+          },
+        )
+        .catch(() => undefined)
     }
   } catch {
     // Sin payload válido igual se borra la op.

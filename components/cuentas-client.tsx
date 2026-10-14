@@ -530,13 +530,11 @@ export function CuentasClient({
               </p>
               {debts.map((d) => (
                 <DebtSwipeRow
-                  key={`${d.accountId}:${d.debtorId}`}
+                  key={debtKey(d)}
                   d={d}
                   meId={meId}
-                  open={openRow === `${d.accountId}:${d.debtorId}`}
-                  onOpenChange={(o) =>
-                    setOpenRow(o ? `${d.accountId}:${d.debtorId}` : null)
-                  }
+                  open={openRow === debtKey(d)}
+                  onOpenChange={(o) => setOpenRow(o ? debtKey(d) : null)}
                   onPay={(mode) => setPaySheet({ d, mode })}
                 />
               ))}
@@ -552,13 +550,11 @@ export function CuentasClient({
               </p>
               {owed.map((d) => (
                 <DebtSwipeRow
-                  key={`${d.accountId}:${d.debtorId}`}
+                  key={debtKey(d)}
                   d={d}
                   meId={meId}
-                  open={openRow === `${d.accountId}:${d.debtorId}`}
-                  onOpenChange={(o) =>
-                    setOpenRow(o ? `${d.accountId}:${d.debtorId}` : null)
-                  }
+                  open={openRow === debtKey(d)}
+                  onOpenChange={(o) => setOpenRow(o ? debtKey(d) : null)}
                   onPay={(mode) => setPaySheet({ d, mode })}
                 />
               ))}
@@ -590,7 +586,7 @@ export function CuentasClient({
         onOpenChange={(o) => !o && setPaySheet(null)}>
         {paySheet && (
           <PaymentSheet
-            key={`${paySheet.d.accountId}:${paySheet.d.debtorId}:${paySheet.mode}`}
+            key={`${debtKey(paySheet.d)}:${paySheet.mode}`}
             mode={paySheet.mode}
             lines={paySheet.d.lines.flatMap((l) =>
               l.shareId
@@ -724,6 +720,11 @@ export function CuentasClient({
       </Dialog>
     </div>
   )
+}
+
+/** Identidad de una deuda: cuenta + deudor (el nombre normalizado desempata a externos). */
+function debtKey(d: PartnerDebt) {
+  return `${d.accountId}:${d.debtorId ?? `ext:${d.debtorName.trim().toLowerCase()}`}`
 }
 
 function DebtCard({ d, meId }: { d: PartnerDebt; meId: string }) {

@@ -36,6 +36,8 @@ const SubSchema = z.object({
   isShared: z.coerce.boolean().default(false),
   sharePct: z.coerce.number().min(1).max(100).default(50),
   shareAmount: optionalMoneySchema,
+  // Compartida con alguien sin cuenta ("Mamá"): solo se guarda su nombre.
+  externalName: z.string().trim().min(1).max(40).optional(),
 })
 
 function authedUser(session: Session | null) {
@@ -81,10 +83,11 @@ export async function createSubscription(formData: FormData) {
     where: { id: v.accountId, userId },
   })
   if (!account) return { error: 'Cuenta no encontrada' }
-  if (v.isShared) {
+  // Compartir con mi pareja exige vínculo; con alguien sin cuenta, solo nombre.
+  if (v.isShared && !v.externalName) {
     const { getPartnerId } = await import('@/lib/households')
     if (!(await getPartnerId(userId)))
-      return { error: 'Vincula una pareja en Ajustes para compartir' }
+      return { error: 'Escribe con quién compartes la suscripción' }
   }
   const parts = partsOf(v)
   if ('error' in parts) return { error: parts.error }
@@ -101,6 +104,7 @@ export async function createSubscription(formData: FormData) {
       isShared: v.isShared,
       sharePct: parts.sharePct,
       shareAmount: parts.shareAmount,
+      externalName: v.isShared ? (v.externalName ?? null) : null,
       startMonth: `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`,
     },
   })
@@ -133,10 +137,10 @@ export async function updateSubscription(formData: FormData) {
     where: { id: v.accountId, userId },
   })
   if (!account) return { error: 'Cuenta no encontrada' }
-  if (v.isShared) {
+  if (v.isShared && !v.externalName) {
     const { getPartnerId } = await import('@/lib/households')
     if (!(await getPartnerId(userId)))
-      return { error: 'Vincula una pareja en Ajustes para compartir' }
+      return { error: 'Escribe con quién compartes la suscripción' }
   }
   const parts = partsOf(v)
   if ('error' in parts) return { error: parts.error }
@@ -153,6 +157,7 @@ export async function updateSubscription(formData: FormData) {
       isShared: v.isShared,
       sharePct: parts.sharePct,
       shareAmount: parts.shareAmount,
+      externalName: v.isShared ? (v.externalName ?? null) : null,
     },
   })
 
@@ -252,10 +257,14 @@ export async function confirmSubscriptionCharge(
       })
 
       if (sub.isShared) {
-        const { getPartnerId } = await import('@/lib/households')
-        const debtorId = await getPartnerId(userId)
-        if (!debtorId || debtorId === userId)
-          throw new Error('Vincula una pareja en Ajustes para compartir')
+        // Externo (sin cuenta): solo el nombre. Si no, la pareja vinculada.
+        let debtorId: string | null = null
+        if (!sub.externalName) {
+          const { getPartnerId } = await import('@/lib/households')
+          debtorId = await getPartnerId(userId)
+          if (!debtorId || debtorId === userId)
+            throw new Error('Vincula una pareja en Ajustes para compartir')
+        }
         const fixed = sub.shareAmount
           ? fromCents(toCents(sub.shareAmount))
           : null
@@ -263,6 +272,7 @@ export async function confirmSubscriptionCharge(
           data: {
             transactionId: tx.id,
             debtorId,
+            externalName: sub.externalName ?? null,
             sharePct: fixed
               ? (toCents(fixed) / toCents(amount)) * 100
               : sub.sharePct,
@@ -386,6 +396,8 @@ export type SubFull = {
   ownerName: string
   isMine: boolean
   partnerName: string | null
+  /** Compartida con alguien sin cuenta (ej. "Mamá"). null = pareja o no compartida. */
+  externalName: string | null
   history: {
     monthKey: string
     short: string
@@ -453,7 +465,9 @@ export async function getSubscriptionData(
         ownerId: userId,
         ownerName: me.name,
         isMine: true,
-        partnerName,
+        // El label de "quién aporta" usa el nombre externo si existe.
+        partnerName: s.externalName ?? partnerName,
+        externalName: s.externalName ?? null,
       })),
       ...partnerSubs.map((s) => ({
         id: s.id,
@@ -473,6 +487,7 @@ export async function getSubscriptionData(
         ownerName: s.user.name,
         isMine: false,
         partnerName: s.user.name,
+        externalName: null,
       })),
     ]
 

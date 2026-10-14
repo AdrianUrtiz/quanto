@@ -281,10 +281,18 @@ const UpdateTxSchema = z.object({
   date: z.string(),
   accountId: z.string().min(1, 'Elige una cuenta'),
   transferToAccountId: z.string().optional(),
+  // Compartido (solo gastos): permite activar/editar el reparto o el nombre
+  // de la persona sin cuenta. El tipo y los MSI siguen fijos.
+  isShared: z.coerce.boolean().default(false),
+  sharePct: z.coerce.number().min(1).max(100).default(50),
+  shareAmount: optionalMoneySchema,
+  debtorId: z.string().optional(),
+  externalName: z.string().trim().min(1).max(40).optional(),
 })
 
-// Edición solo del creador. Editables: concepto, monto, categoría, fecha y
-// cuenta. Tipo, MSI y compartido quedan fijos (definen las parcialidades).
+// Edición solo del creador. Editables: concepto, monto, categoría, fecha,
+// cuenta y —en gastos— el compartido (con quién y su aportación).
+// Tipo y MSI quedan fijos (definen las parcialidades).
 export async function updateTransaction(formData: FormData) {
   const session = await auth()
   const userId = (session?.user as { id?: string } | undefined)?.id
@@ -292,7 +300,11 @@ export async function updateTransaction(formData: FormData) {
   if (!process.env.DATABASE_URL)
     return { error: 'Configura DATABASE_URL para guardar cambios' }
 
-  const parsed = UpdateTxSchema.safeParse(Object.fromEntries(formData))
+  const raw = Object.fromEntries(formData)
+  const parsed = UpdateTxSchema.safeParse({
+    ...raw,
+    isShared: raw.isShared === 'on' || raw.isShared === 'true',
+  })
   if (!parsed.success)
     return { error: parsed.error.issues[0]?.message ?? 'Datos inválidos' }
   const v = parsed.data
@@ -381,6 +393,44 @@ export async function updateTransaction(formData: FormData) {
     return { ok: true }
   }
 
+  // Compartido (solo gastos individuales): resuelve el destino y valida el
+  // reparto. Los gastos de grupo (householdId) conservan sus seats.
+  const current = tx.shares[0] ?? null
+  const groupTx = tx.householdId != null
+  const wantsShare = tx.type === 'EXPENSE' && !groupTx && v.isShared
+  let shareDebtorId: string | null = null
+  let shareExternalName: string | null = null
+  if (wantsShare) {
+    if (v.externalName && v.debtorId)
+      return { error: 'Elige una opción: tu pareja o un nombre, no ambas' }
+    if (v.externalName) {
+      shareExternalName = v.externalName
+    } else {
+      const { getPartnerId } = await import('@/lib/households')
+      const partnerId = v.debtorId ?? (await getPartnerId(userId))
+      if (!partnerId)
+        return { error: 'Vincula una pareja o escribe con quién compartes' }
+      if (v.debtorId && v.debtorId !== partnerId)
+        return { error: 'Solo puedes compartir con tu pareja vinculada' }
+      shareDebtorId = partnerId
+    }
+    if (v.shareAmount != null && v.shareAmount > v.amount)
+      return { error: 'La aportación no puede ser mayor al total' }
+  }
+
+  // Cambiar con quién se comparte (o quitarlo) con un pago pendiente vivo
+  // dejaría el reclamo colgado: primero cancélalo.
+  const changedWho =
+    !groupTx &&
+    tx.type === 'EXPENSE' &&
+    (wantsShare ? (shareDebtorId ?? shareExternalName) : null) !==
+      (current ? (current.debtorId ?? current.externalName) : null)
+  if (pendingLinks.length > 0 && changedWho)
+    return {
+      error:
+        'Hay un pago pendiente en este compartido: cancélalo para cambiarlo',
+    }
+
   await prisma.transaction.update({
     where: { id: v.id },
     data: {
@@ -389,6 +439,7 @@ export async function updateTransaction(formData: FormData) {
       category: v.category,
       date: parseWallInput(v.date),
       accountId: v.accountId,
+      ...(tx.type === 'EXPENSE' && !groupTx ? { isShared: wantsShare } : {}),
     },
   })
 
@@ -400,20 +451,40 @@ export async function updateTransaction(formData: FormData) {
     })
   }
 
-  // Si era compartido, recalcula la cuota mensual con el nuevo monto
-  // (mismo porcentaje y parcialidades). Los montos fijos pactados no se tocan.
-  for (const s of tx.shares) {
-    if (s.isFixedAmount) continue
-    await prisma.transactionShare.update({
-      where: { id: s.id },
-      data: {
-        monthlyAmount: debtorMonthlyAmount(
-          v.amount,
-          tx.installments,
-          s.sharePct,
-        ),
-      },
-    })
+  // Aplica el compartido: quitar, crear o repartir de nuevo. Los montos
+  // fijos pactados se recalculan igual al editar (ahora es editable).
+  if (tx.type === 'EXPENSE' && !groupTx) {
+    const n = Math.max(1, Math.round(tx.installments))
+    if (!wantsShare) {
+      if (current)
+        await prisma.transactionShare.delete({ where: { id: current.id } })
+    } else {
+      const sharePct =
+        v.shareAmount != null
+          ? (toCents(v.shareAmount) / toCents(v.amount)) * 100
+          : v.sharePct
+      const monthlyAmount =
+        v.shareAmount != null
+          ? fromCents(Math.round(toCents(v.shareAmount) / n))
+          : debtorMonthlyAmount(v.amount, n, v.sharePct)
+      const data = {
+        debtorId: shareDebtorId,
+        externalName: shareExternalName,
+        sharePct,
+        monthlyAmount,
+        isFixedAmount: v.shareAmount != null,
+      }
+      if (current) {
+        await prisma.transactionShare.update({
+          where: { id: current.id },
+          data,
+        })
+      } else {
+        await prisma.transactionShare.create({
+          data: { transactionId: tx.id, ...data },
+        })
+      }
+    }
   }
 
   revalidatePath('/actividad')
@@ -492,6 +563,9 @@ const TxSchema = z.object({
   sharePct: z.coerce.number().min(1).max(100).default(50),
   shareAmount: optionalMoneySchema,
   debtorId: z.string().optional(),
+  // Compartido con alguien sin cuenta (ej. "Mamá"): solo su nombre.
+  // Excluyente con `debtorId`.
+  externalName: z.string().trim().min(1).max(40).optional(),
   // Llave de idempotencia de la cola offline (outbox): `temp-<uuid>`
   // generado en el dispositivo. Solo la manda el drenado offline.
   clientKey: z.string().min(1).max(64).optional(),
@@ -595,11 +669,17 @@ export async function createTransaction(formData: FormData) {
     return { ok: true }
   }
 
-  // Determina al deudor: solo el miembro de MI pareja vinculada.
-  // Sin pareja no se puede compartir (individual por defecto).
+  // Determina al deudor: mi pareja vinculada o una persona sin cuenta
+  // (externalName). Sin uno de los dos no se puede compartir.
   let debtorId: string | null = null
+  let externalName: string | null = null
   if (v.isShared) {
-    if (v.debtorId) {
+    if (v.externalName && v.debtorId)
+      return { error: 'Elige una opción: tu pareja o un nombre, no ambas' }
+    if (v.externalName) {
+      // Compartido "de recordatorio": persona sin cuenta en la app.
+      externalName = v.externalName
+    } else if (v.debtorId) {
       const { getPartnerId } = await import('@/lib/households')
       const partnerId = await getPartnerId(userId)
       if (!partnerId)
@@ -610,9 +690,10 @@ export async function createTransaction(formData: FormData) {
     } else {
       const { getPartnerId } = await import('@/lib/households')
       debtorId = await getPartnerId(userId)
+      if (!debtorId) return { error: 'Escribe con quién compartes el gasto' }
     }
-    if (!debtorId || debtorId === userId)
-      return { error: 'Vincula una pareja en Ajustes para compartir' }
+    if (externalName == null && (!debtorId || debtorId === userId))
+      return { error: 'Escribe con quién compartes el gasto' }
   }
 
   if (
@@ -648,13 +729,14 @@ export async function createTransaction(formData: FormData) {
         },
       })
 
-      if (v.type === 'EXPENSE' && v.isShared && debtorId) {
+      if (v.type === 'EXPENSE' && v.isShared && (debtorId || externalName)) {
         // Cantidad fija pactada (ej. $125 de $400) o porcentaje (50/50 por defecto).
         const n = Math.max(1, Math.round(v.installments))
         await db.transactionShare.create({
           data: {
             transactionId: tx.id,
             debtorId,
+            externalName,
             sharePct: v.shareAmount
               ? (toCents(v.shareAmount) / toCents(v.amount)) * 100
               : v.sharePct,

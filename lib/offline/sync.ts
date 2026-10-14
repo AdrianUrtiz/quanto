@@ -109,6 +109,7 @@ async function saveSnapshot(snap: SnapshotPayload): Promise<void> {
         userId: snap.userId,
         lastSyncAt: new Date().toISOString(),
         snapshotVersion: snap.v,
+        partner: snap.partner ?? null,
       })
     },
   )

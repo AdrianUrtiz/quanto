@@ -71,13 +71,18 @@ export default async function CuentasPage({
       },
       orderBy: [{ date: 'asc' }, { createdAt: 'asc' }],
     }),
-    // Compras MÍAS de pareja donde mi pareja es la deudora (grupos van aparte).
+    // Compras MÍAS compartidas donde otro es el deudor: pareja o alguien
+    // sin cuenta (externalName). Grupos van aparte.
     prisma.transaction.findMany({
       where: {
         isShared: true,
         householdId: null,
         createdById: meId,
-        shares: { some: { debtorId: { not: meId } } },
+        shares: {
+          some: {
+            OR: [{ debtorId: { not: meId } }, { externalName: { not: null } }],
+          },
+        },
       },
       include: {
         account: true,
@@ -205,7 +210,10 @@ export default async function CuentasPage({
   }))
   const owedItems: DebtItemInput[] = sharedOwedRows.flatMap((t) =>
     t.shares
-      .filter((s) => s.debtorId != null && s.debtorId !== meId)
+      .filter(
+        (s) =>
+          s.externalName != null || (s.debtorId != null && s.debtorId !== meId),
+      )
       .map((s) => ({
         shareId: s.id,
         accountId: t.account.id,
@@ -213,8 +221,9 @@ export default async function CuentasPage({
         accountType: t.account.type as 'DEBIT' | 'CREDIT',
         dueDay: t.account.dueDay ?? undefined,
         statementDay: t.account.statementDay ?? undefined,
-        debtorId: s.debtorId as string,
-        debtorName: s.debtor?.name ?? s.seat?.displayName ?? 'Pareja',
+        debtorId: s.debtorId,
+        debtorName:
+          s.externalName ?? s.debtor?.name ?? s.seat?.displayName ?? 'Pareja',
         creditorName: t.createdBy.name,
         concept: t.concept,
         monthly: normalizeMoney(s.monthlyAmount ?? 0),

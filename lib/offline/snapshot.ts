@@ -49,4 +49,6 @@ export type SnapshotPayload = {
   groups: OfflineGroup[]
   /** Mes actual "YYYY-MM" (hora-muro) con el que se tomó el snapshot. */
   currentMonth: string
+  /** Pareja vinculada (solo nombre) o null: permite ofrecer "compartir". */
+  partner: { id: string; name: string } | null
 }

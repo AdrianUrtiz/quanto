@@ -48,7 +48,7 @@ export async function buildSnapshot(userId: string): Promise<SnapshotPayload> {
   const currentMonth = mexicoMonthKey()
   const takenAt = new Date().toISOString()
 
-  const [accRows, balances, catalog, cardPayItems, subData, me] =
+  const [accRows, balances, catalog, cardPayItems, subData, me, partnerId] =
     await Promise.all([
       prisma.account.findMany({
         where: { isActive: true, userId },
@@ -67,8 +67,16 @@ export async function buildSnapshot(userId: string): Promise<SnapshotPayload> {
         where: { id: userId },
         select: { name: true },
       }),
+      import('@/lib/households').then((m) => m.getPartnerId(userId)),
     ])
   const meName = me?.name ?? 'Tú'
+  const partnerRow = partnerId
+    ? await prisma.user.findUnique({
+        where: { id: partnerId },
+        select: { id: true, name: true },
+      })
+    : null
+  const partner = partnerRow ?? null
   const groups = await getGroupSummaries(userId)
 
   const accounts: OfflineAccount[] = accRows.map((a) => ({
@@ -97,7 +105,7 @@ export async function buildSnapshot(userId: string): Promise<SnapshotPayload> {
   const [mineRecent, mineOldMsi] = await Promise.all([
     prisma.transaction.findMany({
       where: { createdById: userId, date: { gte: cutoff } },
-      include: { account: true, createdBy: true },
+      include: { account: true, createdBy: true, shares: true },
       orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
     }),
     prisma.transaction.findMany({
@@ -107,7 +115,7 @@ export async function buildSnapshot(userId: string): Promise<SnapshotPayload> {
         installments: { gt: 1 },
         date: { gte: msiFloor, lt: cutoff },
       },
-      include: { account: true, createdBy: true },
+      include: { account: true, createdBy: true, shares: true },
       orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
     }),
   ])
@@ -162,14 +170,19 @@ export async function buildSnapshot(userId: string): Promise<SnapshotPayload> {
       t.date >= cutoff || endMonthKey(t.date, t.installments) >= cutoffMonth,
   )
 
-  // — Compras MÍAS de pareja donde mi pareja es deudora (grupos van aparte) —
+  // — Compras MÍAS compartidas donde otro es deudor: pareja o alguien sin
+  // cuenta (externalName). Grupos van aparte —
   const sharedOwed = await prisma.transaction.findMany({
     where: {
       isShared: true,
       householdId: null,
       createdById: userId,
       date: { gte: cutoff },
-      shares: { some: { debtorId: { not: userId } } },
+      shares: {
+        some: {
+          OR: [{ debtorId: { not: userId } }, { externalName: { not: null } }],
+        },
+      },
     },
     include: {
       account: true,
@@ -180,31 +193,41 @@ export async function buildSnapshot(userId: string): Promise<SnapshotPayload> {
   })
 
   const transactions: OfflineTransaction[] = [
-    ...mineAll.map((t) => ({
-      id: t.id,
-      concept: t.concept,
-      category: t.category,
-      amount: normalizeMoney(t.amount),
-      date: t.date.toISOString(),
-      type: t.type,
-      accountId: t.accountId,
-      accountName: t.account.name,
-      accountType: t.account.type,
-      transferToAccountId: t.transferToAccountId ?? null,
-      transferToAccountName: t.transferToAccountId
-        ? (accById.get(t.transferToAccountId)?.name ?? null)
-        : null,
-      transferToAccountType: t.transferToAccountId
-        ? (accById.get(t.transferToAccountId)?.type ?? null)
-        : null,
-      creatorName: t.createdBy.name,
-      createdById: t.createdById,
-      installments: t.installments,
-      isShared: t.isShared,
-      partnerShare: false as const,
-      statementKey: t.statementKey ?? null,
-      updatedAt: t.updatedAt.toISOString(),
-    })),
+    ...mineAll.map((t) => {
+      // Compartido individual (no de grupo) con deudor: datos para editar.
+      const share =
+        t.householdId == null && t.isShared ? (t.shares[0] ?? null) : null
+      return {
+        id: t.id,
+        concept: t.concept,
+        category: t.category,
+        amount: normalizeMoney(t.amount),
+        date: t.date.toISOString(),
+        type: t.type,
+        accountId: t.accountId,
+        accountName: t.account.name,
+        accountType: t.account.type,
+        transferToAccountId: t.transferToAccountId ?? null,
+        transferToAccountName: t.transferToAccountId
+          ? (accById.get(t.transferToAccountId)?.name ?? null)
+          : null,
+        transferToAccountType: t.transferToAccountId
+          ? (accById.get(t.transferToAccountId)?.type ?? null)
+          : null,
+        creatorName: t.createdBy.name,
+        createdById: t.createdById,
+        installments: t.installments,
+        isShared: t.isShared,
+        isGroup: t.householdId != null,
+        sharePct: share?.sharePct,
+        shareMonthly: share ? normalizeMoney(share.monthlyAmount) : undefined,
+        shareFixed: share?.isFixedAmount,
+        shareExternalName: share?.externalName ?? null,
+        partnerShare: false as const,
+        statementKey: t.statementKey ?? null,
+        updatedAt: t.updatedAt.toISOString(),
+      }
+    }),
     // Mi parte de sus gastos: una fila por compra con el total que me toca.
     ...partnerAll.map((t) => {
       const monthly = normalizeMoney(t.shares[0]?.monthlyAmount ?? 0)
@@ -244,12 +267,13 @@ export async function buildSnapshot(userId: string): Promise<SnapshotPayload> {
       : []
   const shares: SnapshotPayload['shares'] = [
     ...myShares
-      .filter((s) => s.debtorId != null)
+      .filter((s) => s.debtorId != null || s.externalName != null)
       .map((s) => ({
         id: s.id,
         transactionId: s.transactionId,
-        debtorId: s.debtorId as string,
-        debtorName: s.debtor?.name ?? s.seat?.displayName ?? 'Pareja',
+        debtorId: s.debtorId,
+        debtorName:
+          s.debtor?.name ?? s.seat?.displayName ?? s.externalName ?? 'Pareja',
         sharePct: s.sharePct,
         monthlyAmount: normalizeMoney(s.monthlyAmount),
         isFixedAmount: s.isFixedAmount,
@@ -267,12 +291,13 @@ export async function buildSnapshot(userId: string): Promise<SnapshotPayload> {
     ),
     ...sharedOwed.flatMap((t) =>
       t.shares
-        .filter((s) => s.debtorId != null)
+        .filter((s) => s.debtorId != null || s.externalName != null)
         .map((s) => ({
           id: s.id,
           transactionId: t.id,
-          debtorId: s.debtorId as string,
-          debtorName: s.debtor?.name ?? s.seat?.displayName ?? 'Pareja',
+          debtorId: s.debtorId,
+          debtorName:
+            s.debtor?.name ?? s.seat?.displayName ?? s.externalName ?? 'Pareja',
           sharePct: s.sharePct,
           monthlyAmount: normalizeMoney(s.monthlyAmount),
           isFixedAmount: s.isFixedAmount,
@@ -417,7 +442,11 @@ export async function buildSnapshot(userId: string): Promise<SnapshotPayload> {
     })),
     ...sharedOwed.flatMap((t) =>
       t.shares
-        .filter((s) => s.debtorId != null && s.debtorId !== userId)
+        .filter(
+          (s) =>
+            s.externalName != null ||
+            (s.debtorId != null && s.debtorId !== userId),
+        )
         .map((s) => ({
           shareId: s.id,
           accountId: t.account.id,
@@ -425,8 +454,9 @@ export async function buildSnapshot(userId: string): Promise<SnapshotPayload> {
           accountType: t.account.type as 'DEBIT' | 'CREDIT',
           dueDay: t.account.dueDay ?? null,
           statementDay: t.account.statementDay ?? null,
-          debtorId: s.debtorId as string,
-          debtorName: s.debtor?.name ?? s.seat?.displayName ?? 'Pareja',
+          debtorId: s.debtorId,
+          debtorName:
+            s.externalName ?? s.debtor?.name ?? s.seat?.displayName ?? 'Pareja',
           creditorName: t.createdBy.name,
           concept: t.concept,
           monthly: normalizeMoney(s.monthlyAmount ?? 0),
@@ -492,6 +522,7 @@ export async function buildSnapshot(userId: string): Promise<SnapshotPayload> {
       ownerName: s.ownerName,
       isMine: s.isMine,
       partnerName: s.partnerName,
+      externalName: s.externalName,
     })),
     // Filas completas acotadas a la ventana (dues e historial en cliente).
     charges: chargeRows.map((c) => ({
@@ -512,5 +543,6 @@ export async function buildSnapshot(userId: string): Promise<SnapshotPayload> {
     partnerDebts,
     groups,
     currentMonth,
+    partner,
   }
 }

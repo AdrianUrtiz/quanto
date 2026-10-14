@@ -33,7 +33,7 @@ export default async function ActividadPage() {
   const [rows, partnerRows, accRows] = await Promise.all([
     prisma.transaction.findMany({
       where: { createdById: meId },
-      include: { account: true, createdBy: true },
+      include: { account: true, createdBy: true, shares: true },
       // Desempate por creación: varios movimientos pueden compartir fecha+hora
       // (mediodías fijos históricos, cargos de suscripción).
       orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
@@ -66,29 +66,39 @@ export default async function ActividadPage() {
     }),
   ])
   const accById = new Map(accRows.map((a) => [a.id, a]))
-  const raw = rows.map((t) => ({
-    id: t.id,
-    concept: t.concept,
-    category: t.category,
-    amount: normalizeMoney(t.amount),
-    date: t.date,
-    type: t.type,
-    accountId: t.accountId,
-    accountName: t.account.name,
-    accountType: t.account.type,
-    transferToAccountId: t.transferToAccountId ?? null,
-    transferToAccountName: t.transferToAccountId
-      ? (accById.get(t.transferToAccountId)?.name ?? null)
-      : null,
-    transferToAccountType: t.transferToAccountId
-      ? (accById.get(t.transferToAccountId)?.type ?? null)
-      : null,
-    creatorName: t.createdBy.name,
-    installments: t.installments,
-    isShared: t.isShared,
-    createdById: t.createdById,
-    partnerShare: false,
-  }))
+  const raw = rows.map((t) => {
+    // Compartido individual (no de grupo) con deudor: datos para editar.
+    const share =
+      t.householdId == null && t.isShared ? (t.shares[0] ?? null) : null
+    return {
+      id: t.id,
+      concept: t.concept,
+      category: t.category,
+      amount: normalizeMoney(t.amount),
+      date: t.date,
+      type: t.type,
+      accountId: t.accountId,
+      accountName: t.account.name,
+      accountType: t.account.type,
+      transferToAccountId: t.transferToAccountId ?? null,
+      transferToAccountName: t.transferToAccountId
+        ? (accById.get(t.transferToAccountId)?.name ?? null)
+        : null,
+      transferToAccountType: t.transferToAccountId
+        ? (accById.get(t.transferToAccountId)?.type ?? null)
+        : null,
+      creatorName: t.createdBy.name,
+      installments: t.installments,
+      isShared: t.isShared,
+      isGroup: t.householdId != null,
+      sharePct: share?.sharePct,
+      shareMonthly: share ? normalizeMoney(share.monthlyAmount) : undefined,
+      shareFixed: share?.isFixedAmount,
+      shareExternalName: share?.externalName ?? null,
+      createdById: t.createdById,
+      partnerShare: false,
+    }
+  })
   // Mi parte de sus gastos compartidos: una fila por compra con el total
   // que me toca (mensual × parcialidades), en el mes de compra.
   const mine = partnerRows.map((t) => {

@@ -8,16 +8,18 @@ import type { CardPayCandidate } from '@/lib/card-pay'
 
 // Versión del esquema Dexie. Subir en cada migración futura
 // (el sprint de creación offline añadirá índices/flags sin romper v2).
-export const DB_VERSION = 5
+export const DB_VERSION = 6
 export const DB_NAME = 'quanto-db'
 // Versión del payload de /api/snapshot que esta DB sabe guardar.
-export const SNAPSHOT_VERSION = 5
+export const SNAPSHOT_VERSION = 6
 
 export type SyncMeta = {
   key: string // siempre 'sync'
   userId: string
   lastSyncAt: string // ISO
   snapshotVersion: number
+  /** Pareja vinculada (solo nombre) o null. Para ofrecer "compartir". */
+  partner?: { id: string; name: string } | null
 }
 
 export type OfflineAccount = {
@@ -57,6 +59,14 @@ export type OfflineTransaction = {
   createdById: string
   installments: number
   isShared: boolean
+  /** Reparto actual de un gasto compartido mío (prefill de edición). */
+  sharePct?: number
+  shareMonthly?: number
+  shareFixed?: boolean
+  /** Nombre de la persona sin cuenta si el compartido es externo. */
+  shareExternalName?: string | null
+  /** Gasto de un grupo (household): su reparto no se edita en el formulario. */
+  isGroup?: boolean
   /** Período ("YYYY-MM") al que se aplica un pago aunque sea extemporáneo. */
   statementKey?: string | null
   /** Fila derivada de un gasto compartido de mi pareja (solo lectura). */
@@ -68,7 +78,8 @@ export type OfflineTransaction = {
 export type OfflineShare = {
   id: string
   transactionId: string
-  debtorId: string
+  /** null = persona sin cuenta (compartido "de recordatorio"). */
+  debtorId: string | null
   debtorName: string
   sharePct: number
   monthlyAmount: number
@@ -122,6 +133,8 @@ export type OfflineSubscription = {
   ownerName: string
   isMine: boolean
   partnerName: string | null
+  /** Compartida con alguien sin cuenta (ej. "Mamá"). */
+  externalName: string | null
 }
 
 // Entrada de deuda de pareja (compatible con DebtItemInput/PartnerPayItem).
@@ -133,7 +146,8 @@ export type OfflinePartnerDebt = {
   accountType: 'DEBIT' | 'CREDIT'
   dueDay?: number | null
   statementDay?: number | null
-  debtorId: string
+  /** null = persona sin cuenta (compartido "de recordatorio"). */
+  debtorId: string | null
   debtorName: string
   creditorName: string
   concept: string

@@ -101,9 +101,15 @@ export async function registerPayment(formData: FormData) {
   if (!share) return { error: 'Aportación no encontrada' }
   const tx = share.transaction
   // Deudor efectivo: user directo (pareja) u ocupante del seat (grupo).
+  // Externo sin cuenta: no hay usuario, solo el nombre.
   const debtorId = share.debtorId ?? share.seat?.userId ?? null
-  if (!debtorId) return { error: 'Ese lugar aún no fue reclamado' }
-  const debtorName = share.debtor?.name ?? share.seat?.displayName ?? 'pareja'
+  if (!debtorId && !share.externalName)
+    return { error: 'Ese lugar aún no fue reclamado' }
+  const debtorName =
+    share.debtor?.name ??
+    share.seat?.displayName ??
+    share.externalName ??
+    'pareja'
   const creditorId = tx.createdById
   if (userId !== debtorId && userId !== creditorId) {
     return { error: 'No participas en esta deuda' }
@@ -264,7 +270,11 @@ export async function confirmPayment(formData: FormData) {
             select: { name: true },
           })
         : null
-      const debtorName = debtor?.name ?? p.share.seat?.displayName ?? 'pareja'
+      const debtorName =
+        debtor?.name ??
+        p.share.seat?.displayName ??
+        p.share.externalName ??
+        'pareja'
       const incomeId = await createCreditorIncome(db, {
         amount: fromCents(toCents(p.amount)),
         concept: `Pago de ${debtorName} · ${p.share.transaction.concept}`,
