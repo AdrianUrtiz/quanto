@@ -8,10 +8,10 @@ import type { CardPayCandidate } from '@/lib/card-pay'
 
 // Versión del esquema Dexie. Subir en cada migración futura
 // (el sprint de creación offline añadirá índices/flags sin romper v2).
-export const DB_VERSION = 6
+export const DB_VERSION = 5
 export const DB_NAME = 'quanto-db'
 // Versión del payload de /api/snapshot que esta DB sabe guardar.
-export const SNAPSHOT_VERSION = 6
+export const SNAPSHOT_VERSION = 5
 
 export type SyncMeta = {
   key: string // siempre 'sync'
@@ -175,12 +175,6 @@ export type OfflineGroup = {
   expenseCount: number
 }
 
-// Solicitud de vínculo de pareja (serializable, solo nombre).
-export type OfflineInvite = {
-  id: string
-  fromName: string
-}
-
 // Reserva para el sprint de creación offline: cola de operaciones
 // pendientes de subir a la central. `error` guarda el último rechazo del
 // servidor (p. ej. cuenta eliminada) para la tarjeta de acciones urgentes.
@@ -209,7 +203,6 @@ class QuantoDB extends Dexie {
   cardPay!: Table<CardPayCandidate, string>
   partnerShared!: Table<OfflinePartnerShared, string>
   groups!: Table<OfflineGroup, string>
-  invites!: Table<OfflineInvite, string>
   outbox!: Table<OfflineOutboxOp, number>
 
   constructor() {
@@ -228,7 +221,6 @@ class QuantoDB extends Dexie {
       cardPay: 'cardId',
       partnerShared: 'id',
       groups: 'id',
-      invites: 'id',
       outbox: '++localId, createdAt, status',
     })
   }
@@ -270,7 +262,6 @@ export async function clearLocalData(): Promise<void> {
       db.cardPay,
       db.partnerShared,
       db.groups,
-      db.invites,
       db.outbox,
     ],
     async () => {
@@ -288,7 +279,6 @@ export async function clearLocalData(): Promise<void> {
         db.cardPay.clear(),
         db.partnerShared.clear(),
         db.groups.clear(),
-        db.invites.clear(),
         db.outbox.clear(),
       ])
     },

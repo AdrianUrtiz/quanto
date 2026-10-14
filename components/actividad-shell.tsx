@@ -69,7 +69,6 @@ export function ActividadShell(server: Props) {
       lineSums,
       partnerDebts,
       cardPay,
-      invites,
     ] = await Promise.all([
       db.meta.get('sync'),
       db.transactions.toArray(),
@@ -79,7 +78,6 @@ export function ActividadShell(server: Props) {
       db.lineSums.toArray(),
       db.partnerDebts.toArray(),
       db.cardPay.toArray(),
-      db.invites.toArray().catch(() => []),
     ])
     return {
       meta,
@@ -90,7 +88,6 @@ export function ActividadShell(server: Props) {
       lineSums,
       partnerDebts,
       cardPay,
-      invites,
     }
   }, [])
 
@@ -114,7 +111,8 @@ export function ActividadShell(server: Props) {
         cardPayItems: toCardPayItems(local.cardPay),
         toConfirm: toToConfirm(local.debtPayments, local.meta?.userId ?? ''),
         toConfirmSource: toToConfirmSource(local.debtPayments),
-        pairingInvites: local.invites,
+        // Invites van siempre del servidor (aceptar/rechazar es online).
+        pairingInvites: server.pairingInvites,
       }
     : server
 

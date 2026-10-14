@@ -11,7 +11,6 @@
 import { getAccountBalances } from '@/lib/balances'
 import { getCardPayCandidates } from '@/lib/card-pay-server'
 import { getCatalog } from '@/lib/catalog'
-import { getPairingInvites } from '@/lib/couple-actions'
 import { getLineSums } from '@/lib/debt-payments'
 import { getGroupSummaries } from '@/lib/group-actions'
 import { normalizeMoney } from '@/lib/money'
@@ -36,101 +35,6 @@ function endMonthKey(date: Date, installments: number): string {
 function monthLabelOf(month: string): string {
   const [y, mo] = month.split('-').map(Number)
   return monthLabelEs(new Date(y, mo - 1, 1))
-}
-
-function cutoffMonthOf(now = new Date()): string {
-  return utc(now.getUTCFullYear(), now.getUTCMonth() - 12, 1)
-    .toISOString()
-    .slice(0, 7)
-}
-
-/**
- * Listas de pagos de pareja (serializables, sin montos privados ajenos).
- * Misma forma que el snapshot: el poll ligero y el snapshot comparten esto
- * para que los banners se actualicen sin descargar todo.
- */
-export async function getPendingPaymentLists(
-  userId: string,
-  cutoffMonth = cutoffMonthOf(),
-): Promise<SnapshotPayload['debtPayments']> {
-  if (!process.env.DATABASE_URL || !userId) {
-    return { toConfirm: [], myPending: [], toConfirmSource: [] }
-  }
-  const [pendingRows, sourceRows] = await Promise.all([
-    prisma.debtPayment.findMany({
-      where: {
-        status: 'PENDING',
-        share: {
-          transaction: { householdId: null },
-          OR: [{ debtorId: userId }, { transaction: { createdById: userId } }],
-        },
-      },
-      include: {
-        share: {
-          include: {
-            transaction: { include: { createdBy: true } },
-            debtor: true,
-          },
-        },
-        registeredBy: true,
-      },
-      orderBy: { createdAt: 'desc' },
-    }),
-    prisma.debtPayment.findMany({
-      where: {
-        status: 'CONFIRMED',
-        debtorConfirmedAt: null,
-        registeredById: { not: userId },
-        share: { debtorId: userId, transaction: { householdId: null } },
-      },
-      include: {
-        share: { include: { transaction: { include: { createdBy: true } } } },
-        registeredBy: true,
-      },
-      orderBy: { createdAt: 'desc' },
-    }),
-  ])
-  const toConfirm: SnapshotPayload['debtPayments']['toConfirm'] = []
-  const myPending: SnapshotPayload['debtPayments']['myPending'] = []
-  for (const p of pendingRows) {
-    // Cota 12m por mes, salvo pendientes aún no liquidados (siguen debidos).
-    if (p.month < cutoffMonth) continue
-    const base = {
-      id: p.id,
-      shareId: p.shareId,
-      month: p.month,
-      monthLabel: monthLabelOf(p.month),
-      amount: normalizeMoney(p.amount),
-      status: 'PENDING' as const,
-      registeredById: p.registeredById,
-      registeredByName: p.registeredBy.name,
-      concept: p.share.transaction.concept,
-      monthly: normalizeMoney(p.share.monthlyAmount),
-    }
-    if (p.registeredById === userId) {
-      myPending.push({
-        ...base,
-        registeredByName: p.share.transaction.createdBy.name,
-      })
-    } else {
-      toConfirm.push(base)
-    }
-  }
-  const toConfirmSource = sourceRows
-    .filter((p) => p.month >= cutoffMonth)
-    .map((p) => ({
-      id: p.id,
-      shareId: p.shareId,
-      month: p.month,
-      monthLabel: monthLabelOf(p.month),
-      amount: normalizeMoney(p.amount),
-      status: 'CONFIRMED' as const,
-      registeredById: p.registeredById,
-      registeredByName: p.registeredBy.name,
-      concept: p.share.transaction.concept,
-      monthly: normalizeMoney(p.share.monthlyAmount),
-    }))
-  return { toConfirm, myPending, toConfirmSource }
 }
 
 export async function buildSnapshot(userId: string): Promise<SnapshotPayload> {
@@ -166,7 +70,6 @@ export async function buildSnapshot(userId: string): Promise<SnapshotPayload> {
     ])
   const meName = me?.name ?? 'Tú'
   const groups = await getGroupSummaries(userId)
-  const pairingInvites = await getPairingInvites(userId)
 
   const accounts: OfflineAccount[] = accRows.map((a) => ({
     id: a.id,
@@ -378,11 +281,41 @@ export async function buildSnapshot(userId: string): Promise<SnapshotPayload> {
   ]
   const allShareIds = shares.map((s) => s.id)
 
-  const [sums, debtPayments] = await Promise.all([
+  const [sums, pendingRows, sourceRows] = await Promise.all([
     getLineSums(allShareIds),
-    getPendingPaymentLists(userId, cutoffMonth),
+    prisma.debtPayment.findMany({
+      where: {
+        status: 'PENDING',
+        share: {
+          transaction: { householdId: null },
+          OR: [{ debtorId: userId }, { transaction: { createdById: userId } }],
+        },
+      },
+      include: {
+        share: {
+          include: {
+            transaction: { include: { createdBy: true } },
+            debtor: true,
+          },
+        },
+        registeredBy: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    }),
+    prisma.debtPayment.findMany({
+      where: {
+        status: 'CONFIRMED',
+        debtorConfirmedAt: null,
+        registeredById: { not: userId },
+        share: { debtorId: userId, transaction: { householdId: null } },
+      },
+      include: {
+        share: { include: { transaction: { include: { createdBy: true } } } },
+        registeredBy: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    }),
   ])
-  const { toConfirm, myPending, toConfirmSource } = debtPayments
 
   // Huella de pagos CONFIRMED → movimientos bloqueados (solo lectura).
   const lockedRows = await prisma.debtPayment.findMany({
@@ -403,6 +336,47 @@ export async function buildSnapshot(userId: string): Promise<SnapshotPayload> {
   for (const t of transactions) {
     if (t.partnerShare || lockedTxIds.has(t.id)) t.locked = true
   }
+
+  const toConfirm: SnapshotPayload['debtPayments']['toConfirm'] = []
+  const myPending: SnapshotPayload['debtPayments']['myPending'] = []
+  for (const p of pendingRows) {
+    // Cota 12m por mes, salvo pendientes aún no liquidados (siguen debidos).
+    if (p.month < cutoffMonth) continue
+    const base = {
+      id: p.id,
+      shareId: p.shareId,
+      month: p.month,
+      monthLabel: monthLabelOf(p.month),
+      amount: normalizeMoney(p.amount),
+      status: 'PENDING' as const,
+      registeredById: p.registeredById,
+      registeredByName: p.registeredBy.name,
+      concept: p.share.transaction.concept,
+      monthly: normalizeMoney(p.share.monthlyAmount),
+    }
+    if (p.registeredById === userId) {
+      myPending.push({
+        ...base,
+        registeredByName: p.share.transaction.createdBy.name,
+      })
+    } else {
+      toConfirm.push(base)
+    }
+  }
+  const toConfirmSource = sourceRows
+    .filter((p) => p.month >= cutoffMonth)
+    .map((p) => ({
+      id: p.id,
+      shareId: p.shareId,
+      month: p.month,
+      monthLabel: monthLabelOf(p.month),
+      amount: normalizeMoney(p.amount),
+      status: 'CONFIRMED' as const,
+      registeredById: p.registeredById,
+      registeredByName: p.registeredBy.name,
+      concept: p.share.transaction.concept,
+      monthly: normalizeMoney(p.share.monthlyAmount),
+    }))
 
   // Cargos con filas completas (para dues e historial en cliente).
   // Ventana de 12m: computeDues mira 6 meses atrás y el historial 6.
@@ -537,7 +511,6 @@ export async function buildSnapshot(userId: string): Promise<SnapshotPayload> {
     cardPayItems,
     partnerDebts,
     groups,
-    pairingInvites,
     currentMonth,
   }
 }
