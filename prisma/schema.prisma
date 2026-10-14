@@ -191,11 +191,14 @@ model Subscription {
 
   chargeDay Int // día de cobro 1-31 (se ajusta al último día del mes si no existe)
 
-  isShared    Boolean  @default(false)
-  // Reparto de la pareja: porcentaje o cantidad fija total. Solo referencia
-  // para el split al confirmar; los pagos se registran en Pareja, no aquí.
-  sharePct    Float    @default(50)
-  shareAmount Decimal? @db.Decimal(12, 2)
+  isShared     Boolean  @default(false)
+  // Reparto: porcentaje o cantidad fija total. Solo referencia para el split
+  // al confirmar; los pagos se registran en Pareja, no aquí.
+  sharePct     Float    @default(50)
+  shareAmount  Decimal? @db.Decimal(12, 2)
+  // Compartida con alguien SIN usuario de la app (ej. "Mamá"): solo se guarda
+  // su nombre. En ese caso no se resuelve pareja al confirmar el cargo.
+  externalName String?
 
   isActive   Boolean @default(true) // false = pausada
   // Primer mes a generar, "YYYY-MM" (por defecto el mes de creación).
@@ -257,8 +260,13 @@ model TransactionShare {
   // - Grupo: seat del grupo (siempre presente); debtorId se rellena al
   //   reclamar el seat (dual-write para que los flujos por shareId/debtorId
   //   existentes sigan funcionando). Null = seat aún libre.
+  // - Externo (sin usuario en la app): debtorId null + externalName.
   debtorId String?
   debtor   User?   @relation("Debtor", fields: [debtorId], references: [id], onDelete: Cascade)
+
+  // Nombre de la persona sin cuenta con quien se comparte (ej. "Mamá").
+  // Excluyente con debtorId/seatId: es un compartido "de recordatorio".
+  externalName String?
 
   seatId String?
   seat   HouseholdMember? @relation("SeatDebtor", fields: [seatId], references: [id], onDelete: SetNull)
