@@ -78,6 +78,13 @@ export type TxEditData = {
   type: string
   installments: number
   isShared: boolean
+  /** Reparto actual del compartido (para prefill al editar). */
+  sharePct?: number
+  shareMonthly?: number
+  shareFixed?: boolean
+  shareExternalName?: string | null
+  /** Gasto de grupo: su reparto no se edita desde aquí. */
+  isGroup?: boolean
 }
 
 type Mode = 'cargo' | 'abono' | 'pago'
@@ -157,10 +164,33 @@ export function TransactionForm({
     entry?.category ?? (initialMode === 'abono' ? 'NOMINA' : 'COMIDA'),
   )
   const [msi, setMsi] = useState(1)
-  const [shared, setShared] = useState(false)
-  const [shareMode, setShareMode] = useState<'pct' | 'amount'>('pct')
-  const [sharePct, setSharePct] = useState(50)
-  const [shareAmt, setShareAmt] = useState('')
+  // Al editar un gasto compartido, prefill con su reparto actual.
+  const editShare = editing && entry!.type === 'EXPENSE' && entry!.isShared
+  const [shared, setShared] = useState(Boolean(editShare))
+  const [shareMode, setShareMode] = useState<'pct' | 'amount'>(
+    editShare && entry!.shareFixed ? 'amount' : 'pct',
+  )
+  const [sharePct, setSharePct] = useState(
+    editShare && !entry!.shareFixed && entry!.sharePct != null
+      ? Math.round(entry!.sharePct)
+      : 50,
+  )
+  const [shareAmt, setShareAmt] = useState(
+    editShare && entry!.shareFixed && entry!.shareMonthly != null
+      ? String(
+          fromCents(
+            toCents(entry!.shareMonthly) * Math.max(1, entry!.installments),
+          ),
+        )
+      : '',
+  )
+  // Quién aporta: mi pareja o alguien sin cuenta (externalName).
+  const [shareWith, setShareWith] = useState<'partner' | 'external'>(
+    editShare && entry!.shareExternalName ? 'external' : 'partner',
+  )
+  const [externalName, setExternalName] = useState(
+    editShare ? (entry!.shareExternalName ?? '') : '',
+  )
   const [panel, setPanel] = useState<Panel>(null)
   const [localRows, setLocalRows] = useState<CatalogRow[]>([])
   const [newCatName, setNewCatName] = useState('')
@@ -184,6 +214,15 @@ export function TransactionForm({
       alive = false
     }
   }, [editing])
+
+  // ¿Se puede compartir con la pareja? Al editar un compartido de pareja no
+  // se resuelve el nombre (no hay red al abrir), así que se asume que sí.
+  const partnerAvailable =
+    Boolean(partnerName) ||
+    Boolean(editing && entry?.isShared && !entry?.shareExternalName)
+  // Sin pareja, solo queda compartir con alguien sin cuenta (derivado, sin
+  // estado extra que provoque renders en cascada).
+  const effectiveShareWith = partnerAvailable ? shareWith : 'external'
 
   // Al crear una categoría, llega por `localRows` y —tras revalidar el
   // servidor— también por el prop `cats`: se deduplica por código para
@@ -259,11 +298,16 @@ export function TransactionForm({
     accountOptions.find((a) => a.id === shownDest)?.name ?? 'Cuenta'
 
   // Vista previa del reparto (total y mensual según MSI, en centavos).
-  // sharePct = MI porcentaje; a mi pareja le toca el resto.
+  // sharePct = % que aporta LA OTRA PERSONA (igual que en suscripciones);
+  // tú pagas el total ahora y te debe su parte.
   const totalC = toCents(amount || '0')
-  const per = Math.max(1, msi)
+  const per = editing ? Math.max(1, entry!.installments) : Math.max(1, msi)
+  const otherName =
+    effectiveShareWith === 'external'
+      ? externalName.trim() || 'la otra persona'
+      : (partnerName ?? 'tu pareja')
   const pctMonthly = fromCents(
-    Math.round(Math.round((totalC * (100 - sharePct)) / 100) / per),
+    Math.round(Math.round((totalC * sharePct) / 100) / per),
   )
   const amtC = toCents(shareAmt || '0')
   const amtMonthly = fromCents(Math.round(amtC / per))
@@ -272,7 +316,7 @@ export function TransactionForm({
   const shareLabel = !shared
     ? 'Compartir'
     : shareMode === 'pct'
-      ? `${100 - sharePct}%`
+      ? `${sharePct}%`
       : shareAmt
         ? `$${fmtAmount(shareAmt)}`
         : 'Monto'
@@ -324,12 +368,22 @@ export function TransactionForm({
     fd.set('date', buildDateTime(dateYMD, editing ? entry!.date : undefined))
     fd.set('accountId', accountId)
     if (mode === 'pago') fd.set('transferToAccountId', shownDest)
-    if (mode === 'cargo' && !editing) {
-      fd.set('installments', String(msi))
+    // Compartido (solo gastos individuales): aplica al crear y al editar.
+    const shareEditable = mode === 'cargo' && !(editing && entry?.isGroup)
+    if (shareEditable) {
+      if (!editing) fd.set('installments', String(msi))
+      fd.set('isShared', shared ? 'true' : 'false')
       if (shared) {
-        fd.set('isShared', 'true')
+        if (effectiveShareWith === 'external') {
+          if (!externalName.trim()) {
+            setMsg('Escribe con quién compartes')
+            setPending(false)
+            return
+          }
+          fd.set('externalName', externalName.trim())
+        }
         if (shareMode === 'pct') {
-          fd.set('sharePct', String(100 - sharePct)) // al servidor va el % del deudor
+          fd.set('sharePct', String(sharePct)) // % que aporta la otra persona
         } else {
           const amtC = toCents(shareAmt || '0')
           if (
@@ -359,8 +413,9 @@ export function TransactionForm({
         return
       }
       // Deudor desde la copia local (el servidor ya no puede resolverlo).
+      // Con externo no hay id: solo viaja el nombre.
       let debtor: { id: string; name: string } | null = null
-      if (mode === 'cargo' && shared) {
+      if (mode === 'cargo' && shared && effectiveShareWith === 'partner') {
         try {
           debtor = await resolvePartner()
         } catch {
@@ -389,6 +444,7 @@ export function TransactionForm({
         shareAmount: shareAmountRaw != null ? Number(shareAmountRaw) : null,
         debtorId: debtor?.id,
         debtorName: debtor?.name,
+        externalName: strOrUndef(fd.get('externalName')),
       }
       const invalid = validateOfflineCreate(input, {
         accounts: accountOptions.map((a) => ({ id: a.id, type: a.type })),
@@ -602,7 +658,7 @@ export function TransactionForm({
                   <CalendarClock className="size-3.5" /> {msiLabel(msi)}
                 </button>
               )}
-              {mode === 'cargo' && !editing && (
+              {mode === 'cargo' && !(editing && entry?.isGroup) && (
                 <button
                   type="button"
                   onClick={() => setPanel('share')}
@@ -895,47 +951,98 @@ export function TransactionForm({
         </DialogContent>
       </Dialog>
 
-      {/* Panel: compartir (porcentaje o cantidad fija) */}
+      {/* Panel: dividir gasto (porcentaje o cantidad fija) */}
       <Dialog
         open={panel === 'share'}
         onOpenChange={(o) => !o && setPanel(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Compartir gasto</DialogTitle>
+            <DialogTitle>Dividir gasto</DialogTitle>
           </DialogHeader>
           <div className="flex items-center justify-between rounded-2xl border border-(--border) px-4 py-3">
             <div>
               <p className="text-sm font-semibold">
-                Compartir con {partnerName ?? 'mi pareja'}
+                {shared ? `Dividido con ${otherName}` : 'Dividir este gasto'}
               </p>
               <p className="text-xs text-(--muted-foreground)">
-                Define su aportación
+                Tú pagas el total ahora
+                {shared ? ` · ${otherName} te debe su parte` : ''}
               </p>
             </div>
             <Switch
               checked={shared}
               onCheckedChange={setShared}
-              aria-label="Compartir gasto"
+              aria-label="Dividir gasto"
             />
           </div>
 
           {shared && (
             <>
-              <div className="mx-auto grid w-fit grid-cols-2 gap-2 rounded-full bg-(--muted) p-1">
-                {(['pct', 'amount'] as const).map((m) => (
-                  <button
-                    key={m}
-                    type="button"
-                    onClick={() => setShareMode(m)}
-                    className={cn(
-                      'rounded-full px-5 py-2 text-sm font-semibold',
-                      shareMode === m
-                        ? 'bg-(--card) shadow'
-                        : 'text-(--muted-foreground)',
-                    )}>
-                    {m === 'pct' ? 'Porcentaje' : 'Cantidad'}
-                  </button>
-                ))}
+              {/* Con quién: mi pareja (si hay vínculo) o alguien sin cuenta. */}
+              {partnerAvailable && (
+                <div>
+                  <p className="mb-1.5 text-center text-xs font-semibold text-(--muted-foreground)">
+                    ¿Con quién lo divides?
+                  </p>
+                  <div className="mx-auto grid w-fit grid-cols-2 gap-2 rounded-full bg-(--muted) p-1">
+                    {(['partner', 'external'] as const).map((w) => (
+                      <button
+                        key={w}
+                        type="button"
+                        onClick={() => setShareWith(w)}
+                        className={cn(
+                          'rounded-full px-5 py-2 text-sm font-semibold',
+                          effectiveShareWith === w
+                            ? 'bg-(--card) shadow'
+                            : 'text-(--muted-foreground)',
+                        )}>
+                        {w === 'partner'
+                          ? (partnerName ?? 'Mi pareja')
+                          : 'Otra persona'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {effectiveShareWith === 'external' && (
+                <div className="space-y-2">
+                  <Label htmlFor="share-name">Nombre de la otra persona</Label>
+                  <Input
+                    id="share-name"
+                    value={externalName}
+                    onChange={(e) => setExternalName(e.target.value)}
+                    placeholder="Mamá, Juan, compañero…"
+                    maxLength={40}
+                    autoComplete="off"
+                  />
+                  <p className="text-[11px] text-(--muted-foreground)">
+                    Solo es un recordatorio para ti: no necesita cuenta y no le
+                    llegará ningún aviso.
+                  </p>
+                </div>
+              )}
+
+              <div>
+                <p className="mb-1.5 text-center text-xs font-semibold text-(--muted-foreground)">
+                  ¿Cuánto te debe?
+                </p>
+                <div className="mx-auto grid w-fit grid-cols-2 gap-2 rounded-full bg-(--muted) p-1">
+                  {(['pct', 'amount'] as const).map((m) => (
+                    <button
+                      key={m}
+                      type="button"
+                      onClick={() => setShareMode(m)}
+                      className={cn(
+                        'rounded-full px-5 py-2 text-sm font-semibold',
+                        shareMode === m
+                          ? 'bg-(--card) shadow'
+                          : 'text-(--muted-foreground)',
+                      )}>
+                      {m === 'pct' ? 'Porcentaje' : 'Cantidad fija'}
+                    </button>
+                  ))}
+                </div>
               </div>
 
               {shareMode === 'pct' ? (
@@ -945,22 +1052,24 @@ export function TransactionForm({
                   </p>
                   <input
                     type="range"
-                    min={0}
-                    max={99}
+                    min={1}
+                    max={100}
                     value={sharePct}
                     onChange={(e) => setSharePct(Number(e.target.value))}
-                    aria-label="Mi porcentaje del gasto"
+                    aria-label="Porcentaje que aporta la otra persona"
                     className="w-full accent-(--primary)"
                   />
                   <div className="flex justify-between text-[11px] text-(--muted-foreground)">
-                    <span>Tú {sharePct}%</span>
-                    <span>Pareja {100 - sharePct}%</span>
+                    <span>Tú {100 - sharePct}%</span>
+                    <span>
+                      {otherName} {sharePct}%
+                    </span>
                   </div>
                   <p className="text-center text-sm">
-                    Tu pareja aporta{' '}
+                    {otherName} te debe{' '}
                     <b>
                       ${fmtAmount(toFixedCents(pctMonthly))}/mes
-                      {msi > 1 ? ` × ${msi}` : ''}
+                      {per > 1 ? ` × ${per}` : ''}
                     </b>{' '}
                     de ${fmtAmount(amount || '0')}
                   </p>
@@ -968,7 +1077,7 @@ export function TransactionForm({
               ) : (
                 <div className="space-y-2 rounded-3xl border border-(--border) p-4">
                   <Label htmlFor="share-amt">
-                    ¿Cuánto aporta tu pareja? (total)
+                    ¿Cuánto te debe {otherName} en total?
                   </Label>
                   <div className="flex items-center gap-2">
                     <span className="text-xl font-bold text-(--muted-foreground)">
@@ -990,7 +1099,7 @@ export function TransactionForm({
                       Equivale al <b>{amtPct.toFixed(1)}%</b> ·{' '}
                       <b>
                         ${fmtAmount(toFixedCents(amtMonthly))}/mes
-                        {msi > 1 ? ` × ${msi}` : ''}
+                        {per > 1 ? ` × ${per}` : ''}
                       </b>
                     </p>
                   )}

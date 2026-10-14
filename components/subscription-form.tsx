@@ -27,11 +27,12 @@ import {
 } from '@/lib/categories'
 import { createCategory } from '@/lib/category-actions'
 import { fromCents, normalizeMoney, toCents } from '@/lib/money'
+import { resolvePartner } from '@/lib/offline/outbox'
+import { syncForce } from '@/lib/offline/useSnapshotSync'
 import {
   createSubscription,
   updateSubscription,
 } from '@/lib/subscription-actions'
-import { syncForce } from '@/lib/offline/useSnapshotSync'
 import { formatMoney } from '@/lib/utils'
 import { cn } from '@/lib/utils'
 
@@ -45,6 +46,8 @@ export type SubEditData = {
   isShared: boolean
   sharePct: number
   shareAmount: number | null
+  /** Compartida con alguien sin cuenta (ej. "Mamá"). */
+  externalName?: string | null
 }
 
 const EXPENSE_KINDS = ['expense', 'both']
@@ -74,6 +77,7 @@ export function SubscriptionForm({
   const [category, setCategory] = useState(
     subscription?.category ?? 'SUSCRIPCIONES',
   )
+  const editExternal = subscription?.externalName ?? null
   const [shared, setShared] = useState(subscription?.isShared ?? false)
   const [shareMode, setShareMode] = useState<'pct' | 'amount'>(
     subscription?.shareAmount != null ? 'amount' : 'pct',
@@ -82,6 +86,32 @@ export function SubscriptionForm({
   const [shareAmt, setShareAmt] = useState(
     subscription?.shareAmount != null ? String(subscription.shareAmount) : '',
   )
+  // Quién aporta: mi pareja (si hay vínculo) o alguien sin cuenta.
+  const [shareWith, setShareWith] = useState<'partner' | 'external'>(
+    editExternal ? 'external' : 'partner',
+  )
+  const [externalName, setExternalName] = useState(editExternal ?? '')
+  const [partnerName, setPartnerName] = useState<string | null>(null)
+  useEffect(() => {
+    let alive = true
+    resolvePartner()
+      .then((p) => {
+        if (alive && p) setPartnerName(p.name)
+      })
+      .catch(() => undefined)
+    return () => {
+      alive = false
+    }
+  }, [])
+  const partnerAvailable =
+    Boolean(partnerName) ||
+    Boolean(editing && subscription?.isShared && !editExternal)
+  // Sin pareja, solo queda compartir con alguien sin cuenta (derivado).
+  const effectiveShareWith = partnerAvailable ? shareWith : 'external'
+  const otherName =
+    effectiveShareWith === 'external'
+      ? externalName.trim() || 'la otra persona'
+      : (partnerName ?? 'tu pareja')
   const [msg, setMsg] = useState<string | null>(null)
   const [pending, setPending] = useState(false)
   const [localRows, setLocalRows] = useState<CatalogRow[]>([])
@@ -226,6 +256,10 @@ export function SubscriptionForm({
         return
       }
     }
+    if (shared && effectiveShareWith === 'external' && !externalName.trim()) {
+      setMsg('Escribe con quién compartes')
+      return
+    }
     setMsg(null)
     setPending(true)
     const fd = new FormData()
@@ -237,6 +271,8 @@ export function SubscriptionForm({
     fd.set('accountId', accountId)
     fd.set('isShared', shared ? 'true' : 'false')
     if (shared) {
+      if (effectiveShareWith === 'external')
+        fd.set('externalName', externalName.trim())
       if (shareMode === 'pct') fd.set('sharePct', String(sharePct))
       else fd.set('shareAmount', shareAmt)
     }
@@ -476,43 +512,99 @@ export function SubscriptionForm({
         </DialogContent>
       </Dialog>
 
-      {/* Modal: compartir (referencia visual del reparto) */}
+      {/* Modal: dividir (referencia visual del reparto) */}
       <Dialog open={shareOpen} onOpenChange={setShareOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Compartir suscripción</DialogTitle>
+            <DialogTitle>Dividir suscripción</DialogTitle>
           </DialogHeader>
           <div className="flex items-center justify-between rounded-2xl border border-(--border) px-4 py-3">
             <div>
-              <p className="text-sm font-semibold">Compartir con mi pareja</p>
+              <p className="text-sm font-semibold">
+                {shared ? `Dividida con ${otherName}` : 'Dividir suscripción'}
+              </p>
               <p className="text-xs text-(--muted-foreground)">
-                Cada cargo genera su parte en Pareja
+                {effectiveShareWith === 'external'
+                  ? 'Cada cargo genera su parte en Compartidos (recordatorio)'
+                  : 'Cada cargo genera su parte en Compartidos'}
               </p>
             </div>
             <Switch
               checked={shared}
               onCheckedChange={setShared}
-              aria-label="Compartir suscripción"
+              aria-label="Dividir suscripción"
             />
           </div>
 
           {shared && (
             <>
-              <div className="mx-auto grid w-fit grid-cols-2 gap-2 rounded-full bg-(--muted) p-1">
-                {(['pct', 'amount'] as const).map((m) => (
-                  <button
-                    key={m}
-                    type="button"
-                    onClick={() => setShareMode(m)}
-                    className={cn(
-                      'rounded-full px-5 py-1.5 text-xs font-semibold',
-                      shareMode === m
-                        ? 'bg-(--card) shadow'
-                        : 'text-(--muted-foreground)',
-                    )}>
-                    {m === 'pct' ? 'Porcentaje' : 'Cantidad'}
-                  </button>
-                ))}
+              {/* Con quién: mi pareja (si hay vínculo) o alguien sin cuenta. */}
+              {partnerAvailable && (
+                <div>
+                  <p className="mb-1.5 text-center text-xs font-semibold text-(--muted-foreground)">
+                    ¿Con quién la divides?
+                  </p>
+                  <div className="mx-auto grid w-fit grid-cols-2 gap-2 rounded-full bg-(--muted) p-1">
+                    {(['partner', 'external'] as const).map((w) => (
+                      <button
+                        key={w}
+                        type="button"
+                        onClick={() => setShareWith(w)}
+                        className={cn(
+                          'rounded-full px-5 py-1.5 text-xs font-semibold',
+                          effectiveShareWith === w
+                            ? 'bg-(--card) shadow'
+                            : 'text-(--muted-foreground)',
+                        )}>
+                        {w === 'partner'
+                          ? (partnerName ?? 'Mi pareja')
+                          : 'Otra persona'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {effectiveShareWith === 'external' && (
+                <div className="space-y-2">
+                  <Label htmlFor="sub-share-name">
+                    Nombre de la otra persona
+                  </Label>
+                  <Input
+                    id="sub-share-name"
+                    value={externalName}
+                    onChange={(e) => setExternalName(e.target.value)}
+                    placeholder="Mamá, Juan, compañero…"
+                    maxLength={40}
+                    autoComplete="off"
+                  />
+                  <p className="text-[11px] text-(--muted-foreground)">
+                    Solo es un recordatorio para ti: no necesita cuenta y no le
+                    llegará ningún aviso.
+                  </p>
+                </div>
+              )}
+
+              <div>
+                <p className="mb-1.5 text-center text-xs font-semibold text-(--muted-foreground)">
+                  ¿Cuánto te debe al mes?
+                </p>
+                <div className="mx-auto grid w-fit grid-cols-2 gap-2 rounded-full bg-(--muted) p-1">
+                  {(['pct', 'amount'] as const).map((m) => (
+                    <button
+                      key={m}
+                      type="button"
+                      onClick={() => setShareMode(m)}
+                      className={cn(
+                        'rounded-full px-5 py-1.5 text-xs font-semibold',
+                        shareMode === m
+                          ? 'bg-(--card) shadow'
+                          : 'text-(--muted-foreground)',
+                      )}>
+                      {m === 'pct' ? 'Porcentaje' : 'Cantidad fija'}
+                    </button>
+                  ))}
+                </div>
               </div>
               {shareMode === 'pct' ? (
                 <div className="space-y-2 rounded-3xl border border-(--border) p-4">
@@ -525,11 +617,11 @@ export function SubscriptionForm({
                     max={100}
                     value={sharePct}
                     onChange={(e) => setSharePct(Number(e.target.value))}
-                    aria-label="Porcentaje que aporta tu pareja"
+                    aria-label="Porcentaje que aporta la otra persona"
                     className="w-full accent-(--primary)"
                   />
                   <p className="text-center text-xs text-(--muted-foreground)">
-                    Tu pareja aporta <b>{formatMoney(preview)}/mes</b>
+                    {otherName} te debe <b>{formatMoney(preview)}/mes</b>
                   </p>
                 </div>
               ) : (
@@ -544,7 +636,7 @@ export function SubscriptionForm({
                     inputMode="decimal"
                   />
                   <p className="text-center text-xs text-(--muted-foreground)">
-                    Tu pareja aporta <b>{formatMoney(preview)}/mes</b>
+                    {otherName} te debe <b>{formatMoney(preview)}/mes</b>
                   </p>
                 </div>
               )}
