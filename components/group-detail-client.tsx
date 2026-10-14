@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 
-import { ArrowLeft, Check, Copy, Plus, Users } from 'lucide-react'
+import { ArrowLeft, Check, Copy, Plus, User } from 'lucide-react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
@@ -23,6 +23,21 @@ import { type GroupDetail, addGroupSeats } from '@/lib/group-actions'
 import { syncForce } from '@/lib/offline/useSnapshotSync'
 import { cancelPayment } from '@/lib/payment-actions'
 import { formatMoney } from '@/lib/utils'
+
+const MEMBER_COLORS = [
+  '#ef4444',
+  '#0ea5e9',
+  '#eab308',
+  '#a855f7',
+  '#22c55e',
+  '#f97316',
+  '#ec4899',
+  '#14b8a6',
+  '#6366f1',
+  '#84cc16',
+  '#f43f5e',
+  '#06b6d4',
+]
 
 /** Detalle del grupo (online): miembros, gastos, pagos y + gasto grupal. */
 export function GroupDetailClient({
@@ -91,6 +106,26 @@ export function GroupDetailClient({
     name: a.name,
   }))
 
+  const memberColors = new Map<string, string>()
+  const usedColorIndexes = new Set<number>()
+  for (const member of detail.members) {
+    let hash = 0
+    for (let i = 0; i < member.id.length; i++) {
+      hash = (hash * 31 + member.id.charCodeAt(i)) | 0
+    }
+    let colorIndex = (hash >>> 0) % MEMBER_COLORS.length
+
+    // Evita repetir tonos para los integrantes visibles del grupo.
+    while (
+      usedColorIndexes.has(colorIndex) &&
+      usedColorIndexes.size < MEMBER_COLORS.length
+    ) {
+      colorIndex = (colorIndex + 1) % MEMBER_COLORS.length
+    }
+    usedColorIndexes.add(colorIndex)
+    memberColors.set(member.id, MEMBER_COLORS[colorIndex])
+  }
+
   return (
     <div className="space-y-4 px-5 pt-4">
       <div className="flex items-center gap-2">
@@ -129,38 +164,48 @@ export function GroupDetailClient({
         <p className="text-xs font-semibold text-(--muted-foreground)">
           Integrantes
         </p>
-        {detail.members.map((m) => (
-          <div
-            key={m.id}
-            className="flex items-center gap-3 rounded-3xl border border-(--border) p-3">
-            <span className="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-sky-500/15">
-              <Users className="size-4 text-sky-500" />
-            </span>
-            <span className="min-w-0 flex-1">
-              <span className="block truncate text-sm font-semibold">
-                {m.displayName}
-                {m.isMe && ' (tú)'}
+        {detail.members.map((m) => {
+          const color = memberColors.get(m.id) ?? MEMBER_COLORS[0]
+          return (
+            <div
+              key={m.id}
+              className="flex items-center gap-3 rounded-3xl border border-(--border) p-3">
+              <span
+                className="flex size-10 shrink-0 items-center justify-center rounded-2xl"
+                style={{
+                  backgroundColor: `${color}26`,
+                  color,
+                }}>
+                <User className="size-4" />
               </span>
-              <span className="block truncate text-xs text-(--muted-foreground)">
-                {m.occupied
-                  ? (m.occupantName ?? 'Ocupado')
-                  : 'Sin reclamar · pagó ' + formatMoney(m.paid)}
-                {m.occupied && ` · pagó ${formatMoney(m.paid)}`}
-              </span>
-            </span>
-            <span className="shrink-0 text-right text-sm font-extrabold">
-              {m.balance === 0 ? (
-                'A mano'
-              ) : m.balance > 0 ? (
-                <span className="text-emerald-500">
-                  +{formatMoney(m.balance)}
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm font-semibold">
+                  {m.displayName}
+                  {m.isMe && ' (tú)'}
                 </span>
-              ) : (
-                <span className="text-amber-500">{formatMoney(m.balance)}</span>
-              )}
-            </span>
-          </div>
-        ))}
+                <span className="block truncate text-xs text-(--muted-foreground)">
+                  {m.occupied
+                    ? (m.occupantName ?? 'Ocupado')
+                    : 'Sin reclamar · pagó ' + formatMoney(m.paid)}
+                  {m.occupied && ` · pagó ${formatMoney(m.paid)}`}
+                </span>
+              </span>
+              <span className="shrink-0 text-right text-sm font-extrabold">
+                {m.balance === 0 ? (
+                  'A mano'
+                ) : m.balance > 0 ? (
+                  <span className="text-emerald-500">
+                    +{formatMoney(m.balance)}
+                  </span>
+                ) : (
+                  <span className="text-amber-500">
+                    {formatMoney(m.balance)}
+                  </span>
+                )}
+              </span>
+            </div>
+          )
+        })}
         {detail.isCreator && (
           <form onSubmit={addSeats} className="flex gap-2">
             <Input
