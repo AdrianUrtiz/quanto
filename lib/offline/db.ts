@@ -181,6 +181,7 @@ export type OfflineGroup = {
   id: string
   code: string | null
   name: string
+  status?: 'ACTIVE' | 'CLOSED'
   isCreator: boolean
   memberCount: number
   memberNames: string[]

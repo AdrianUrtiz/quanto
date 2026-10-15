@@ -772,7 +772,7 @@ function DebtCard({ d, meId }: { d: PartnerDebt; meId: string }) {
                     (
                     {l.installments > 1
                       ? `${l.installment}/${l.installments}`
-                      : 'pago único'}
+                      : 'único'}
                     )
                   </span>
                 </span>
@@ -1041,13 +1041,20 @@ function GroupCard({ g }: { g: GroupSummary }) {
   const net = g.myOwed - g.myOwe
   return (
     <Link
-      href={`/grupos/${g.id}`}
+      href={`/cuentas/grupos/${g.id}`}
       className="flex w-full items-center gap-3 rounded-3xl border border-(--border) p-4 text-left transition active:scale-[.99]">
       <span className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-sky-500/15">
         <Users className="size-5 text-sky-500" />
       </span>
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm font-semibold">{g.name}</span>
+        <span className="flex items-center gap-1.5">
+          <span className="block truncate text-sm font-semibold">{g.name}</span>
+          {g.status === 'CLOSED' && (
+            <span className="shrink-0 rounded-full bg-(--muted) px-2 py-0.5 text-[10px] font-bold text-(--muted-foreground) uppercase">
+              Cerrado
+            </span>
+          )}
+        </span>
         <span className="block truncate text-xs text-(--muted-foreground)">
           {g.memberCount} {g.memberCount === 1 ? 'integrante' : 'integrantes'} ·{' '}
           {g.expenseCount} {g.expenseCount === 1 ? 'gasto' : 'gastos'}

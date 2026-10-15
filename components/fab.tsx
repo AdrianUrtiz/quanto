@@ -25,9 +25,10 @@ const FAB_CLS =
 type FabProps = {
   accountOptions: AccountOpt[]
   cats: CatalogRow[]
+  userName: string
 }
 
-export function Fab({ accountOptions, cats }: FabProps) {
+export function Fab({ accountOptions, cats, userName }: FabProps) {
   const pathname = usePathname()
 
   // Resumen, Ajustes, Categorías y Grupos: sin botón flotante
@@ -35,8 +36,8 @@ export function Fab({ accountOptions, cats }: FabProps) {
   if (
     pathname.startsWith('/resumen') ||
     pathname.startsWith('/ajustes') ||
-    pathname.startsWith('/categorias') ||
-    pathname.startsWith('/grupos')
+    pathname.startsWith('/ajustes/categorias') ||
+    pathname.startsWith('/cuentas/grupos')
   )
     return null
 
@@ -48,6 +49,7 @@ export function Fab({ accountOptions, cats }: FabProps) {
         key={pathname}
         accountOptions={accountOptions}
         cats={cats}
+        userName={userName}
       />
     )
   }
@@ -56,7 +58,7 @@ export function Fab({ accountOptions, cats }: FabProps) {
   return <TxFab accountOptions={accountOptions} cats={cats} />
 }
 
-function CuentasSpeedDial({ accountOptions, cats }: FabProps) {
+function CuentasSpeedDial({ accountOptions, cats, userName }: FabProps) {
   const [expanded, setExpanded] = useState(false)
   const [accountOpen, setAccountOpen] = useState(false)
   const [subOpen, setSubOpen] = useState(false)
@@ -189,16 +191,19 @@ function CuentasSpeedDial({ accountOptions, cats }: FabProps) {
         />
       </BottomSheet>
       <BottomSheet open={groupCreateOpen} onOpenChange={setGroupCreateOpen}>
-        <GroupCreateSheet onDone={() => setGroupCreateOpen(false)} />
+        <GroupCreateSheet myName={userName} />
       </BottomSheet>
       <BottomSheet open={groupJoinOpen} onOpenChange={setGroupJoinOpen}>
-        <GroupJoinSheet onDone={() => setGroupJoinOpen(false)} />
+        <GroupJoinSheet />
       </BottomSheet>
     </>
   )
 }
 
-function TxFab({ accountOptions, cats }: FabProps) {
+function TxFab({
+  accountOptions,
+  cats,
+}: Pick<FabProps, 'accountOptions' | 'cats'>) {
   const [open, setOpen] = useState(false)
   // Dexie-first (coherente con los shells): con copia local, cuentas y
   // catálogo salen de IndexedDB y el form funciona sin conexión. Los props

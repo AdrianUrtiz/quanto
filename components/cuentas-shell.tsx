@@ -15,6 +15,7 @@ import type { SubRow } from '@/components/subscription-tab'
 
 import type { CardPayCandidate } from '@/lib/card-pay'
 import type { CatalogRow } from '@/lib/catalog'
+import type { GroupSummary } from '@/lib/group-actions'
 import { type OfflineGroup, db } from '@/lib/offline/db'
 import {
   derivePartnerMonths,
@@ -50,7 +51,7 @@ type Props = {
   myPending: MyPendingItem[]
   toConfirmSource: SourceConfirmItem[]
   cardPayItems: CardPayCandidate[]
-  groups: OfflineGroup[]
+  groups: GroupSummary[]
 }
 
 /**
@@ -153,7 +154,11 @@ export function CuentasShell(server: Props) {
           ),
           toConfirmSource: toToConfirmSource(local.debtPayments),
           cardPayItems: toCardPayItems(local.cardPay),
-          groups: local.groups,
+          // Filas viejas sin status → se tratan como activas.
+          groups: local.groups.map((g) => ({
+            ...g,
+            status: g.status ?? ('ACTIVE' as const),
+          })),
         }
       })()
     : server

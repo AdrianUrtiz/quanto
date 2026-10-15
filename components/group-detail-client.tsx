@@ -1,8 +1,21 @@
 'use client'
 
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 
-import { ArrowLeft, Check, Copy, Plus, User } from 'lucide-react'
+import {
+  ArrowLeft,
+  Check,
+  HandCoins,
+  Lock,
+  LockOpen,
+  MoreVertical,
+  Plus,
+  Share2,
+  Trash2,
+  User,
+  UserPlus,
+  X,
+} from 'lucide-react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
@@ -16,13 +29,33 @@ import {
 import { PaymentSheet } from '@/components/payment-sheet'
 import { type AccountOpt } from '@/components/transaction-form'
 import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 
 import type { CatalogRow } from '@/lib/catalog'
-import { type GroupDetail, addGroupSeats } from '@/lib/group-actions'
+import {
+  type GroupDetail,
+  cancelGroupExpenseClaim,
+  closeGroup,
+  confirmGroupExpenseClaim,
+  deleteGroup,
+  reopenGroup,
+} from '@/lib/group-actions'
+import { suggestSettlements } from '@/lib/group-settle'
+import {
+  cancelSettlement,
+  confirmSettlement,
+  registerSettlement,
+} from '@/lib/group-settlements'
 import { syncForce } from '@/lib/offline/useSnapshotSync'
 import { cancelPayment } from '@/lib/payment-actions'
-import { formatMoney } from '@/lib/utils'
+import { cn, formatMoney } from '@/lib/utils'
 
 const MEMBER_COLORS = [
   '#ef4444',
@@ -51,43 +84,160 @@ export function GroupDetailClient({
 }) {
   const router = useRouter()
   const [expenseOpen, setExpenseOpen] = useState(false)
-  const [paySheet, setPaySheet] = useState<{
-    mode: 'receive' | 'pay'
-    shareId: string
-    concept: string
-    payKey: string
-    monthly: number
-    paid: number
-    pending: number
-  } | null>(null)
   const [confirmId, setConfirmId] = useState<string | null>(null)
-  const [newSeats, setNewSeats] = useState('')
-  const [adding, setAdding] = useState(false)
+  const [claimId, setClaimId] = useState<string | null>(null)
+  const [claimAccountId, setClaimAccountId] = useState('')
+  const [claimBusy, setClaimBusy] = useState(false)
+  const [menuOpen, setMenuOpen] = useState(false)
+  const [suggestOpen, setSuggestOpen] = useState(false)
+  const [menuConfirm, setMenuConfirm] = useState<null | 'close' | 'delete'>(
+    null,
+  )
+  const [menuBusy, setMenuBusy] = useState(false)
 
   const confirmTarget =
     detail.pending.toConfirm.find((p) => p.id === confirmId) ?? null
+  const claimTarget = detail.claims.find((c) => c.id === claimId) ?? null
+
+  // Sugerencia neteada: quién le paga a quién para dejar todo a mano.
+  const suggestions = useMemo(
+    () =>
+      suggestSettlements(
+        detail.members.map((m) => ({
+          id: m.id,
+          name: m.displayName + (m.isMe ? ' (tú)' : ''),
+          balance: m.balance,
+        })),
+      ),
+    [detail.members],
+  )
+  const mySeatId = detail.members.find((m) => m.isMe)?.id ?? null
+  // Tope por sugerencia: lo que el deudor debe en neto (centavos).
+  const netOwedCents = useMemo(() => {
+    const map = new Map<string, number>()
+    for (const m of detail.members) {
+      map.set(m.id, Math.max(0, -Math.round(m.balance * 100)))
+    }
+    return map
+  }, [detail.members])
+
+  // Liquidar una sugerencia: abre el sheet con monto y cuentas.
+  const [settleTarget, setSettleTarget] = useState<{
+    fromSeatId: string
+    fromName: string
+    toSeatId: string
+    toName: string
+    mode: 'pay' | 'receive' | 'confirm'
+    amount: number
+    cap: number
+    settlementId?: string
+  } | null>(null)
+
+  function openSettle(
+    s: (typeof suggestions)[number],
+    mode: 'pay' | 'receive',
+  ) {
+    setSuggestOpen(false)
+    setSettleTarget({
+      fromSeatId: s.fromId,
+      fromName: s.fromName,
+      toSeatId: s.toId,
+      toName: s.toName,
+      mode,
+      amount: s.amount,
+      cap: (netOwedCents.get(s.fromId) ?? 0) / 100,
+    })
+  }
+
+  async function cancelRow(id: string, kind: 'settlement' | 'share') {
+    const res =
+      kind === 'settlement'
+        ? await cancelSettlement(id)
+        : await cancelPayment(id)
+    if ('error' in res && res.error) toast.error(res.error)
+    else {
+      toast.success('Registro cancelado')
+      refresh()
+    }
+  }
+  const isClosed = detail.status === 'CLOSED'
+  // Cerrar exige todo liquidado EN NETO (las sugerencias vacías lo prueban).
+  const canClose =
+    detail.settlements.toConfirm.length === 0 &&
+    detail.settlements.myPending.length === 0 &&
+    detail.members.every((m) => Math.abs(Math.round(m.balance * 100)) === 0)
 
   function refresh() {
     void syncForce()
     router.refresh()
   }
 
-  async function addSeats(e: React.FormEvent) {
-    e.preventDefault()
-    if (!newSeats.trim()) return
-    setAdding(true)
+  async function runMenuAction(
+    fn: () => Promise<{ error?: string }>,
+    okMsg: string,
+    after?: () => void,
+  ) {
+    setMenuBusy(true)
     try {
-      const fd = new FormData()
-      fd.set('seats', newSeats)
-      const res = await addGroupSeats(detail.id, fd)
+      const res = await fn()
       if ('error' in res && res.error) toast.error(res.error)
       else {
-        toast.success('Integrantes agregados')
-        setNewSeats('')
+        toast.success(okMsg)
+        setMenuOpen(false)
+        setMenuConfirm(null)
+        if (after) after()
+        else refresh()
+      }
+    } finally {
+      setMenuBusy(false)
+    }
+  }
+
+  function copyCode() {
+    if (!detail.code) return
+    void navigator.clipboard?.writeText(detail.code)
+    toast.success('Código copiado, compártelo')
+  }
+
+  function shareGroup() {
+    if (!detail.code) return
+    const text = `Únete a mi grupo "${detail.name}" en Quanto con el código ${detail.code}`
+    const nav = navigator as Navigator & {
+      share?: (data: { title?: string; text?: string }) => Promise<void>
+    }
+    if (nav.share) {
+      nav.share({ title: 'Grupo en Quanto', text }).catch(() => undefined)
+    } else {
+      void navigator.clipboard?.writeText(text)
+      toast.success('Texto copiado para compartir')
+    }
+  }
+
+  async function confirmClaim() {
+    if (!claimTarget || !claimAccountId) {
+      toast.error('Elige de qué cuenta salió')
+      return
+    }
+    setClaimBusy(true)
+    try {
+      const res = await confirmGroupExpenseClaim(claimTarget.id, claimAccountId)
+      if ('error' in res && res.error) toast.error(res.error)
+      else {
+        toast.success('Gasto confirmado')
+        setClaimId(null)
         refresh()
       }
     } finally {
-      setAdding(false)
+      setClaimBusy(false)
+    }
+  }
+
+  async function cancelClaim(id: string) {
+    const res = await cancelGroupExpenseClaim(id)
+    if ('error' in res && res.error) toast.error(res.error)
+    else {
+      toast.success('Reclamo cancelado')
+      refresh()
     }
   }
 
@@ -136,8 +286,13 @@ export function GroupDetailClient({
           <ArrowLeft className="size-4" />
         </Link>
         <div className="min-w-0 flex-1">
-          <p className="truncate text-2xl font-extrabold tracking-tight">
-            {detail.name}
+          <p className="flex items-center gap-2 truncate text-2xl font-extrabold tracking-tight">
+            <span className="truncate">{detail.name}</span>
+            {isClosed && (
+              <span className="shrink-0 rounded-full bg-(--muted) px-2.5 py-1 text-[10px] font-bold text-(--muted-foreground) uppercase">
+                Cerrado
+              </span>
+            )}
           </p>
           <p className="text-xs text-(--muted-foreground)">
             {detail.members.length}{' '}
@@ -146,18 +301,24 @@ export function GroupDetailClient({
             {detail.expenses.length === 1 ? 'gasto' : 'gastos'}
           </p>
         </div>
-        {detail.code && (
-          <button
-            type="button"
-            onClick={() => {
-              void navigator.clipboard?.writeText(detail.code ?? '')
-              toast.success('Código copiado, compártelo')
-            }}
-            className="flex items-center gap-1.5 rounded-full bg-(--muted) px-3 py-2 text-xs font-bold tracking-wider transition active:scale-95">
-            {detail.code} <Copy className="size-3.5" />
-          </button>
-        )}
+        <button
+          type="button"
+          onClick={() => {
+            setMenuConfirm(null)
+            setMenuOpen(true)
+          }}
+          aria-label="Opciones del grupo"
+          className="flex size-9 shrink-0 items-center justify-center rounded-full bg-(--muted) transition active:scale-95">
+          <MoreVertical className="size-4" />
+        </button>
       </div>
+
+      {isClosed && (
+        <p className="rounded-3xl border border-dashed border-(--border) p-4 text-center text-sm text-(--muted-foreground)">
+          Grupo cerrado: todos a mano. Ya no se pueden agregar movimientos
+          {detail.isCreator && ' (puedes reabrirlo desde el menú)'}.
+        </p>
+      )}
 
       {/* Miembros y saldos */}
       <section className="space-y-2">
@@ -206,20 +367,109 @@ export function GroupDetailClient({
             </div>
           )
         })}
-        {detail.isCreator && (
-          <form onSubmit={addSeats} className="flex gap-2">
-            <Input
-              value={newSeats}
-              onChange={(e) => setNewSeats(e.target.value)}
-              placeholder="Agregar: Axel, Kari…"
-              className="flex-1"
-            />
-            <Button type="submit" disabled={adding || !newSeats.trim()}>
-              Añadir
-            </Button>
-          </form>
-        )}
       </section>
+
+      {/* Pagos sugeridos: neteo + registro por línea original */}
+      <section className="space-y-2">
+        <button
+          type="button"
+          onClick={() => setSuggestOpen(true)}
+          className="flex w-full items-center gap-3 rounded-3xl border border-(--border) p-4 text-left transition active:scale-[.99]">
+          <span className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-emerald-500/15">
+            <HandCoins className="size-5 text-emerald-500" />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-sm font-semibold">
+              Pagos sugeridos
+            </span>
+            <span className="block truncate text-xs text-(--muted-foreground)">
+              {suggestions.length === 0
+                ? 'Todo a mano 🎉'
+                : `${suggestions.length} ${suggestions.length === 1 ? 'pago pendiente' : 'pagos pendientes'}`}
+            </span>
+          </span>
+          <span className="shrink-0 text-[11px] font-semibold text-emerald-500">
+            Ver ›
+          </span>
+        </button>
+      </section>
+
+      {/* Reclamos: alguien dice que otro pagó (confirma el pagador) */}
+      {detail.claims.length > 0 && (
+        <section className="space-y-2">
+          <p className="text-xs font-semibold text-(--muted-foreground)">
+            Por confirmar quién pagó
+          </p>
+          {detail.claims.map((c) => (
+            <div
+              key={c.id}
+              className="space-y-1 rounded-3xl border border-amber-500/40 p-4">
+              <p className="text-sm font-semibold">
+                {c.registeredByName} dice que {c.payerName} pagó{' '}
+                {formatMoney(c.amount)}
+              </p>
+              <p className="text-xs text-(--muted-foreground)">
+                {c.concept} ·{' '}
+                {new Date(c.date).toLocaleDateString('es-MX', {
+                  day: 'numeric',
+                  month: 'short',
+                })}
+              </p>
+              <ul className="space-y-0.5 border-t border-(--border) pt-2 text-xs text-(--muted-foreground)">
+                {c.splits.map((s) => (
+                  <li key={s.seatId} className="flex justify-between gap-2">
+                    <span className="truncate">{s.seatName}</span>
+                    <span className="shrink-0 font-bold text-(--foreground)">
+                      {formatMoney(s.amount)}
+                    </span>
+                  </li>
+                ))}
+                {(() => {
+                  const splitSum = c.splits.reduce((a, s) => a + s.amount, 0)
+                  // Reclamos nuevos traen la parte explícita; en viejos se
+                  // deriva como total − deudores.
+                  const portion =
+                    c.payerAmount > 0
+                      ? c.payerAmount
+                      : Math.max(
+                          0,
+                          Math.round((c.amount - splitSum) * 100) / 100,
+                        )
+                  return portion > 0 ? (
+                    <li className="flex justify-between gap-2">
+                      <span className="truncate">Parte de {c.payerName}</span>
+                      <span className="shrink-0 font-bold text-(--foreground)">
+                        {formatMoney(portion)}
+                      </span>
+                    </li>
+                  ) : null
+                })()}
+              </ul>
+              <div className="flex gap-2 pt-1">
+                {c.isPayerMe && !isClosed && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setClaimAccountId(accountOptions[0]?.id ?? '')
+                      setClaimId(c.id)
+                    }}
+                    className="flex-1 rounded-2xl bg-amber-500 px-3 py-2 text-xs font-bold text-white transition active:scale-95">
+                    ¿Desde qué cuenta fue?
+                  </button>
+                )}
+                {c.canCancel && (
+                  <button
+                    type="button"
+                    onClick={() => void cancelClaim(c.id)}
+                    className="rounded-2xl bg-(--muted) px-3 py-2 text-xs font-semibold text-red-500 transition active:scale-95">
+                    Cancelar
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+        </section>
+      )}
 
       {/* Por confirmar (me pagaron, yo confirmo) */}
       {detail.pending.toConfirm.length > 0 && (
@@ -269,12 +519,14 @@ export function GroupDetailClient({
           <p className="text-xs font-semibold text-(--muted-foreground)">
             Gastos
           </p>
-          <button
-            type="button"
-            onClick={() => setExpenseOpen(true)}
-            className="flex items-center gap-1 rounded-full bg-(--primary) px-3 py-1.5 text-xs font-bold text-(--primary-foreground) transition active:scale-95">
-            <Plus className="size-3.5" /> Gasto grupal
-          </button>
+          {!isClosed && (
+            <button
+              type="button"
+              onClick={() => setExpenseOpen(true)}
+              className="flex items-center gap-1 rounded-full bg-(--primary) px-3 py-1.5 text-xs font-bold text-(--primary-foreground) transition active:scale-95">
+              <Plus className="size-3.5" /> Gasto grupal
+            </button>
+          )}
         </div>
         {detail.expenses.length === 0 && (
           <p className="rounded-3xl border border-dashed border-(--border) p-8 text-center text-sm text-(--muted-foreground)">
@@ -332,38 +584,192 @@ export function GroupDetailClient({
                     ) : (
                       <span className="flex shrink-0 items-center gap-2">
                         <b>{formatMoney(rest)}</b>
-                        {(s.isMine || t.isMine) && (
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setPaySheet({
-                                mode: s.isMine ? 'pay' : 'receive',
-                                shareId: s.id,
-                                concept: t.concept,
-                                payKey: t.payKey,
-                                monthly: s.monthly,
-                                paid: s.paid,
-                                pending: s.pending,
-                              })
-                            }
-                            className="rounded-full bg-(--muted) px-2.5 py-1 text-[11px] font-bold transition active:scale-95">
-                            {s.isMine ? 'Pagar' : 'Cobrar'}
-                          </button>
-                        )}
                       </span>
                     )}
                   </li>
                 )
               })}
             </ul>
+            {t.payerPortion > 0 && (
+              <p className="flex justify-between gap-2 border-t border-(--border) pt-1.5 text-xs text-(--muted-foreground)">
+                <span className="truncate">
+                  {t.isMine ? 'Tu parte' : `Parte de ${t.creatorName}`}
+                </span>
+                <span className="shrink-0 font-bold text-(--foreground)">
+                  {formatMoney(t.payerPortion)}
+                </span>
+              </p>
+            )}
           </div>
         ))}
       </section>
 
+      <Dialog
+        open={menuOpen}
+        onOpenChange={(o) => {
+          setMenuOpen(o)
+          if (!o) setMenuConfirm(null)
+        }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Opciones del grupo</DialogTitle>
+          </DialogHeader>
+          {menuConfirm == null ? (
+            <div className="space-y-1">
+              {detail.code && (
+                <button
+                  type="button"
+                  onClick={copyCode}
+                  className="flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left transition hover:bg-(--muted)">
+                  <span className="flex-1">
+                    <span className="block text-sm font-semibold">
+                      Código: {detail.code}
+                    </span>
+                    <span className="block text-xs text-(--muted-foreground)">
+                      Toca para copiar
+                    </span>
+                  </span>
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={shareGroup}
+                className="flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left transition hover:bg-(--muted)">
+                <Share2 className="size-5 text-(--muted-foreground)" />
+                <span className="flex-1 text-sm font-semibold">
+                  Compartir grupo
+                </span>
+              </button>
+              {detail.isCreator && (
+                <Link
+                  href={`/cuentas/grupos/${detail.id}/integrantes`}
+                  className="flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left transition hover:bg-(--muted)">
+                  <UserPlus className="size-5 text-(--muted-foreground)" />
+                  <span className="flex-1 text-sm font-semibold">
+                    Gestionar participantes
+                  </span>
+                </Link>
+              )}
+              {detail.isCreator &&
+                (isClosed ? (
+                  <button
+                    type="button"
+                    disabled={menuBusy}
+                    onClick={() =>
+                      runMenuAction(
+                        () => reopenGroup(detail.id),
+                        'Grupo reabierto',
+                      )
+                    }
+                    className="flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left transition hover:bg-(--muted) disabled:opacity-50">
+                    <LockOpen className="size-5 text-(--muted-foreground)" />
+                    <span className="flex-1 text-sm font-semibold">
+                      Reabrir grupo
+                    </span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    disabled={menuBusy || !canClose}
+                    title={
+                      canClose
+                        ? undefined
+                        : 'Liquida todos los saldos para cerrar'
+                    }
+                    onClick={() => setMenuConfirm('close')}
+                    className="flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left transition hover:bg-(--muted) disabled:opacity-50">
+                    <Lock className="size-5 text-(--muted-foreground)" />
+                    <span className="flex-1">
+                      <span className="block text-sm font-semibold">
+                        Cerrar grupo
+                      </span>
+                      <span className="block text-xs text-(--muted-foreground)">
+                        {canClose
+                          ? 'Todos a mano: congela movimientos'
+                          : 'Disponible cuando todos estén a mano'}
+                      </span>
+                    </span>
+                  </button>
+                ))}
+              {detail.isCreator && (
+                <button
+                  type="button"
+                  disabled={menuBusy}
+                  onClick={() => setMenuConfirm('delete')}
+                  className="flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left text-red-500 transition hover:bg-(--muted) disabled:opacity-50">
+                  <Trash2 className="size-5" />
+                  <span className="flex-1 text-sm font-semibold">
+                    Eliminar grupo
+                  </span>
+                </button>
+              )}
+            </div>
+          ) : menuConfirm === 'close' ? (
+            <div className="space-y-3 px-1 pb-1 text-center">
+              <p className="text-sm font-bold">¿Cerrar el grupo?</p>
+              <p className="text-xs text-(--muted-foreground)">
+                Ya no se podrán agregar movimientos ni integrantes. Tus gastos
+                se conservan.
+              </p>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  disabled={menuBusy}
+                  onClick={() => setMenuConfirm(null)}
+                  className="h-11 flex-1 rounded-2xl border border-(--border) text-sm font-semibold disabled:opacity-50">
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  disabled={menuBusy}
+                  onClick={() =>
+                    runMenuAction(() => closeGroup(detail.id), 'Grupo cerrado')
+                  }
+                  className="h-11 flex-1 rounded-2xl bg-(--primary) text-sm font-bold text-(--primary-foreground) disabled:opacity-50">
+                  {menuBusy ? 'Cerrando…' : 'Cerrar'}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-3 px-1 pb-1 text-center">
+              <p className="text-sm font-bold">¿Eliminar el grupo?</p>
+              <p className="text-xs text-(--muted-foreground)">
+                Se borran sus deudas. Tus movimientos de dinero se conservan
+                como gastos personales.
+              </p>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  disabled={menuBusy}
+                  onClick={() => setMenuConfirm(null)}
+                  className="h-11 flex-1 rounded-2xl border border-(--border) text-sm font-semibold disabled:opacity-50">
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  disabled={menuBusy}
+                  onClick={() =>
+                    runMenuAction(
+                      () => deleteGroup(detail.id),
+                      'Grupo eliminado',
+                      () => {
+                        router.push('/cuentas')
+                        router.refresh()
+                      },
+                    )
+                  }
+                  className="h-11 flex-1 rounded-2xl bg-red-500 text-sm font-bold text-white disabled:opacity-50">
+                  {menuBusy ? 'Eliminando…' : 'Eliminar'}
+                </button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
       <BottomSheet open={expenseOpen} onOpenChange={setExpenseOpen}>
         <GroupExpenseForm
           householdId={detail.id}
-          householdName={detail.name}
           accountOptions={expenseAccountOpts}
           seats={seatOpts}
           cats={cats}
@@ -375,30 +781,176 @@ export function GroupDetailClient({
       </BottomSheet>
 
       <BottomSheet
-        open={paySheet != null}
-        onOpenChange={(o) => !o && setPaySheet(null)}>
-        {paySheet && (
-          <PaymentSheet
-            key={`${paySheet.shareId}:${paySheet.mode}`}
-            mode={paySheet.mode}
-            lines={[
-              {
-                shareId: paySheet.shareId,
-                concept: paySheet.concept,
-                installment: 1,
-                installments: 1,
-                month: paySheet.payKey,
-                monthly: paySheet.monthly,
-                paid: paySheet.paid,
-                pending: paySheet.pending,
-              },
-            ]}
+        open={suggestOpen}
+        onOpenChange={(o) => !o && setSuggestOpen(false)}>
+        <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-5 pb-6">
+          <div className="space-y-1 text-center">
+            <p className="text-base font-extrabold">Pagos sugeridos</p>
+            <p className="text-xs text-(--muted-foreground)">
+              Quién le paga a quién para dejar todo a mano
+            </p>
+          </div>
+          {suggestions.length === 0 &&
+          detail.settlements.toConfirm.length === 0 &&
+          detail.settlements.myPending.length === 0 ? (
+            <p className="rounded-3xl border border-dashed border-(--border) p-8 text-center text-sm text-(--muted-foreground)">
+              Todo a mano 🎉
+            </p>
+          ) : (
+            <ul className="space-y-2">
+              {suggestions.map((s, i) => {
+                const mine =
+                  mySeatId != null &&
+                  (s.fromId === mySeatId || s.toId === mySeatId)
+                return (
+                  <li
+                    key={`${s.fromId}-${s.toId}-${i}`}
+                    className="flex items-center gap-2 rounded-3xl border border-(--border) p-4">
+                    <span className="min-w-0 flex-1 text-sm">
+                      <b>{s.fromName}</b>
+                      <span className="text-(--muted-foreground)">
+                        {' '}
+                        le paga{' '}
+                      </span>
+                      <b>{formatMoney(s.amount)}</b>
+                      <span className="text-(--muted-foreground)"> a </span>
+                      <b>{s.toName}</b>
+                    </span>
+                    {mine && !isClosed && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          openSettle(
+                            s,
+                            s.fromId === mySeatId ? 'pay' : 'receive',
+                          )
+                        }
+                        className={
+                          s.fromId === mySeatId
+                            ? 'shrink-0 rounded-full bg-amber-500 px-3 py-1.5 text-[11px] font-bold text-white transition active:scale-95'
+                            : 'shrink-0 rounded-full bg-emerald-500 px-3 py-1.5 text-[11px] font-bold text-white transition active:scale-95'
+                        }>
+                        {s.fromId === mySeatId ? 'Pagar' : 'Cobrar'}
+                      </button>
+                    )}
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+          {detail.settlements.toConfirm.length > 0 && (
+            <section className="space-y-2">
+              <p className="text-xs font-semibold text-(--muted-foreground)">
+                Por confirmar ·{' '}
+                {formatMoney(
+                  detail.settlements.toConfirm.reduce(
+                    (a, p) => a + p.amount,
+                    0,
+                  ),
+                )}
+              </p>
+              {detail.settlements.toConfirm.map((p) => (
+                <SettlementPendingRow
+                  key={p.id}
+                  text={`${p.fromName} dice que te pagó ${formatMoney(p.amount)}`}
+                  onPrimary={() => {
+                    setSuggestOpen(false)
+                    setSettleTarget({
+                      fromSeatId: p.fromSeatId,
+                      fromName: p.fromName,
+                      toSeatId: p.toSeatId,
+                      toName: p.toName,
+                      mode: 'confirm',
+                      amount: p.amount,
+                      cap: p.amount,
+                      settlementId: p.id,
+                    })
+                  }}
+                  primaryLabel="Confirmar"
+                  primaryClass="bg-emerald-500 text-white"
+                  onCancel={() => void cancelRow(p.id, 'settlement')}
+                />
+              ))}
+            </section>
+          )}
+          {detail.settlements.myPending.length > 0 && (
+            <section className="space-y-2">
+              <p className="text-xs font-semibold text-(--muted-foreground)">
+                En espera de confirmación
+              </p>
+              {detail.settlements.myPending.map((p) => (
+                <SettlementPendingRow
+                  key={p.id}
+                  text={`${p.toName} debe confirmar ${formatMoney(p.amount)}`}
+                  onPrimary={() => void cancelRow(p.id, 'settlement')}
+                  primaryLabel="Cancelar"
+                  primaryClass="bg-(--muted) text-red-500"
+                />
+              ))}
+            </section>
+          )}
+        </div>
+      </BottomSheet>
+
+      <BottomSheet
+        open={settleTarget != null}
+        onOpenChange={(o) => !o && setSettleTarget(null)}>
+        {settleTarget && (
+          <SettlementSheet
+            key={`${settleTarget.fromSeatId}:${settleTarget.toSeatId}:${settleTarget.mode}:${settleTarget.settlementId ?? ''}`}
+            target={settleTarget}
+            householdId={detail.id}
             accountOptions={accountOptions}
             onDone={() => {
-              setPaySheet(null)
+              setSettleTarget(null)
               refresh()
             }}
           />
+        )}
+      </BottomSheet>
+
+      <BottomSheet
+        open={claimTarget != null}
+        onOpenChange={(o) => !o && setClaimId(null)}>
+        {claimTarget && (
+          <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-5 pb-6">
+            <div className="space-y-1 text-center">
+              <p className="text-sm font-bold">
+                {claimTarget.concept} · {formatMoney(claimTarget.amount)}
+              </p>
+              <p className="text-xs text-(--muted-foreground)">
+                {claimTarget.registeredByName} dice que pagaste tú. Elige de qué
+                cuenta salió para registrar el gasto.
+              </p>
+            </div>
+            <ul className="max-h-56 space-y-1 overflow-y-auto">
+              {accountOptions.map((a) => (
+                <li key={a.id}>
+                  <button
+                    type="button"
+                    onClick={() => setClaimAccountId(a.id)}
+                    className={cn(
+                      'flex w-full items-center gap-2 rounded-2xl px-4 py-2.5 text-left transition hover:bg-(--muted)',
+                      claimAccountId === a.id && 'bg-(--muted)',
+                    )}>
+                    <span className="flex-1 text-sm font-semibold">
+                      {a.name}
+                    </span>
+                    {claimAccountId === a.id && (
+                      <Check className="size-4 text-(--primary)" />
+                    )}
+                  </button>
+                </li>
+              ))}
+            </ul>
+            <Button
+              type="button"
+              className="h-12 w-full rounded-2xl text-base"
+              disabled={claimBusy || !claimAccountId}
+              onClick={() => void confirmClaim()}>
+              {claimBusy ? 'Guardando…' : 'Confirmar gasto'}
+            </Button>
+          </div>
         )}
       </BottomSheet>
 
@@ -462,6 +1014,229 @@ function MyPendingRow({
           {busy ? 'Cancelando…' : 'Cancelar'}
         </button>
       </span>
+    </div>
+  )
+}
+
+function SettlementPendingRow({
+  text,
+  onPrimary,
+  primaryLabel,
+  primaryClass,
+  onCancel,
+}: {
+  text: string
+  onPrimary: () => void
+  primaryLabel: string
+  primaryClass?: string
+  onCancel?: () => void
+}) {
+  return (
+    <div className="flex w-full items-center gap-3 rounded-3xl border border-dashed border-(--border) p-4">
+      <span className="min-w-0 flex-1">
+        <span className="block text-sm font-semibold">{text}</span>
+      </span>
+      <span className="flex shrink-0 items-center gap-1">
+        <button
+          type="button"
+          onClick={onPrimary}
+          className={cn(
+            'rounded-full px-3 py-1.5 text-[11px] font-bold transition active:scale-95',
+            primaryClass,
+          )}>
+          {primaryLabel}
+        </button>
+        {onCancel && (
+          <button
+            type="button"
+            onClick={onCancel}
+            aria-label="Descartar"
+            className="flex size-8 items-center justify-center rounded-full bg-(--muted) transition active:scale-95">
+            <X className="size-3.5" />
+          </button>
+        )}
+      </span>
+    </div>
+  )
+}
+
+/** Registrar/confirmar una liquidación neteada (monto + cuenta propia). */
+function SettlementSheet({
+  householdId,
+  target,
+  accountOptions,
+  onDone,
+}: {
+  householdId: string
+  target: {
+    fromSeatId: string
+    fromName: string
+    toSeatId: string
+    toName: string
+    mode: 'pay' | 'receive' | 'confirm'
+    amount: number
+    cap: number
+    settlementId?: string
+  }
+  accountOptions: { id: string; name: string }[]
+  onDone: () => void
+}) {
+  const router = useRouter()
+  const [amount, setAmount] = useState(String(target.amount))
+  const [accountId, setAccountId] = useState(accountOptions[0]?.id ?? '')
+  const [withMovement, setWithMovement] = useState(target.mode !== 'pay')
+  const [msg, setMsg] = useState<string | null>(null)
+  const [pending, setPending] = useState(false)
+
+  const maxAmount = Math.max(0.01, target.cap > 0 ? target.cap : target.amount)
+
+  async function submit() {
+    setMsg(null)
+    const value = Number(amount)
+    if (!(value > 0)) {
+      setMsg('Monto inválido')
+      return
+    }
+    if (value - maxAmount > 0.0001) {
+      setMsg(`Solo restan ${formatMoney(maxAmount)}`)
+      return
+    }
+    if (target.mode !== 'pay' && !accountId) {
+      setMsg('Elige la cuenta')
+      return
+    }
+    if (target.mode === 'pay' && withMovement && !accountId) {
+      setMsg('Elige la cuenta o registra sin movimiento')
+      return
+    }
+    setPending(true)
+    try {
+      if (target.mode === 'confirm' && target.settlementId) {
+        const res = await confirmSettlement(target.settlementId, accountId)
+        if ('error' in res && res.error) {
+          setMsg(res.error)
+          toast.error(res.error)
+        } else {
+          toast.success('Liquidación confirmada')
+          onDone()
+          router.refresh()
+        }
+        return
+      }
+      const res = await registerSettlement({
+        householdId,
+        fromSeatId: target.fromSeatId,
+        toSeatId: target.toSeatId,
+        amount: value,
+        accountId:
+          target.mode === 'pay' && !withMovement ? undefined : accountId,
+      })
+      if ('error' in res && res.error) {
+        setMsg(res.error)
+        toast.error(res.error)
+      } else {
+        toast.success(
+          target.mode === 'pay'
+            ? 'Registrado, en espera de confirmación'
+            : 'Liquidación registrada',
+        )
+        onDone()
+        router.refresh()
+      }
+    } finally {
+      setPending(false)
+    }
+  }
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-5 pb-6">
+      <div className="space-y-1 text-center">
+        <p className="text-base font-extrabold">
+          {target.mode === 'confirm'
+            ? 'Confirmar liquidación'
+            : target.mode === 'pay'
+              ? `Pagar a ${target.toName}`
+              : `Cobrar a ${target.fromName}`}
+        </p>
+        <p className="text-xs text-(--muted-foreground)">
+          {target.mode === 'confirm'
+            ? `${target.fromName} dice que te pagó. Elige dónde lo recibiste.`
+            : `Liquidación neteada del grupo (resta ${formatMoney(maxAmount)} como máximo).`}
+        </p>
+      </div>
+      {target.mode !== 'confirm' && (
+        <div className="space-y-1.5">
+          <Label htmlFor="settle-amount">Monto</Label>
+          <Input
+            id="settle-amount"
+            inputMode="decimal"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            onFocus={(e) => e.target.select()}
+            autoComplete="off"
+          />
+        </div>
+      )}
+      <div className="space-y-1.5">
+        <Label>
+          {target.mode === 'pay'
+            ? 'De qué cuenta salió (opcional)'
+            : 'A qué cuenta llegó'}
+        </Label>
+        <ul className="max-h-48 space-y-1 overflow-y-auto">
+          {target.mode === 'pay' && (
+            <li>
+              <button
+                type="button"
+                onClick={() => setWithMovement(false)}
+                className={cn(
+                  'flex w-full items-center gap-2 rounded-2xl px-4 py-2.5 text-left transition hover:bg-(--muted)',
+                  !withMovement && 'bg-(--muted)',
+                )}>
+                <span className="flex-1 text-sm font-semibold">
+                  Solo registrar, sin movimiento
+                </span>
+                {!withMovement && <Check className="size-4 text-(--primary)" />}
+              </button>
+            </li>
+          )}
+          {accountOptions.map((a) => (
+            <li key={a.id}>
+              <button
+                type="button"
+                onClick={() => {
+                  setAccountId(a.id)
+                  if (target.mode === 'pay') setWithMovement(true)
+                }}
+                className={cn(
+                  'flex w-full items-center gap-2 rounded-2xl px-4 py-2.5 text-left transition hover:bg-(--muted)',
+                  withMovement && accountId === a.id && 'bg-(--muted)',
+                )}>
+                <span className="flex-1 text-sm font-semibold">{a.name}</span>
+                {withMovement && accountId === a.id && (
+                  <Check className="size-4 text-(--primary)" />
+                )}
+              </button>
+            </li>
+          ))}
+        </ul>
+      </div>
+      {msg && (
+        <p className="text-center text-sm font-medium text-red-500">{msg}</p>
+      )}
+      <Button
+        type="button"
+        className="h-12 w-full rounded-2xl text-base"
+        disabled={pending || (target.mode !== 'pay' && !accountId)}
+        onClick={() => void submit()}>
+        {pending
+          ? 'Guardando…'
+          : target.mode === 'confirm'
+            ? 'Confirmar'
+            : target.mode === 'pay'
+              ? 'Registrar pago'
+              : 'Registrar cobro'}
+      </Button>
     </div>
   )
 }

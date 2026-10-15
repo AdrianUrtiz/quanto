@@ -1,18 +1,36 @@
 'use client'
 
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 
+import {
+  ArrowLeftRight,
+  CalendarDays,
+  Check,
+  NotebookPen,
+  Scale,
+  Shapes,
+  User,
+  Wallet,
+} from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 
+import { BottomSheet } from '@/components/bottom-sheet'
 import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 
 import type { CatalogRow } from '@/lib/catalog'
+import { ICONS } from '@/lib/categories'
 import { createGroupExpense } from '@/lib/group-actions'
-import { formatMoney } from '@/lib/utils'
-import { todayMexicoYMD, wallNow } from '@/lib/walltime'
+import { toCents } from '@/lib/money'
+import { cn, formatMoney } from '@/lib/utils'
+import { addWallDays, todayMexicoYMD, wallNow, ymdOfWall } from '@/lib/walltime'
 
 export type GroupAccountOpt = { id: string; name: string }
 export type GroupSeatOpt = {
@@ -22,51 +40,155 @@ export type GroupSeatOpt = {
   isMe: boolean
 }
 
+type Sheet = null | 'date' | 'payer' | 'account' | 'cats'
+
+function sanitizeAmount(v: string): string | null {
+  const clean = v.replace(/[^0-9.]/g, '')
+  if (clean === '') return ''
+  const parts = clean.split('.')
+  if (parts.length > 2) return null
+  if (parts[0] && parts[0].length > 9) return null
+  if (parts[1] != null && parts[1].length > 2) return null
+  return clean
+}
+
+function CatGlyph({
+  iconName,
+  color,
+  className,
+}: {
+  iconName?: string
+  color?: string
+  className?: string
+}) {
+  const Icon = (iconName && ICONS[iconName]) || Shapes
+  return <Icon className={className} style={color ? { color } : undefined} />
+}
+
 /**
- * Gasto grupal (pago único, partes iguales). Solo se usa dentro del grupo:
- * el householdId viene fijado y el pagador es quien lo registra.
+ * Gasto grupal estilo actividad: monto en grande, pills (fecha, concepto,
+ * quién pagó, cuenta, categoría) y reparto por partes iguales o importes.
+ * Si paga otro integrante, se guarda pendiente a que lo confirme.
  */
 export function GroupExpenseForm({
   householdId,
-  householdName,
   accountOptions,
   seats,
   cats,
   onDone,
 }: {
   householdId: string
-  householdName: string
   accountOptions: GroupAccountOpt[]
   seats: GroupSeatOpt[]
   cats: CatalogRow[]
   onDone: () => void
 }) {
   const router = useRouter()
-  const [accountId, setAccountId] = useState(accountOptions[0]?.id ?? '')
   const [amount, setAmount] = useState('')
   const [concept, setConcept] = useState('')
+  const [editingConcept, setEditingConcept] = useState(false)
   const [category, setCategory] = useState('COMIDA')
   const [dateYMD, setDateYMD] = useState(todayMexicoYMD())
-  const [picked, setPicked] = useState<string[]>(() =>
-    seats.filter((s) => !s.isMe).map((s) => s.id),
+  const [sheet, setSheet] = useState<Sheet>(null)
+  const [payerId, setPayerId] = useState(
+    () => seats.find((s) => s.isMe)?.id ?? seats[0]?.id ?? '',
   )
+  const [accountId, setAccountId] = useState(accountOptions[0]?.id ?? '')
+  const [splitMode, setSplitMode] = useState<'equal' | 'custom'>('equal')
+  const [picked, setPicked] = useState<string[]>(() => seats.map((s) => s.id))
+  const [custom, setCustom] = useState<Record<string, string>>({})
   const [pending, setPending] = useState(false)
+  const [msg, setMsg] = useState<string | null>(null)
 
+  const payer = seats.find((s) => s.id === payerId) ?? null
+  const payerIsMe = payer?.isMe ?? true
   const total = Number(amount) || 0
-  const per = picked.length > 0 ? total / picked.length : 0
+  const totalC = toCents(amount || '0')
 
-  function toggle(id: string) {
-    setPicked((prev) =>
-      prev.includes(id) ? prev.filter((p) => p !== id) : [...prev, id],
-    )
+  // Deudores elegibles: todos menos quien pagó. El pagador también puede
+  // consumir (checkbox en su fila): si no, solo reparte lo que pagó.
+  const debtors = useMemo(
+    () => seats.filter((s) => s.id !== payerId),
+    [seats, payerId],
+  )
+  const payerChecked = picked.includes(payerId)
+  // Si cambia el pagador, se resetea la selección a todos.
+  function pickPayer(id: string) {
+    setPayerId(id)
+    setPicked(seats.map((s) => s.id))
+    setCustom({})
+    setSheet(null)
   }
 
-  async function submit(e: React.FormEvent) {
-    e.preventDefault()
-    if (!accountId) return toast.error('Elige una cuenta')
-    if (!(Number(amount) > 0)) return toast.error('Monto inválido')
-    if (picked.length === 0)
-      return toast.error('Elige quiénes participan en el reparto')
+  // Deudores marcados (sin el pagador): al menos uno.
+  const debtorIds = picked.filter((id) => id !== payerId)
+  // En partes iguales el divisor incluye al pagador solo si consume.
+  const per =
+    debtorIds.length > 0
+      ? total / (debtorIds.length + (payerChecked ? 1 : 0))
+      : 0
+  // Lo que te deben en total (aprox; el servidor cuadra centavos).
+  const owedTotal = Math.max(0, total - (payerChecked ? per : 0))
+  // En importes todos ponen lo suyo, incluido el pagador: debe sumar el total.
+  const customSum = Object.entries(custom).reduce(
+    (a, [id, v]) => (picked.includes(id) ? a + (Number(v) || 0) : a),
+    0,
+  )
+  const customSumC = toCents(String(customSum || '0'))
+  const customValid =
+    debtorIds.length > 0 &&
+    customSumC === totalC &&
+    picked.every((id) => Number(custom[id] || 0) > 0)
+
+  const todayYMD = todayMexicoYMD()
+  const yesterdayYMD = ymdOfWall(addWallDays(wallNow(), -1))
+  const dateLabel =
+    dateYMD === todayYMD
+      ? 'Hoy'
+      : dateYMD === yesterdayYMD
+        ? 'Ayer'
+        : dateYMD.slice(8, 10) + '/' + dateYMD.slice(5, 7)
+  const accountLabel =
+    accountOptions.find((a) => a.id === accountId)?.name ?? 'Cuenta'
+  const catRow = cats.find((c) => c.code === category)
+
+  async function submit(e?: React.FormEvent) {
+    e?.preventDefault()
+    setMsg(null)
+    if (!(Number(amount) > 0)) {
+      setMsg('Monto inválido')
+      return
+    }
+    if (!concept.trim()) {
+      setMsg('Agrega un concepto')
+      return
+    }
+    if (!payer) {
+      setMsg('Elige quién pagó')
+      return
+    }
+    if (debtorIds.length === 0) {
+      setMsg('Elige quiénes participan en el reparto')
+      return
+    }
+    let splitsJson: string | undefined
+    if (splitMode === 'custom') {
+      if (!customValid) {
+        setMsg(
+          customSumC !== totalC
+            ? 'Los importes deben sumar el total'
+            : 'Reparte el monto entre integrantes',
+        )
+        return
+      }
+      splitsJson = JSON.stringify(
+        picked.map((id) => ({ seatId: id, amount: Number(custom[id]) })),
+      )
+    }
+    if (payerIsMe && !accountId) {
+      setMsg('Elige de qué cuenta salió')
+      return
+    }
     setPending(true)
     try {
       const now = wallNow()
@@ -74,16 +196,28 @@ export function GroupExpenseForm({
       const mm = String(now.getUTCMinutes()).padStart(2, '0')
       const fd = new FormData()
       fd.set('householdId', householdId)
-      fd.set('accountId', accountId)
+      fd.set('payerSeatId', payer.id)
+      if (payerIsMe) fd.set('accountId', accountId)
       fd.set('amount', amount)
-      fd.set('concept', concept)
+      fd.set('concept', concept.trim())
       fd.set('category', category)
       fd.set('date', `${dateYMD}T${hh}:${mm}`)
+      fd.set('splitMode', splitMode)
+      if (splitMode === 'custom' && splitsJson) {
+        fd.set('splitsJson', splitsJson)
+      }
+      // Participantes (incluye al pagador si también consume).
       for (const id of picked) fd.append('seatIds', id)
       const res = await createGroupExpense(fd)
-      if ('error' in res && res.error) toast.error(res.error)
-      else {
-        toast.success('Gasto grupal registrado')
+      if ('error' in res && res.error) {
+        setMsg(res.error)
+        toast.error(res.error)
+      } else {
+        toast.success(
+          'pending' in res
+            ? `${payer.displayName} lo confirma al entrar`
+            : 'Gasto grupal registrado',
+        )
         onDone()
         router.refresh()
       }
@@ -93,128 +227,449 @@ export function GroupExpenseForm({
   }
 
   return (
-    <form
-      onSubmit={submit}
-      className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-5 pb-6">
-      <div className="space-y-1 text-center">
-        <p className="text-base font-extrabold">Gasto en {householdName}</p>
-        <p className="text-xs text-(--muted-foreground)">
-          Lo pagas tú con tu cuenta y se reparte en partes iguales.
-        </p>
-      </div>
-      <div className="grid grid-cols-2 gap-2">
-        <div className="space-y-1.5">
-          <Label htmlFor="ge-amount">Monto</Label>
-          <Input
-            id="ge-amount"
-            inputMode="decimal"
-            value={amount}
-            onChange={(e) => setAmount(e.target.value)}
-            placeholder="0.00"
-            required
-          />
-        </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="ge-date">Fecha</Label>
-          <Input
-            id="ge-date"
-            type="date"
-            value={dateYMD}
-            onChange={(e) => setDateYMD(e.target.value)}
-            required
-          />
-        </div>
-      </div>
-      <div className="space-y-1.5">
-        <Label htmlFor="ge-concept">Concepto</Label>
-        <Input
-          id="ge-concept"
-          value={concept}
-          onChange={(e) => setConcept(e.target.value)}
-          placeholder="Cena, Airbnb, gasolina…"
-          required
+    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-5 pt-1 pb-6">
+      {/* Monto en grande */}
+      <div className="flex items-center justify-center gap-2 py-6">
+        <span className="text-2xl font-bold text-(--muted-foreground)">$</span>
+        <input
+          value={amount}
+          onChange={(e) => {
+            setMsg(null)
+            const next = sanitizeAmount(e.target.value)
+            if (next !== null) setAmount(next)
+          }}
+          onFocus={(e) => e.target.select()}
+          placeholder="0"
+          inputMode="decimal"
+          autoComplete="off"
+          aria-label="Monto gastado"
+          className="w-full max-w-56 bg-transparent text-center text-5xl font-extrabold tracking-tight tabular-nums outline-none placeholder:text-(--muted-foreground)/40"
         />
       </div>
-      <div className="grid grid-cols-2 gap-2">
-        <div className="space-y-1.5">
-          <Label htmlFor="ge-account">Pagué con</Label>
-          <select
-            id="ge-account"
-            value={accountId}
-            onChange={(e) => setAccountId(e.target.value)}
-            className="h-11 w-full rounded-2xl border border-(--border) bg-(--card) px-3 text-sm font-medium outline-none">
-            {accountOptions.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.name}
-              </option>
+
+      {/* Pills: fecha · concepto · quién pagó · cuenta · categoría */}
+      {editingConcept ? (
+        <div className="flex items-center gap-2 pb-1">
+          <Input
+            value={concept}
+            onChange={(e) => setConcept(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') setEditingConcept(false)
+            }}
+            placeholder="Cena, Airbnb, gasolina…"
+            maxLength={60}
+            autoFocus
+            className="h-11"
+          />
+          <Button
+            type="button"
+            size="icon"
+            aria-label="Confirmar concepto"
+            onClick={() => setEditingConcept(false)}>
+            <Check className="size-4" />
+          </Button>
+        </div>
+      ) : (
+        <div className="no-scrollbar -mx-5 flex gap-2 overflow-x-auto px-5 pb-1">
+          <button
+            type="button"
+            onClick={() => setSheet('date')}
+            className="flex shrink-0 items-center gap-1.5 rounded-full border border-(--border) bg-(--muted)/60 px-4 py-2 text-xs font-semibold">
+            <CalendarDays className="size-3.5" /> {dateLabel}
+          </button>
+          <button
+            type="button"
+            onClick={() => setEditingConcept(true)}
+            className={cn(
+              'flex max-w-[180px] shrink-0 items-center gap-1.5 rounded-full border px-4 py-2 text-xs font-semibold',
+              concept
+                ? 'border-transparent bg-(--foreground) text-(--background)'
+                : 'border-(--border) bg-(--muted)/60',
+            )}>
+            <NotebookPen className="size-3.5" />
+            <span className="truncate">{concept || 'Concepto'}</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setSheet('payer')}
+            className="flex max-w-[200px] shrink-0 items-center gap-1.5 rounded-full border border-(--border) bg-(--muted)/60 px-4 py-2 text-xs font-semibold">
+            <User className="size-3.5" />
+            <span className="truncate">
+              Pagó {payer ? payer.displayName : '…'}
+            </span>
+          </button>
+          {payerIsMe && (
+            <button
+              type="button"
+              onClick={() => setSheet('account')}
+              className="flex max-w-[200px] shrink-0 items-center gap-1.5 rounded-full border border-(--border) bg-(--muted)/60 px-4 py-2 text-xs font-semibold">
+              <Wallet className="size-3.5" />
+              <span className="truncate">{accountLabel}</span>
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => setSheet('cats')}
+            className="flex max-w-[200px] shrink-0 items-center gap-1.5 rounded-full border border-(--border) bg-(--muted)/60 px-4 py-2 text-xs font-semibold">
+            <CatGlyph
+              iconName={catRow?.iconName}
+              color={catRow?.color}
+              className="size-3.5 shrink-0"
+            />
+            <span className="truncate">{catRow?.name ?? 'Categoría'}</span>
+          </button>
+        </div>
+      )}
+
+      {/* Reparto */}
+      <div className="mt-3 space-y-2">
+        <div className="flex items-center justify-between">
+          <p className="text-xs font-semibold text-(--muted-foreground)">
+            Reparto
+          </p>
+          <div className="grid w-fit grid-cols-2 gap-1 rounded-full bg-(--muted) p-0.5">
+            {(['equal', 'custom'] as const).map((m) => (
+              <button
+                key={m}
+                type="button"
+                onClick={() => setSplitMode(m)}
+                className={cn(
+                  'rounded-full px-3 py-1 text-[11px] font-semibold',
+                  splitMode === m
+                    ? 'bg-(--card) shadow'
+                    : 'text-(--muted-foreground)',
+                )}>
+                {m === 'equal' ? (
+                  <span className="flex items-center gap-1">
+                    <Scale className="size-3" /> Iguales
+                  </span>
+                ) : (
+                  <span className="flex items-center gap-1">
+                    <ArrowLeftRight className="size-3" /> Importes
+                  </span>
+                )}
+              </button>
             ))}
-          </select>
+          </div>
         </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="ge-cat">Categoría</Label>
-          <select
-            id="ge-cat"
-            value={category}
-            onChange={(e) => setCategory(e.target.value)}
-            className="h-11 w-full rounded-2xl border border-(--border) bg-(--card) px-3 text-sm font-medium outline-none">
-            {cats
-              .filter((c) => c.kind === 'expense' || c.kind === 'both')
-              .map((c) => (
-                <option key={c.code} value={c.code}>
-                  {c.name}
-                </option>
-              ))}
-          </select>
-        </div>
-      </div>
-      <div className="space-y-1.5">
-        <Label>Reparto en partes iguales</Label>
-        <ul className="max-h-48 space-y-1 overflow-y-auto">
-          {seats.map((s) => (
-            <li key={s.id}>
+        <ul className="space-y-1">
+          {payer && (
+            <li className="flex items-center gap-2 rounded-2xl border border-(--primary)/40 bg-(--primary)/5 px-3 py-2">
               <button
                 type="button"
-                disabled={s.isMe}
-                onClick={() => toggle(s.id)}
-                aria-pressed={picked.includes(s.id)}
-                className="flex w-full items-center gap-2 rounded-2xl px-4 py-2.5 text-left transition hover:bg-(--muted) disabled:opacity-50">
-                <span
-                  className={
-                    picked.includes(s.id) || s.isMe
-                      ? 'flex size-5 items-center justify-center rounded-md bg-(--primary) text-xs font-bold text-(--primary-foreground)'
-                      : 'size-5 rounded-md border border-(--border)'
-                  }>
-                  {(picked.includes(s.id) || s.isMe) && '✓'}
+                onClick={() =>
+                  setPicked((prev) =>
+                    prev.includes(payer.id)
+                      ? prev.filter((p) => p !== payer.id)
+                      : [...prev, payer.id],
+                  )
+                }
+                aria-pressed={payerChecked}
+                aria-label="El pagador también consume"
+                className="flex min-w-0 flex-1 items-center gap-2 text-left">
+                <span className="flex size-5 shrink-0 items-center justify-center rounded-md bg-(--primary) text-xs font-bold text-(--primary-foreground)">
+                  {payerChecked && '✓'}
                 </span>
-                <span className="flex-1 text-sm font-semibold">
-                  {s.displayName}
+                <span className="truncate text-sm font-semibold">
+                  {payer.displayName}
+                  {payer.isMe ? ' (tú)' : ''}
                 </span>
-                <span className="text-xs text-(--muted-foreground)">
-                  {s.isMe
-                    ? 'pagas tú'
-                    : !s.occupied
-                      ? 'sin reclamar'
-                      : picked.includes(s.id)
-                        ? formatMoney(per)
-                        : ''}
+                <span className="shrink-0 rounded-full bg-(--primary)/15 px-2 py-0.5 text-[10px] font-bold text-(--primary) uppercase">
+                  Paga
                 </span>
               </button>
+              {splitMode === 'equal' ? (
+                <span className="shrink-0 text-xs font-bold tabular-nums">
+                  {total > 0 && payerChecked ? formatMoney(per) : '—'}
+                </span>
+              ) : (
+                <span className="flex shrink-0 items-center gap-1">
+                  <span className="text-xs font-bold text-(--muted-foreground)">
+                    $
+                  </span>
+                  <input
+                    value={payerChecked ? (custom[payer.id] ?? '') : ''}
+                    onChange={(e) => {
+                      const next = sanitizeAmount(e.target.value)
+                      if (next === null) return
+                      setCustom((prev) => ({ ...prev, [payer.id]: next }))
+                      if (!payerChecked)
+                        setPicked((prev) => [...prev, payer.id])
+                    }}
+                    onFocus={(e) => e.target.select()}
+                    disabled={!payerChecked}
+                    placeholder="0"
+                    inputMode="decimal"
+                    autoComplete="off"
+                    aria-label={`Importe de ${payer.displayName}`}
+                    className="h-9 w-24 rounded-xl border border-(--border) bg-(--card) px-2 text-right text-sm font-bold tabular-nums outline-none placeholder:text-(--muted-foreground)/40 disabled:opacity-40"
+                  />
+                </span>
+              )}
             </li>
-          ))}
+          )}
+          {debtors.map((s) => {
+            const on = picked.includes(s.id)
+            return (
+              <li
+                key={s.id}
+                className={cn(
+                  'flex items-center gap-2 rounded-2xl border px-3 py-2 transition',
+                  on ? 'border-(--border)' : 'opacity-50',
+                )}>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setPicked((prev) =>
+                      prev.includes(s.id)
+                        ? prev.filter((p) => p !== s.id)
+                        : [...prev, s.id],
+                    )
+                  }
+                  aria-pressed={on}
+                  className="flex min-w-0 flex-1 items-center gap-2 text-left">
+                  <span
+                    className={cn(
+                      'flex size-5 shrink-0 items-center justify-center rounded-md text-xs font-bold',
+                      on
+                        ? 'bg-(--primary) text-(--primary-foreground)'
+                        : 'border border-(--border)',
+                    )}>
+                    {on && '✓'}
+                  </span>
+                  <span className="truncate text-sm font-semibold">
+                    {s.displayName}
+                  </span>
+                </button>
+                {splitMode === 'equal' ? (
+                  <span className="shrink-0 text-xs font-bold tabular-nums">
+                    {on && total > 0 ? formatMoney(per) : '—'}
+                  </span>
+                ) : (
+                  <span className="flex shrink-0 items-center gap-1">
+                    <span className="text-xs font-bold text-(--muted-foreground)">
+                      $
+                    </span>
+                    <input
+                      value={custom[s.id] ?? ''}
+                      onChange={(e) => {
+                        const next = sanitizeAmount(e.target.value)
+                        if (next === null) return
+                        setCustom((prev) => ({ ...prev, [s.id]: next }))
+                        if (!on) setPicked((prev) => [...prev, s.id])
+                      }}
+                      onFocus={(e) => e.target.select()}
+                      disabled={!on}
+                      placeholder="0"
+                      inputMode="decimal"
+                      autoComplete="off"
+                      aria-label={`Importe de ${s.displayName}`}
+                      className="h-9 w-24 rounded-xl border border-(--border) bg-(--card) px-2 text-right text-sm font-bold tabular-nums outline-none placeholder:text-(--muted-foreground)/40 disabled:opacity-40"
+                    />
+                  </span>
+                )}
+              </li>
+            )
+          })}
         </ul>
-        {picked.length > 0 && (
-          <p className="text-xs text-(--muted-foreground)">
-            {formatMoney(per)} por persona · {picked.length}{' '}
-            {picked.length === 1 ? 'participante' : 'participantes'}
+        {splitMode === 'custom' ? (
+          <p
+            className={cn(
+              'text-center text-xs font-semibold',
+              customSumC > totalC
+                ? 'text-red-500'
+                : customValid
+                  ? 'text-emerald-500'
+                  : 'text-(--muted-foreground)',
+            )}>
+            Suman {formatMoney(customSum)} de {formatMoney(total)}
+            {customValid ? ' ✓' : ''}
+          </p>
+        ) : (
+          picked.length > 0 &&
+          total > 0 && (
+            <p className="text-center text-xs text-(--muted-foreground)">
+              {formatMoney(per)} por persona · te deben {formatMoney(owedTotal)}{' '}
+              en total
+            </p>
+          )
+        )}
+        {!payerIsMe && (
+          <p className="rounded-2xl bg-amber-500/10 p-3 text-center text-xs font-medium text-amber-500">
+            {payer?.displayName} lo confirma al entrar: elegirá de qué cuenta
+            suya salió.
           </p>
         )}
       </div>
+
+      {msg && (
+        <p className="mt-2 text-center text-sm font-medium text-red-500">
+          {msg}
+        </p>
+      )}
       <Button
-        type="submit"
+        type="button"
         disabled={pending}
-        className="h-12 w-full text-base">
+        onClick={() => void submit()}
+        className="mt-3 h-12 w-full text-base">
         {pending ? 'Guardando…' : 'Registrar gasto'}
       </Button>
-    </form>
+
+      {/* Sheet: fecha */}
+      <BottomSheet
+        open={sheet === 'date'}
+        onOpenChange={(o) => !o && setSheet(null)}>
+        <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-5 pb-6">
+          <p className="text-center text-base font-extrabold">Fecha</p>
+          <div className="grid grid-cols-2 gap-2">
+            <Button
+              type="button"
+              variant={dateYMD === todayYMD ? 'default' : 'secondary'}
+              onClick={() => {
+                setDateYMD(todayYMD)
+                setSheet(null)
+              }}>
+              Hoy
+            </Button>
+            <Button
+              type="button"
+              variant={dateYMD === yesterdayYMD ? 'default' : 'secondary'}
+              onClick={() => {
+                setDateYMD(yesterdayYMD)
+                setSheet(null)
+              }}>
+              Ayer
+            </Button>
+          </div>
+          <Input
+            type="date"
+            value={dateYMD}
+            onChange={(e) => {
+              if (e.target.value) {
+                setDateYMD(e.target.value)
+                setSheet(null)
+              }
+            }}
+          />
+        </div>
+      </BottomSheet>
+
+      {/* Sheet: quién pagó */}
+      <BottomSheet
+        open={sheet === 'payer'}
+        onOpenChange={(o) => !o && setSheet(null)}>
+        <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-5 pb-6">
+          <p className="text-center text-base font-extrabold">¿Quién pagó?</p>
+          <ul className="max-h-64 space-y-1 overflow-y-auto">
+            {seats.map((s) => (
+              <li key={s.id}>
+                <button
+                  type="button"
+                  onClick={() => pickPayer(s.id)}
+                  className={cn(
+                    'flex w-full items-center gap-2 rounded-2xl px-4 py-2.5 text-left transition hover:bg-(--muted)',
+                    payerId === s.id && 'bg-(--muted)',
+                  )}>
+                  <User className="size-4 text-(--muted-foreground)" />
+                  <span className="flex-1 text-sm font-semibold">
+                    {s.displayName}
+                    {s.isMe && ' (tú)'}
+                  </span>
+                  {!s.occupied && (
+                    <span className="text-xs text-(--muted-foreground)">
+                      Sin reclamar
+                    </span>
+                  )}
+                  {payerId === s.id && (
+                    <Check className="size-4 text-(--primary)" />
+                  )}
+                </button>
+              </li>
+            ))}
+          </ul>
+          <p className="text-center text-xs text-(--muted-foreground)">
+            Si pagó alguien más, lo confirma al entrar con su cuenta.
+          </p>
+        </div>
+      </BottomSheet>
+
+      {/* Sheet: cuenta (solo si pago yo) */}
+      <BottomSheet
+        open={sheet === 'account'}
+        onOpenChange={(o) => !o && setSheet(null)}>
+        <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-5 pb-6">
+          <p className="text-center text-base font-extrabold">
+            ¿De qué cuenta salió?
+          </p>
+          <ul className="max-h-64 space-y-1 overflow-y-auto">
+            {accountOptions.map((a) => (
+              <li key={a.id}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAccountId(a.id)
+                    setSheet(null)
+                  }}
+                  className={cn(
+                    'flex w-full items-center gap-2 rounded-2xl px-4 py-2.5 text-left transition hover:bg-(--muted)',
+                    accountId === a.id && 'bg-(--muted)',
+                  )}>
+                  <Wallet className="size-4 text-(--muted-foreground)" />
+                  <span className="flex-1 text-sm font-semibold">{a.name}</span>
+                  {accountId === a.id && (
+                    <Check className="size-4 text-(--primary)" />
+                  )}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </BottomSheet>
+
+      {/* Diálogo: categoría */}
+      <Dialog
+        open={sheet === 'cats'}
+        onOpenChange={(o) => !o && setSheet(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Categoría</DialogTitle>
+          </DialogHeader>
+          <ul className="max-h-72 space-y-1 overflow-y-auto">
+            {cats
+              .filter((c) => c.kind === 'expense' || c.kind === 'both')
+              .map((c) => {
+                const active = category === c.code
+                return (
+                  <li key={c.code}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCategory(c.code)
+                        setSheet(null)
+                      }}
+                      className={cn(
+                        'flex w-full items-center gap-3 rounded-2xl px-4 py-2.5 text-left transition hover:bg-(--muted)',
+                        active && 'bg-(--muted)',
+                      )}>
+                      <span
+                        className="flex size-9 shrink-0 items-center justify-center rounded-2xl"
+                        style={{
+                          backgroundColor: `${c.color}26`,
+                          color: c.color,
+                        }}>
+                        <CatGlyph iconName={c.iconName} className="size-4" />
+                      </span>
+                      <span className="flex-1 text-sm font-semibold">
+                        {c.name}
+                      </span>
+                      {active && <Check className="size-4 text-(--primary)" />}
+                    </button>
+                  </li>
+                )
+              })}
+          </ul>
+        </DialogContent>
+      </Dialog>
+    </div>
   )
 }

@@ -23,7 +23,7 @@ function revalidateDebts() {
   revalidatePath('/cuentas')
   revalidatePath('/resumen')
   revalidatePath('/actividad')
-  revalidatePath('/grupos')
+  revalidatePath('/cuentas/grupos')
 }
 
 async function meId() {
@@ -93,27 +93,38 @@ export async function registerPayment(formData: FormData) {
   const share = await prisma.transactionShare.findUnique({
     where: { id: v.shareId },
     include: {
-      transaction: { include: { createdBy: true } },
+      transaction: {
+        include: {
+          createdBy: true,
+          household: { select: { status: true } },
+        },
+      },
       debtor: { select: { name: true } },
       seat: { select: { displayName: true, userId: true } },
     },
   })
   if (!share) return { error: 'Aportación no encontrada' }
+  if (share.transaction.household?.status === 'CLOSED')
+    return { error: 'Este grupo está cerrado' }
+  if (share.transaction.householdId)
+    return { error: 'Los grupos se liquidan por neto en Pagos sugeridos' }
   const tx = share.transaction
   // Deudor efectivo: user directo (pareja) u ocupante del seat (grupo).
   // Externo sin cuenta: no hay usuario, solo el nombre.
   const debtorId = share.debtorId ?? share.seat?.userId ?? null
-  if (!debtorId && !share.externalName)
-    return { error: 'Ese lugar aún no fue reclamado' }
+  const creditorId = tx.createdById
+  const isCreditor = userId === creditorId
+  if (!isCreditor && userId !== debtorId) {
+    // Seat de grupo sin reclamar: nadie (salvo el acreedor) puede actuar.
+    if (!debtorId && share.seatId && !share.externalName)
+      return { error: 'Ese lugar aún no fue reclamado' }
+    return { error: 'No participas en esta deuda' }
+  }
   const debtorName =
     share.debtor?.name ??
     share.seat?.displayName ??
     share.externalName ??
     'pareja'
-  const creditorId = tx.createdById
-  if (userId !== debtorId && userId !== creditorId) {
-    return { error: 'No participas en esta deuda' }
-  }
 
   // La parcialidad debe existir (mes >= compra y dentro de los MSI).
   const months = installmentMonths(new Date(tx.date), tx.installments)
@@ -239,7 +250,12 @@ export async function confirmPayment(formData: FormData) {
         include: {
           share: {
             include: {
-              transaction: { include: { createdBy: true } },
+              transaction: {
+                include: {
+                  createdBy: true,
+                  household: { select: { status: true } },
+                },
+              },
               debtor: { select: { name: true } },
               seat: { select: { displayName: true } },
             },
@@ -247,6 +263,10 @@ export async function confirmPayment(formData: FormData) {
         },
       })
       if (!p) throw new Error('Pago no encontrado')
+      if (p.share.transaction.householdId)
+        throw new Error('Los grupos se liquidan por neto en Pagos sugeridos')
+      if (p.share.transaction.household?.status === 'CLOSED')
+        throw new Error('Este grupo está cerrado')
       if (p.status !== 'PENDING') throw new Error('Este pago ya fue atendido')
       const creditorId = p.share.transaction.createdById
       if (userId !== creditorId)
@@ -386,13 +406,20 @@ export async function confirmPaymentSource(formData: FormData) {
     include: {
       share: {
         include: {
-          transaction: { include: { createdBy: true } },
+          transaction: {
+            include: {
+              createdBy: true,
+              household: { select: { status: true } },
+            },
+          },
           seat: { select: { userId: true } },
         },
       },
     },
   })
   if (!p) return { error: 'Pago no encontrado' }
+  if (p.share.transaction.householdId)
+    return { error: 'Los grupos se liquidan por neto en Pagos sugeridos' }
   if (p.status !== 'CONFIRMED')
     return { error: 'El pago aún no está confirmado' }
   const debtorId = p.share.debtorId ?? p.share.seat?.userId ?? null

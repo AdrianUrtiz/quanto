@@ -35,19 +35,22 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  accounts           Account[]
-  transactions       Transaction[]        @relation("CreatedBy")
-  debts              TransactionShare[]   @relation("Debtor")
-  subscriptions      Subscription[]
-  categories         Category[]
-  paymentsRegistered DebtPayment[]        @relation("PaymentRegistrar")
-  paymentsConfirmed  DebtPayment[]        @relation("PaymentConfirmer")
-  chargesOwnerPaid   SubscriptionCharge[] @relation("ChargeOwnerPayer")
-  chargesPartnerPaid SubscriptionCharge[] @relation("ChargePartnerPayer")
-  householdMembers   HouseholdMember[]
-  householdsCreated  Household[]          @relation("HouseholdCreator")
-  invitesSent        CoupleInvite[]       @relation("InviteFrom")
-  invitesReceived    CoupleInvite[]       @relation("InviteTo")
+  accounts                Account[]
+  transactions            Transaction[]        @relation("CreatedBy")
+  debts                   TransactionShare[]   @relation("Debtor")
+  subscriptions           Subscription[]
+  categories              Category[]
+  paymentsRegistered      DebtPayment[]        @relation("PaymentRegistrar")
+  paymentsConfirmed       DebtPayment[]        @relation("PaymentConfirmer")
+  settlementsRegistered   GroupSettlement[]    @relation("SettlementRegistrar")
+  settlementsConfirmed    GroupSettlement[]    @relation("SettlementConfirmer")
+  chargesOwnerPaid        SubscriptionCharge[] @relation("ChargeOwnerPayer")
+  chargesPartnerPaid      SubscriptionCharge[] @relation("ChargePartnerPayer")
+  householdMembers        HouseholdMember[]
+  householdsCreated       Household[]          @relation("HouseholdCreator")
+  invitesSent             CoupleInvite[]       @relation("InviteFrom")
+  invitesReceived         CoupleInvite[]       @relation("InviteTo")
+  expenseClaimsRegistered GroupExpenseClaim[]
 }
 
 model Account {
@@ -88,8 +91,10 @@ model Account {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  debtPayments         DebtPayment[] @relation("PaymentAccount")
-  debtorSourcePayments DebtPayment[] @relation("DebtorPaymentAccount")
+  debtPayments         DebtPayment[]     @relation("PaymentAccount")
+  debtorSourcePayments DebtPayment[]     @relation("DebtorPaymentAccount")
+  settlementCredits    GroupSettlement[] @relation("SettlementAccount")
+  settlementDebits     GroupSettlement[] @relation("SettlementDebtorAccount")
 
   @@index([userId])
 }
@@ -136,8 +141,10 @@ model Transaction {
   // Cargo mensual de suscripción (nuevo modelo checklist).
   charges SubscriptionCharge[]
 
-  debtPayment         DebtPayment? @relation("PaymentTransaction")
-  debtorSourcePayment DebtPayment? @relation("DebtorPaymentTransaction")
+  debtPayment         DebtPayment?     @relation("PaymentTransaction")
+  debtorSourcePayment DebtPayment?     @relation("DebtorPaymentTransaction")
+  settlementCredit    GroupSettlement? @relation("SettlementTransaction")
+  settlementDebit     GroupSettlement? @relation("SettlementDebtorTransaction")
 
   // Llave de idempotencia para subidas offline (outbox): el cliente genera
   // `temp-<uuid>` y el servidor la guarda una sola vez. Los reintentos con
@@ -303,6 +310,94 @@ enum HouseholdKind {
   GROUP
 }
 
+enum HouseholdStatus {
+  ACTIVE
+  CLOSED
+}
+
+enum SettlementStatus {
+  PENDING
+  CONFIRMED
+  REJECTED
+}
+
+// Liquidación neteada entre dos seats de un grupo: quién le pagó a quién.
+// A diferencia de DebtPayment (atado a un share), la transferencia neta
+// salda saldos, no líneas: así se reproduce "cobré los netos y no pagué nada".
+model GroupSettlement {
+  id          String    @id @default(cuid())
+  householdId String
+  household   Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+
+  // Quién paga → a quién le paga (seats; el acreedor confirma con su cuenta).
+  fromSeatId String
+  fromSeat   HouseholdMember @relation("SettlementFrom", fields: [fromSeatId], references: [id], onDelete: Cascade)
+  toSeatId   String
+  toSeat     HouseholdMember @relation("SettlementTo", fields: [toSeatId], references: [id], onDelete: Cascade)
+
+  amount Decimal          @db.Decimal(12, 2)
+  status SettlementStatus @default(PENDING)
+
+  registeredById String
+  registeredBy   User   @relation("SettlementRegistrar", fields: [registeredById], references: [id], onDelete: Cascade)
+
+  confirmedById String?
+  confirmedBy   User?   @relation("SettlementConfirmer", fields: [confirmedById], references: [id], onDelete: SetNull)
+
+  // Ingreso del acreedor al confirmar/recibir (en su propia cuenta).
+  accountId     String?
+  account       Account?     @relation("SettlementAccount", fields: [accountId], references: [id], onDelete: SetNull)
+  transactionId String?      @unique
+  transaction   Transaction? @relation("SettlementTransaction", fields: [transactionId], references: [id], onDelete: SetNull)
+
+  // Egreso del deudor (su propia cuenta, opcional al registrar o confirmar origen).
+  debtorAccountId     String?
+  debtorAccount       Account?     @relation("SettlementDebtorAccount", fields: [debtorAccountId], references: [id], onDelete: SetNull)
+  debtorTransactionId String?      @unique
+  debtorTransaction   Transaction? @relation("SettlementDebtorTransaction", fields: [debtorTransactionId], references: [id], onDelete: SetNull)
+  debtorConfirmedAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([householdId])
+  @@index([fromSeatId])
+  @@index([toSeatId])
+  @@index([status])
+}
+
+// Gasto grupal registrado POR otro miembro ("quien pagó" no soy yo).
+// El pagador lo confirma eligiendo de qué cuenta suya salió; ahí nace el
+// Transaction real con sus shares. Sin confirmar no mueve saldos.
+model GroupExpenseClaim {
+  id          String    @id @default(cuid())
+  householdId String
+  household   Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+
+  concept  String
+  amount   Decimal  @db.Decimal(12, 2)
+  category String   @default("OTRO")
+  date     DateTime
+
+  // Seat que supuestamente pagó (puede estar sin reclamar: espera).
+  payerSeatId String
+  payerSeat   HouseholdMember @relation("ClaimPayer", fields: [payerSeatId], references: [id], onDelete: Cascade)
+
+  // Quien lo registró (normalmente otro miembro).
+  registeredById String
+  registeredBy   User   @relation(fields: [registeredById], references: [id], onDelete: Cascade)
+
+  // Reparto: [{ seatId, amount }] en pesos. Suma = amount.
+  splits       Json
+  // Si quien pagó también consume (si no, el reparto debe sumar el total).
+  payerInSplit Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([householdId])
+}
+
 enum InviteStatus {
   PENDING
   ACCEPTED
@@ -313,17 +408,21 @@ enum InviteStatus {
 // Hogar compartido: COUPLE (máx 2, vínculo con aceptación) o GROUP
 // (seats libres por nombre, claim directo con código reutilizable).
 // Un usuario puede estar en 1 COUPLE + N GROUP a la vez.
+// Un GROUP CLOSED está liquidado: no acepta movimientos ni integrantes.
 model Household {
-  id           String            @id @default(cuid())
+  id            String              @id @default(cuid())
   // GROUP: código reutilizable G-XXXXXX que se comparte.
   // COUPLE: código Q-XXXXXX de referencia (el vínculo real va por invite).
-  code         String?           @unique
-  kind         HouseholdKind
-  name         String?
-  createdById  String
-  createdBy    User              @relation("HouseholdCreator", fields: [createdById], references: [id], onDelete: Cascade)
-  members      HouseholdMember[]
-  transactions Transaction[]
+  code          String?             @unique
+  kind          HouseholdKind
+  status        HouseholdStatus     @default(ACTIVE)
+  name          String?
+  createdById   String
+  createdBy     User                @relation("HouseholdCreator", fields: [createdById], references: [id], onDelete: Cascade)
+  members       HouseholdMember[]
+  transactions  Transaction[]
+  expenseClaims GroupExpenseClaim[]
+  settlements   GroupSettlement[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -347,7 +446,12 @@ model HouseholdMember {
   joinedAt    DateTime @default(now())
 
   // Shares de gastos grupales que debe este seat (dual-write con debtorId).
-  seatShares TransactionShare[] @relation("SeatDebtor")
+  seatShares  TransactionShare[]  @relation("SeatDebtor")
+  // Gastos que este seat supuestamente pagó (por confirmar con su cuenta).
+  paidClaims  GroupExpenseClaim[] @relation("ClaimPayer")
+  // Liquidaciones neteadas donde participa (solo CONFIRMED mueve saldos).
+  settledFrom GroupSettlement[]   @relation("SettlementFrom")
+  settledTo   GroupSettlement[]   @relation("SettlementTo")
 
   // Un usuario ocupa un solo seat por household (NULLs múltiples permitidos en PG).
   @@unique([householdId, userId])
