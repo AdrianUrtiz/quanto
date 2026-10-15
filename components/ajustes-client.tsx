@@ -156,7 +156,7 @@ export function AjustesClient({
 
         {/* Categorías (requiere conexión) */}
         <Link
-          href="/categorias"
+          href="/ajustes/categorias"
           aria-disabled={!online}
           onClick={online ? undefined : (e) => e.preventDefault()}
           className={cn(
