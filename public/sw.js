@@ -1,7 +1,7 @@
 /* Quanto SW: shell instalable + páginas y estáticos cacheados para que la
    app bootee sin red y rehidrate desde IndexedDB (los datos viven en Dexie).
    Nunca se cachea /api/* (sesión y snapshot siempre van a la red). */
-const CACHE = 'quanto-v3'
+const CACHE = 'quanto-v4'
 const CORE = [
   '/actividad',
   '/resumen',
@@ -9,9 +9,13 @@ const CORE = [
   '/ajustes',
   '/login',
   '/manifest.webmanifest',
-  '/icon-192.png',
-  '/icon-512.png',
-  '/maskable-512.png',
+  '/favicon.ico',
+  '/icons/Web/favicon-16x16.png',
+  '/icons/Web/favicon-32x32.png',
+  '/icons/Web/android-chrome-192x192.png',
+  '/icons/Web/android-chrome-512x512.png',
+  '/icons/Web/maskable-512.png',
+  '/icons/Web/apple-touch-icon.png',
 ]
 
 self.addEventListener('install', (event) => {

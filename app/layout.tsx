@@ -12,10 +12,19 @@ const geistMono = Geist_Mono({
   subsets: ['latin'],
 })
 
+// Dominio de producción (Vercel lo inyecta en build); en local cae a localhost.
+// Se usa para absolutizar las URLs de Open Graph / Twitter.
+const siteUrl = process.env.VERCEL_PROJECT_PRODUCTION_URL
+  ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`
+  : 'http://localhost:3000'
+
+const siteDescription =
+  'Control de gastos personales y en pareja: MSI, compartidos y cuentas.'
+
 export const metadata: Metadata = {
+  metadataBase: new URL(siteUrl),
   title: { default: 'Quanto — Gastos en pareja', template: '%s · Quanto' },
-  description:
-    'Control de gastos personales y en pareja: MSI, compartidos y cuentas.',
+  description: siteDescription,
   applicationName: 'Quanto',
   manifest: '/manifest.webmanifest',
   appleWebApp: {
@@ -24,14 +33,55 @@ export const metadata: Metadata = {
     title: 'Quanto',
   },
   formatDetection: { telephone: false },
+  openGraph: {
+    type: 'website',
+    locale: 'es_MX',
+    siteName: 'Quanto',
+    title: 'Quanto — Gastos en pareja',
+    description: siteDescription,
+    images: [
+      {
+        url: '/icons/Web/og.png',
+        width: 1200,
+        height: 630,
+        alt: 'Quanto — Gastos en pareja',
+      },
+    ],
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'Quanto — Gastos en pareja',
+    description: siteDescription,
+    images: ['/icons/Web/og.png'],
+  },
   icons: {
     icon: [
-      { url: '/icon.svg', type: 'image/svg+xml' },
-      { url: '/icon-192.png', sizes: '192x192', type: 'image/png' },
-      { url: '/icon-512.png', sizes: '512x512', type: 'image/png' },
+      { url: '/icons/Web/favicon-16x16.png', sizes: '16x16', type: 'image/png' },
+      { url: '/icons/Web/favicon-32x32.png', sizes: '32x32', type: 'image/png' },
+      {
+        url: '/icons/Web/android-chrome-192x192.png',
+        sizes: '192x192',
+        type: 'image/png',
+      },
+      {
+        url: '/icons/Web/android-chrome-512x512.png',
+        sizes: '512x512',
+        type: 'image/png',
+      },
+    ],
+    shortcut: [
+      {
+        url: '/favicon.ico',
+        sizes: '16x16 32x32 48x48',
+        type: 'image/x-icon',
+      },
     ],
     apple: [
-      { url: '/apple-touch-icon.png', sizes: '180x180', type: 'image/png' },
+      {
+        url: '/icons/Web/apple-touch-icon.png',
+        sizes: '180x180',
+        type: 'image/png',
+      },
     ],
   },
   other: {
