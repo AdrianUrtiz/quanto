@@ -1,4 +1,4 @@
-// Quanto — PWA control de gastos personales y en pareja
+// Tándem: Finanzas en Pareja — PWA control de gastos personales y en pareja
 // Prisma 6 + PostgreSQL (Vercel Postgres / Neon)
 // Despliegue: `npx prisma migrate deploy` en Vercel Build.
 

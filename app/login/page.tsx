@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 
-import { Wallet } from 'lucide-react'
+import Image from 'next/image'
 import { useRouter } from 'next/navigation'
 
 import { PasswordInput } from '@/components/password-input'
@@ -51,12 +51,20 @@ export default function LoginPage() {
 
   return (
     <div className="mx-auto flex min-h-dvh w-full max-w-md flex-col items-center justify-center px-6">
-      <span className="flex size-16 items-center justify-center rounded-3xl bg-(--primary) text-(--primary-foreground)">
-        <Wallet className="size-8" />
-      </span>
-      <h1 className="mt-4 text-3xl font-extrabold tracking-tight">Quanto</h1>
+      <Image
+        src="/icons/Web/android-chrome-512x512.png"
+        alt="Tándem"
+        width={80}
+        height={80}
+        priority
+        className="size-20 rounded-3xl shadow-md"
+      />
+      <h1 className="mt-4 text-3xl font-extrabold tracking-tight">Tándem</h1>
       <p className="mt-1 text-sm text-(--muted-foreground)">
-        Gastos personales y en pareja
+        Finanzas personales y en Pareja
+      </p>
+      <p className="mt-1 text-[11px] text-(--muted-foreground) italic">
+        &quot;Lo tuyo, lo mío y lo nuestro&quot;
       </p>
 
       <Card className="mt-8 w-full">

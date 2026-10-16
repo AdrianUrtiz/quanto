@@ -1,7 +1,7 @@
-/* Quanto SW: shell instalable + páginas y estáticos cacheados para que la
+/* Tándem SW: shell instalable + páginas y estáticos cacheados para que la
    app bootee sin red y rehidrate desde IndexedDB (los datos viven en Dexie).
    Nunca se cachea /api/* (sesión y snapshot siempre van a la red). */
-const CACHE = 'quanto-v4'
+const CACHE = 'tandem-v1'
 const CORE = [
   '/actividad',
   '/resumen',

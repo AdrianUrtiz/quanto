@@ -19,7 +19,7 @@ import { formatMoney } from '@/lib/utils'
 import { cn } from '@/lib/utils'
 import { wallNow } from '@/lib/walltime'
 
-const DISMISS_KEY = 'quanto:partner-pay-dismissed'
+const DISMISS_KEY = 'tandem:partner-pay-dismissed'
 
 function loadDismissed(): Set<string> {
   try {

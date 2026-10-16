@@ -109,12 +109,12 @@ export function GroupCreateSheet({
 
   function shareGroup() {
     if (!created) return
-    const text = `Únete a mi grupo "${created.groupName}" en Quanto con el código ${created.code}`
+    const text = `Únete a mi grupo "${created.groupName}" en Tándem con el código ${created.code}`
     const nav = navigator as Navigator & {
       share?: (data: { title?: string; text?: string }) => Promise<void>
     }
     if (nav.share) {
-      nav.share({ title: 'Grupo en Quanto', text }).catch(() => undefined)
+      nav.share({ title: 'Grupo en Tándem', text }).catch(() => undefined)
     } else {
       void navigator.clipboard?.writeText(text)
       toast.success('Texto copiado para compartir')

@@ -7,7 +7,7 @@ const adapter = new PrismaPg(process.env['DATABASE_URL'] ?? '')
 const prisma = new PrismaClient({ adapter })
 
 // Seed alfa: 2 usuarios fijos (sin registro público) + catálogo global.
-// Contraseña genérica alfa para ambos: quanto123.
+// Contraseña genérica alfa para ambos: tandem123.
 async function main() {
   // Catálogo global de categorías (userId null = visible para todos).
   const defaults: {
@@ -129,7 +129,7 @@ async function main() {
   }
 
   // Usuarios alfa (alta manual; no hay registro público).
-  const password = await bcrypt.hash('quanto123', 10)
+  const password = await bcrypt.hash('tandem123', 10)
   const seeds = [
     { username: 'adrian', name: 'Adrián' },
     { username: 'michi', name: 'Michi' },

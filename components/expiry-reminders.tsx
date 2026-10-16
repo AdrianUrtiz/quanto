@@ -24,7 +24,7 @@ export type ExpiryAccount = {
   color: string
 }
 
-const DISMISS_KEY = 'quanto:expiry-dismissed'
+const DISMISS_KEY = 'tandem:expiry-dismissed'
 
 function loadDismissed(): Set<string> {
   try {

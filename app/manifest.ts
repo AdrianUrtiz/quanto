@@ -2,8 +2,8 @@ import type { MetadataRoute } from 'next'
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: 'Quanto — Gastos en pareja',
-    short_name: 'Quanto',
+    name: 'Tándem: Finanzas en Pareja',
+    short_name: 'Tándem',
     description:
       'Control de gastos personales y en pareja: MSI, compartidos y cuentas.',
     start_url: '/actividad',

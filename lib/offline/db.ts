@@ -1,4 +1,4 @@
-// Quanto offline — IndexedDB con Dexie (Etapa 1: sincronización, solo lectura).
+// Tándem offline — IndexedDB con Dexie (Etapa 1: sincronización, solo lectura).
 //
 // Este módulo es cliente (`useLiveQuery` lo consume desde los *Client).
 // No importar Prisma ni server actions desde aquí.
@@ -9,7 +9,7 @@ import type { CardPayCandidate } from '@/lib/card-pay'
 // Versión del esquema Dexie. Subir en cada migración futura
 // (el sprint de creación offline añadirá índices/flags sin romper v2).
 export const DB_VERSION = 6
-export const DB_NAME = 'quanto-db'
+export const DB_NAME = 'tandem-db'
 // Versión del payload de /api/snapshot que esta DB sabe guardar.
 export const SNAPSHOT_VERSION = 6
 
@@ -204,7 +204,7 @@ export type OfflineOutboxOp = {
   error?: string | null
 }
 
-class QuantoDB extends Dexie {
+class TandemDB extends Dexie {
   meta!: Table<SyncMeta, string>
   accounts!: Table<OfflineAccount, string>
   transactions!: Table<OfflineTransaction, string>
@@ -257,7 +257,7 @@ export type OfflineCharge = {
   partnerPaidByName: string | null
 }
 
-export const db = new QuantoDB()
+export const db = new TandemDB()
 
 /** Borra todos los datos locales (logout / cambio de usuario). */
 export async function clearLocalData(): Promise<void> {
