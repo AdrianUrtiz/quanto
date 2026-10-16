@@ -185,13 +185,21 @@ export async function getBudgetView(
       isShared: t.isShared,
       createdById: t.createdById,
       creatorName: t.createdBy.name,
-      shares: t.shares.map((s) => ({
-        id: s.id,
-        debtorId: s.debtor.id,
-        debtorName: s.debtor.name,
-        sharePct: s.sharePct,
-        monthlyAmount: normalizeMoney(s.monthlyAmount),
-      })),
+      shares: t.shares.flatMap((s) =>
+        // Sin deudor (externo "Mamá" o seat de grupo sin reclamar): es solo
+        // recordatorio, no deuda entre usuarios; fuera del settle de pareja.
+        s.debtor == null
+          ? []
+          : [
+              {
+                id: s.id,
+                debtorId: s.debtor.id,
+                debtorName: s.debtor.name,
+                sharePct: s.sharePct,
+                monthlyAmount: normalizeMoney(s.monthlyAmount),
+              },
+            ],
+      ),
     })),
     month,
     new Map([...sums.entries()].map(([k, s]) => [k, s.confirmed])),
@@ -236,13 +244,16 @@ export async function getBudgetView(
       monthlyTotal(normalizeMoney(t.amount), t.installments),
     )
     if (sliceC <= 0) continue
-    pushAuto(
-      t.accountId,
-      t.installments > 1
-        ? `${t.concept} (${idx + 1}/${t.installments} MSI)`
-        : t.concept,
-      sliceC,
-    )
+    // Sin cuenta (gasto grupal aún sin atribuir a una personal): no compromete
+    // ninguna tarjeta; igual cuenta para el usado por categoría.
+    if (t.accountId != null)
+      pushAuto(
+        t.accountId,
+        t.installments > 1
+          ? `${t.concept} (${idx + 1}/${t.installments} MSI)`
+          : t.concept,
+        sliceC,
+      )
     pushCat(t.category, sliceC)
   }
 
