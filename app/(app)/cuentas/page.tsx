@@ -14,6 +14,7 @@ import { payableInstallments } from '@/lib/calculations'
 import { getCardPayCandidates } from '@/lib/card-pay-server'
 import { getCatalog } from '@/lib/catalog'
 import { getLineSums } from '@/lib/debt-payments'
+import { getGroupSummaries } from '@/lib/group-actions'
 import { normalizeMoney } from '@/lib/money'
 import { type DebtItemInput, buildDebts } from '@/lib/partner-debts'
 import { prisma } from '@/lib/prisma'
@@ -55,10 +56,11 @@ export default async function CuentasPage({
         { createdAt: 'asc' },
       ],
     }),
-    // Solo movimientos creados por mi pareja donde YO soy el deudor.
+    // Solo movimientos de pareja donde YO soy el deudor (grupos van aparte).
     prisma.transaction.findMany({
       where: {
         isShared: true,
+        householdId: null,
         createdById: { not: meId },
         shares: { some: { debtorId: meId } },
       },
@@ -69,17 +71,23 @@ export default async function CuentasPage({
       },
       orderBy: [{ date: 'asc' }, { createdAt: 'asc' }],
     }),
-    // Compras MÍAS compartidas donde mi pareja es la deudora (me deben).
+    // Compras MÍAS compartidas donde otro es el deudor: pareja o alguien
+    // sin cuenta (externalName). Grupos van aparte.
     prisma.transaction.findMany({
       where: {
         isShared: true,
+        householdId: null,
         createdById: meId,
-        shares: { some: { debtorId: { not: meId } } },
+        shares: {
+          some: {
+            OR: [{ debtorId: { not: meId } }, { externalName: { not: null } }],
+          },
+        },
       },
       include: {
         account: true,
         createdBy: true,
-        shares: { include: { debtor: true } },
+        shares: { include: { debtor: true, seat: true } },
       },
       orderBy: [{ date: 'asc' }, { createdAt: 'asc' }],
     }),
@@ -118,6 +126,7 @@ export default async function CuentasPage({
       where: {
         status: 'PENDING',
         share: {
+          transaction: { householdId: null },
           OR: [{ debtorId: meId }, { transaction: { createdById: meId } }],
         },
       },
@@ -138,7 +147,7 @@ export default async function CuentasPage({
         status: 'CONFIRMED',
         debtorConfirmedAt: null,
         registeredById: { not: meId },
-        share: { debtorId: meId },
+        share: { debtorId: meId, transaction: { householdId: null } },
       },
       include: {
         share: { include: { transaction: { include: { createdBy: true } } } },
@@ -186,11 +195,12 @@ export default async function CuentasPage({
   // para poder cambiar de periodo. `sums` cubre todos los meses (sin filtro).
   const debtItems: DebtItemInput[] = sharedRows.map((t) => ({
     shareId: t.shares[0]?.id ?? '',
-    accountId: t.account.id,
-    accountName: t.account.name,
-    accountType: t.account.type as 'DEBIT' | 'CREDIT',
-    dueDay: t.account.dueDay ?? undefined,
-    statementDay: t.account.statementDay ?? undefined,
+    // Compartidos de pareja: siempre con cuenta (los de grupo van aparte).
+    accountId: t.account?.id ?? '',
+    accountName: t.account?.name ?? '',
+    accountType: (t.account?.type ?? 'DEBIT') as 'DEBIT' | 'CREDIT',
+    dueDay: t.account?.dueDay ?? undefined,
+    statementDay: t.account?.statementDay ?? undefined,
     debtorId: meId,
     debtorName: me,
     creditorName: t.createdBy.name,
@@ -201,16 +211,20 @@ export default async function CuentasPage({
   }))
   const owedItems: DebtItemInput[] = sharedOwedRows.flatMap((t) =>
     t.shares
-      .filter((s) => s.debtorId !== meId)
+      .filter(
+        (s) =>
+          s.externalName != null || (s.debtorId != null && s.debtorId !== meId),
+      )
       .map((s) => ({
         shareId: s.id,
-        accountId: t.account.id,
-        accountName: t.account.name,
-        accountType: t.account.type as 'DEBIT' | 'CREDIT',
-        dueDay: t.account.dueDay ?? undefined,
-        statementDay: t.account.statementDay ?? undefined,
+        accountId: t.account?.id ?? '',
+        accountName: t.account?.name ?? '',
+        accountType: (t.account?.type ?? 'DEBIT') as 'DEBIT' | 'CREDIT',
+        dueDay: t.account?.dueDay ?? undefined,
+        statementDay: t.account?.statementDay ?? undefined,
         debtorId: s.debtorId,
-        debtorName: s.debtor.name,
+        debtorName:
+          s.externalName ?? s.debtor?.name ?? s.seat?.displayName ?? 'Pareja',
         creditorName: t.createdBy.name,
         concept: t.concept,
         monthly: normalizeMoney(s.monthlyAmount ?? 0),
@@ -248,6 +262,7 @@ export default async function CuentasPage({
   const subData = await getSubscriptionData(meId)
   subs = subData.subs
   dues = subData.dues
+  const groups = await getGroupSummaries(meId)
 
   const catalog = await getCatalog(meId)
   // Recordatorio "Pagar tus tarjetas": cierre de MIS créditos con día
@@ -272,6 +287,7 @@ export default async function CuentasPage({
         myPending={myPending}
         toConfirmSource={toConfirmSource}
         cardPayItems={cardPayItems}
+        groups={groups}
       />
     </>
   )

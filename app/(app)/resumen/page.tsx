@@ -3,8 +3,8 @@ import { redirect } from 'next/navigation'
 import type { CreditStatementView } from '@/components/credit-statements'
 import { ResumenShell } from '@/components/resumen-shell'
 
-import { getAccountBalances } from '@/lib/balances'
 import { byAccountOrder } from '@/lib/accounts'
+import { getAccountBalances } from '@/lib/balances'
 import { getCatalog } from '@/lib/catalog'
 import { getLineSums } from '@/lib/debt-payments'
 import { normalizeMoney } from '@/lib/money'
@@ -46,12 +46,13 @@ export default async function ResumenPage() {
         date: { gte: sharedStart },
         type: 'EXPENSE',
         isShared: true,
+        householdId: null,
         OR: [{ createdById: meId }, { shares: { some: { debtorId: meId } } }],
       },
       include: {
         account: { select: { statementDay: true, dueDay: true } },
         createdBy: true,
-        shares: { include: { debtor: true } },
+        shares: { include: { debtor: true, seat: true } },
       },
       orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
     }),
@@ -63,7 +64,7 @@ export default async function ResumenPage() {
     category: t.category,
     amount: normalizeMoney(t.amount),
     date: t.date.toISOString(),
-    accountName: t.account.name,
+    accountName: t.account?.name ?? '',
   }))
   const involved = sharedRows.map((t) => ({
     id: t.id,
@@ -74,15 +75,18 @@ export default async function ResumenPage() {
     isShared: t.isShared,
     createdById: t.createdById,
     creatorName: t.createdBy.name,
-    statementDay: t.account.statementDay ?? undefined,
-    dueDay: t.account.dueDay ?? undefined,
-    shares: t.shares.map((s) => ({
-      id: s.id,
-      debtorId: s.debtor.id,
-      debtorName: s.debtor.name,
-      sharePct: s.sharePct,
-      monthlyAmount: normalizeMoney(s.monthlyAmount),
-    })),
+    // Compartidos de pareja: siempre con cuenta (los de grupo van aparte).
+    statementDay: t.account?.statementDay ?? undefined,
+    dueDay: t.account?.dueDay ?? undefined,
+    shares: t.shares
+      .filter((s) => s.debtorId != null)
+      .map((s) => ({
+        id: s.id,
+        debtorId: s.debtorId as string,
+        debtorName: s.debtor?.name ?? s.seat?.displayName ?? 'Pareja',
+        sharePct: s.sharePct,
+        monthlyAmount: normalizeMoney(s.monthlyAmount),
+      })),
   }))
 
   // Meses con registro (solo gastos suman al total del selector).
@@ -158,6 +162,7 @@ export default async function ResumenPage() {
 
   const statements: CreditStatementView[] = cards.map((c) => {
     const txs: StatementTx[] = cardTxs
+      // El filtro por cuenta garantiza accountId no nulo.
       .filter((t) => t.accountId === c.id || t.transferToAccountId === c.id)
       .map((t) => ({
         id: t.id,
@@ -165,7 +170,7 @@ export default async function ResumenPage() {
         amount: normalizeMoney(t.amount),
         concept: t.concept,
         date: t.date,
-        accountId: t.accountId,
+        accountId: t.accountId ?? c.id,
         transferToAccountId: t.transferToAccountId,
         installments: t.installments,
         statementKey: t.statementKey ?? null,

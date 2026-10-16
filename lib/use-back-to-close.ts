@@ -35,7 +35,7 @@ export function useBackToClose(open: boolean, onClose: () => void) {
     if (!open || typeof window === 'undefined') return
     ensureWired()
     const id = nextId++
-    window.history.pushState({ quantoLayer: id }, '')
+    window.history.pushState({ tandemLayer: id }, '')
     const layer: Layer = { id, close: () => closeRef.current() }
     stack.push(layer)
     return () => {
@@ -43,8 +43,8 @@ export function useBackToClose(open: boolean, onClose: () => void) {
       if (i !== -1) stack.splice(i, 1)
       // Cierre por UI: la entrada sigue siendo la actual → consumirla en
       // silencio. Si fue por `popstate`, el navegador ya la quitó y no se toca nada.
-      const st = window.history.state as { quantoLayer?: number } | null
-      if (st && st.quantoLayer === id) {
+      const st = window.history.state as { tandemLayer?: number } | null
+      if (st && st.tandemLayer === id) {
         suppressNextPop = true
         window.history.back()
       }

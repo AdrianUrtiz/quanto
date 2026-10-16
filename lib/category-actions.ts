@@ -18,7 +18,7 @@ function revalidateAll() {
   revalidatePath('/actividad')
   revalidatePath('/resumen')
   revalidatePath('/cuentas')
-  revalidatePath('/categorias')
+  revalidatePath('/ajustes/categorias')
   revalidatePath('/presupuestos')
 }
 

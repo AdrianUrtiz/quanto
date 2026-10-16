@@ -1,7 +1,4 @@
-import {
-  dueLabelFor,
-  payableInstallments,
-} from '@/lib/calculations'
+import { dueLabelFor, payableInstallments } from '@/lib/calculations'
 import type { LineSums } from '@/lib/debt-payments'
 import { fromCents, toCents } from '@/lib/money'
 
@@ -24,7 +21,8 @@ export type PartnerDebt = {
   accountName: string
   accountType: 'DEBIT' | 'CREDIT'
   dueDay?: number
-  debtorId: string
+  /** null = persona sin cuenta (compartido "de recordatorio"). */
+  debtorId: string | null
   debtorName: string
   creditorName: string
   total: number
@@ -40,7 +38,8 @@ export type DebtItemInput = {
   accountName: string
   accountType: 'DEBIT' | 'CREDIT'
   dueDay?: number
-  debtorId: string
+  /** null = persona sin cuenta (compartido "de recordatorio"). */
+  debtorId: string | null
   debtorName: string
   creditorName: string
   concept: string
@@ -72,7 +71,9 @@ export function buildDebts(
     )
     for (const p of parts) {
       if (p.dueKey !== key) continue // fuera del periodo actual
-      const gk = `${it.accountId}:${it.debtorId}`
+      // El nombre normalizado desempata a los externos (sin id) en la misma
+      // cuenta ("Mamá" y "mamá" son la misma deuda).
+      const gk = `${it.accountId}:${it.debtorId ?? `ext:${it.debtorName.trim().toLowerCase()}`}`
       const g = byAcc.get(gk) ?? {
         accountId: it.accountId,
         accountName: it.accountName,

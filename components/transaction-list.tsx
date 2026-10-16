@@ -28,6 +28,14 @@ export type TxRow = {
   creatorName: string
   installments: number
   isShared: boolean
+  /** Reparto actual del compartido (para prefill de edición). */
+  sharePct?: number
+  shareMonthly?: number
+  shareFixed?: boolean
+  /** Nombre externo si el compartido es con alguien sin cuenta. */
+  shareExternalName?: string | null
+  /** Movimiento de un gasto de grupo: no se edita aquí su reparto. */
+  isGroup?: boolean
   /** Parte que me toca de un gasto compartido de mi pareja (solo lectura). */
   partnerShare?: boolean
   /** Movimiento huella de un pago CONFIRMED: sin acciones (solo lectura). */
@@ -72,7 +80,9 @@ export function TransactionRow({ t, cats }: { t: TxRow; cats: CatalogRow[] }) {
             ? `Compartido por ${t.creatorName}`
             : transfer && t.transferToAccountName
               ? `${t.accountName} → ${t.transferToAccountName}`
-              : `${t.accountName} · ${t.creatorName}`}
+              : t.isGroup && !t.accountName
+                ? `Gasto grupal · ${t.creatorName}`
+                : `${t.accountName} · ${t.creatorName}`}
         </p>
         <div className="mt-1 flex flex-wrap gap-1">
           {t.pendingSync && <Badge variant="warning">Pendiente</Badge>}

@@ -1,4 +1,4 @@
-// Quanto offline — IndexedDB con Dexie (Etapa 1: sincronización, solo lectura).
+// Tándem offline — IndexedDB con Dexie (Etapa 1: sincronización, solo lectura).
 //
 // Este módulo es cliente (`useLiveQuery` lo consume desde los *Client).
 // No importar Prisma ni server actions desde aquí.
@@ -8,16 +8,18 @@ import type { CardPayCandidate } from '@/lib/card-pay'
 
 // Versión del esquema Dexie. Subir en cada migración futura
 // (el sprint de creación offline añadirá índices/flags sin romper v2).
-export const DB_VERSION = 4
-export const DB_NAME = 'quanto-db'
+export const DB_VERSION = 6
+export const DB_NAME = 'tandem-db'
 // Versión del payload de /api/snapshot que esta DB sabe guardar.
-export const SNAPSHOT_VERSION = 4
+export const SNAPSHOT_VERSION = 6
 
 export type SyncMeta = {
   key: string // siempre 'sync'
   userId: string
   lastSyncAt: string // ISO
   snapshotVersion: number
+  /** Pareja vinculada (solo nombre) o null. Para ofrecer "compartir". */
+  partner?: { id: string; name: string } | null
 }
 
 export type OfflineAccount = {
@@ -57,6 +59,14 @@ export type OfflineTransaction = {
   createdById: string
   installments: number
   isShared: boolean
+  /** Reparto actual de un gasto compartido mío (prefill de edición). */
+  sharePct?: number
+  shareMonthly?: number
+  shareFixed?: boolean
+  /** Nombre de la persona sin cuenta si el compartido es externo. */
+  shareExternalName?: string | null
+  /** Gasto de un grupo (household): su reparto no se edita en el formulario. */
+  isGroup?: boolean
   /** Período ("YYYY-MM") al que se aplica un pago aunque sea extemporáneo. */
   statementKey?: string | null
   /** Fila derivada de un gasto compartido de mi pareja (solo lectura). */
@@ -68,7 +78,8 @@ export type OfflineTransaction = {
 export type OfflineShare = {
   id: string
   transactionId: string
-  debtorId: string
+  /** null = persona sin cuenta (compartido "de recordatorio"). */
+  debtorId: string | null
   debtorName: string
   sharePct: number
   monthlyAmount: number
@@ -122,6 +133,8 @@ export type OfflineSubscription = {
   ownerName: string
   isMine: boolean
   partnerName: string | null
+  /** Compartida con alguien sin cuenta (ej. "Mamá"). */
+  externalName: string | null
 }
 
 // Entrada de deuda de pareja (compatible con DebtItemInput/PartnerPayItem).
@@ -133,7 +146,8 @@ export type OfflinePartnerDebt = {
   accountType: 'DEBIT' | 'CREDIT'
   dueDay?: number | null
   statementDay?: number | null
-  debtorId: string
+  /** null = persona sin cuenta (compartido "de recordatorio"). */
+  debtorId: string | null
   debtorName: string
   creditorName: string
   concept: string
@@ -161,6 +175,21 @@ export type OfflinePartnerShared = {
   dueDay?: number | null
 }
 
+// Resumen de grupo para la tab Compartidos (serializable; lo calcula el
+// servidor en el snapshot y en /cuentas, el cliente lo pinta tal cual).
+export type OfflineGroup = {
+  id: string
+  code: string | null
+  name: string
+  status?: 'ACTIVE' | 'CLOSED'
+  isCreator: boolean
+  memberCount: number
+  memberNames: string[]
+  myOwe: number
+  myOwed: number
+  expenseCount: number
+}
+
 // Reserva para el sprint de creación offline: cola de operaciones
 // pendientes de subir a la central. `error` guarda el último rechazo del
 // servidor (p. ej. cuenta eliminada) para la tarjeta de acciones urgentes.
@@ -175,7 +204,7 @@ export type OfflineOutboxOp = {
   error?: string | null
 }
 
-class QuantoDB extends Dexie {
+class TandemDB extends Dexie {
   meta!: Table<SyncMeta, string>
   accounts!: Table<OfflineAccount, string>
   transactions!: Table<OfflineTransaction, string>
@@ -188,6 +217,7 @@ class QuantoDB extends Dexie {
   partnerDebts!: Table<OfflinePartnerDebt, string>
   cardPay!: Table<CardPayCandidate, string>
   partnerShared!: Table<OfflinePartnerShared, string>
+  groups!: Table<OfflineGroup, string>
   outbox!: Table<OfflineOutboxOp, number>
 
   constructor() {
@@ -205,6 +235,7 @@ class QuantoDB extends Dexie {
       partnerDebts: 'shareId, direction',
       cardPay: 'cardId',
       partnerShared: 'id',
+      groups: 'id',
       outbox: '++localId, createdAt, status',
     })
   }
@@ -226,7 +257,7 @@ export type OfflineCharge = {
   partnerPaidByName: string | null
 }
 
-export const db = new QuantoDB()
+export const db = new TandemDB()
 
 /** Borra todos los datos locales (logout / cambio de usuario). */
 export async function clearLocalData(): Promise<void> {
@@ -245,6 +276,7 @@ export async function clearLocalData(): Promise<void> {
       db.partnerDebts,
       db.cardPay,
       db.partnerShared,
+      db.groups,
       db.outbox,
     ],
     async () => {
@@ -261,6 +293,7 @@ export async function clearLocalData(): Promise<void> {
         db.partnerDebts.clear(),
         db.cardPay.clear(),
         db.partnerShared.clear(),
+        db.groups.clear(),
         db.outbox.clear(),
       ])
     },

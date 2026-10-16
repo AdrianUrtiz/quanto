@@ -212,6 +212,7 @@ function toSubInfos(rows: OfflineSubscription[], meId: string): SubInfo[] {
     ownerName: s.ownerName,
     isMine: s.isMine,
     partnerName: s.partnerName,
+    externalName: s.externalName ?? null,
   }))
 }
 

@@ -16,8 +16,8 @@ import type {
   OfflineShare,
   OfflineTransaction,
 } from '@/lib/offline/db'
-import { isPendingId } from '@/lib/offline/pending'
 import { deriveMonths, toCatalog } from '@/lib/offline/derive-activity'
+import { isPendingId } from '@/lib/offline/pending'
 import { type StatementTx, activePeriods } from '@/lib/statements'
 import { wallNow } from '@/lib/walltime'
 
@@ -72,14 +72,18 @@ export function toInvolvedTxs(
     arr.push(s)
     sharesByTx.set(s.transactionId, arr)
   }
+  // La liquidación del Resumen es entre pareja: los compartidos con alguien
+  // sin cuenta (debtorId null) viven solo en Cuentas.
   const toShareRows = (list: OfflineShare[]) =>
-    list.map((s) => ({
-      id: s.id,
-      debtorId: s.debtorId,
-      debtorName: s.debtorName,
-      sharePct: s.sharePct,
-      monthlyAmount: s.monthlyAmount,
-    }))
+    list
+      .filter((s) => s.debtorId != null)
+      .map((s) => ({
+        id: s.id,
+        debtorId: s.debtorId as string,
+        debtorName: s.debtorName,
+        sharePct: s.sharePct,
+        monthlyAmount: s.monthlyAmount,
+      }))
 
   const mine = transactions
     .filter((t) => !t.partnerShare && t.type === 'EXPENSE' && t.isShared)

@@ -77,7 +77,6 @@ export function PaymentSheet({
     sel ? String(fromCents(toCents(lineRemaining(sel)))) : '',
   )
   const [accountId, setAccountId] = useState(accountOptions[0]?.id ?? '')
-  const [noMovement, setNoMovement] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
   const [pending, setPending] = useState(false)
 
@@ -104,7 +103,7 @@ export function PaymentSheet({
           fd.set('shareId', sel.shareId)
           fd.set('month', sel.month)
           fd.set('amount', amount)
-          if (mode === 'receive' || !noMovement) fd.set('accountId', accountId)
+          if (mode === 'receive') fd.set('accountId', accountId)
           return registerPayment(fd)
         })())
     setPending(false)
@@ -270,7 +269,7 @@ export function PaymentSheet({
 
       {(mode === 'receive' ||
         mode === 'confirm' ||
-        (mode === 'pay' && !noMovement)) &&
+        (mode === 'pay')) &&
         hasOpen && (
           <div className="space-y-1.5">
             <Label>
@@ -305,22 +304,6 @@ export function PaymentSheet({
             )}
           </div>
         )}
-
-      {mode === 'pay' && hasOpen && (
-        <button
-          type="button"
-          onClick={() => setNoMovement((v) => !v)}
-          className={cn(
-            'rounded-2xl border px-4 py-2.5 text-xs font-semibold transition',
-            noMovement
-              ? 'border-(--primary) bg-(--primary)/10'
-              : 'border-(--border) text-(--muted-foreground)',
-          )}>
-          {noMovement
-            ? '✓ Solo marcar, sin mover mi saldo'
-            : 'Mover mi saldo (crear egreso)'}
-        </button>
-      )}
 
       {msg && (
         <p className="text-center text-sm font-medium text-red-500">{msg}</p>

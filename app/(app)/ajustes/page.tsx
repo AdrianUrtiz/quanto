@@ -1,5 +1,6 @@
 import { AjustesClient } from '@/components/ajustes-client'
 
+import { getPairingState } from '@/lib/couple-actions'
 import { prisma } from '@/lib/prisma'
 
 import { auth } from '@/auth'
@@ -21,6 +22,21 @@ export default async function AjustesPage() {
       username = undefined
     }
   }
+  let pairing = null
+  try {
+    const res = await getPairingState()
+    if ('ok' in res) {
+      pairing = {
+        pairCode: res.pairCode,
+        partner: res.partner,
+        householdId: res.householdId,
+        sent: res.sent,
+        received: res.received,
+      }
+    }
+  } catch {
+    pairing = null
+  }
 
-  return <AjustesClient username={username} />
+  return <AjustesClient username={username} initialPairing={pairing} />
 }

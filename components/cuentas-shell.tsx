@@ -15,7 +15,8 @@ import type { SubRow } from '@/components/subscription-tab'
 
 import type { CardPayCandidate } from '@/lib/card-pay'
 import type { CatalogRow } from '@/lib/catalog'
-import { db } from '@/lib/offline/db'
+import type { GroupSummary } from '@/lib/group-actions'
+import { type OfflineGroup, db } from '@/lib/offline/db'
 import {
   derivePartnerMonths,
   toAccountRows,
@@ -50,6 +51,7 @@ type Props = {
   myPending: MyPendingItem[]
   toConfirmSource: SourceConfirmItem[]
   cardPayItems: CardPayCandidate[]
+  groups: GroupSummary[]
 }
 
 /**
@@ -75,6 +77,7 @@ export function CuentasShell(server: Props) {
       shares,
       partnerShared,
       cardPay,
+      groups,
     ] = await Promise.all([
       db.meta.get('sync'),
       db.accounts.toArray(),
@@ -88,6 +91,7 @@ export function CuentasShell(server: Props) {
       db.shares.toArray(),
       db.partnerShared.toArray(),
       db.cardPay.toArray(),
+      db.groups.toArray().catch(() => [] as OfflineGroup[]),
     ])
     return {
       meta,
@@ -102,6 +106,7 @@ export function CuentasShell(server: Props) {
       shares,
       partnerShared,
       cardPay,
+      groups,
     }
   }, [])
 
@@ -112,7 +117,7 @@ export function CuentasShell(server: Props) {
   const meId = useLocal ? (local.meta?.userId ?? server.meId) : server.meId
 
   const view: Props = useLocal
-    ?       (() => {
+    ? (() => {
         const { visible, hidden } = toAccountRows(local.accounts)
         const { debtItems, owedItems } = toDebtItems(local.partnerDebts)
         // Ecos offline de mis compartidos: pintan igual (con badge) aunque
@@ -149,6 +154,11 @@ export function CuentasShell(server: Props) {
           ),
           toConfirmSource: toToConfirmSource(local.debtPayments),
           cardPayItems: toCardPayItems(local.cardPay),
+          // Filas viejas sin status → se tratan como activas.
+          groups: local.groups.map((g) => ({
+            ...g,
+            status: g.status ?? ('ACTIVE' as const),
+          })),
         }
       })()
     : server
@@ -205,6 +215,7 @@ export function CuentasShell(server: Props) {
         myPending={view.myPending}
         toConfirmSource={view.toConfirmSource}
         cardPayItems={view.cardPayItems}
+        groups={view.groups}
       />
     </>
   )

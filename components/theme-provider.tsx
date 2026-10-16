@@ -10,7 +10,7 @@ type ThemeCtx = {
   setTheme: (t: Theme) => void
 }
 
-const STORAGE_KEY = 'quanto-theme'
+const STORAGE_KEY = 'tandem-theme'
 
 const Ctx = React.createContext<ThemeCtx>({
   theme: 'dark',

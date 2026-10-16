@@ -2,7 +2,6 @@
 // tarjeta del dueño; lo único que se rastrea es quién cubrió su parte.
 // Sin TransactionShare ni DebtPayment para suscripciones.
 import { fromCents, toCents } from '@/lib/money'
-
 import {
   addWallMonths,
   daysInWallMonth,
@@ -33,6 +32,8 @@ export type SubInfo = {
   isMine: boolean
   /** Nombre del otro miembro (para "¿Te pagó X?"). En las suyas = la dueña. */
   partnerName: string | null
+  /** Compartida con alguien sin cuenta (ej. "Mamá"). null = pareja o no compartida. */
+  externalName: string | null
 }
 
 export type ChargeRow = {

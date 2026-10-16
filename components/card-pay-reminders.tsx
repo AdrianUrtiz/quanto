@@ -18,7 +18,7 @@ import { formatMoney } from '@/lib/utils'
 import { cn } from '@/lib/utils'
 import { wallNow } from '@/lib/walltime'
 
-const DISMISS_KEY = 'quanto:card-pay-dismissed'
+const DISMISS_KEY = 'tandem:card-pay-dismissed'
 
 function loadDismissed(): Set<string> {
   try {

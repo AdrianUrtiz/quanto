@@ -29,7 +29,11 @@ export default async function AppLayout({
       isFavorite: true,
       position: true,
     },
-    orderBy: [{ isFavorite: 'desc' }, { position: 'asc' }, { createdAt: 'asc' }],
+    orderBy: [
+      { isFavorite: 'desc' },
+      { position: 'asc' },
+      { createdAt: 'asc' },
+    ],
   })
   const accounts = rows.map((r) => ({
     id: r.id,
@@ -40,10 +44,18 @@ export default async function AppLayout({
     position: r.position,
   }))
   const catalog = await getCatalog(meId)
+  const me = await prisma.user.findUnique({
+    where: { id: meId },
+    select: { name: true },
+  })
   return (
     <div className="mx-auto flex min-h-dvh w-full max-w-md flex-col">
       <main className="pt-safe flex flex-1 flex-col pb-44">{children}</main>
-      <Fab accountOptions={accounts} cats={catalog} />
+      <Fab
+        accountOptions={accounts}
+        cats={catalog}
+        userName={me?.name ?? 'Yo'}
+      />
       <BottomNav />
     </div>
   )

@@ -71,6 +71,8 @@ export async function getAccountBalances(
   ])
 
   for (const r of origins) {
+    // El filtro `in: ids` excluye cuentas nulas; el guard es para el tipo.
+    if (r.accountId == null) continue
     const kind = kindById.get(r.accountId)
     if (!kind) continue
     const amtC = toCents(r._sum.amount ?? 0)

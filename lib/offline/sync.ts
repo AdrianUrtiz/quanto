@@ -1,8 +1,3 @@
-// Motor de sincronización offline (Etapa 1: descarga, solo lectura).
-//
-// La central es la fuente de verdad: cada sync reemplaza la copia local.
-// Sin cola de subida en v1 (la tabla `outbox` queda reservada para el
-// sprint de creación offline).
 'use client'
 
 import { SNAPSHOT_VERSION, clearLocalData, db } from '@/lib/offline/db'
@@ -74,6 +69,7 @@ async function saveSnapshot(snap: SnapshotPayload): Promise<void> {
       db.partnerDebts,
       db.cardPay,
       db.partnerShared,
+      db.groups,
     ],
     async () => {
       await Promise.all([
@@ -88,6 +84,7 @@ async function saveSnapshot(snap: SnapshotPayload): Promise<void> {
         db.partnerDebts.clear(),
         db.cardPay.clear(),
         db.partnerShared.clear(),
+        db.groups.clear(),
       ])
       await Promise.all([
         db.accounts.bulkPut(snap.accounts),
@@ -105,12 +102,14 @@ async function saveSnapshot(snap: SnapshotPayload): Promise<void> {
         db.partnerDebts.bulkPut(snap.partnerDebts),
         db.cardPay.bulkPut(snap.cardPayItems),
         db.partnerShared.bulkPut(snap.partnerShared),
+        db.groups.bulkPut(snap.groups ?? []),
       ])
       await db.meta.put({
         key: 'sync',
         userId: snap.userId,
         lastSyncAt: new Date().toISOString(),
         snapshotVersion: snap.v,
+        partner: snap.partner ?? null,
       })
     },
   )

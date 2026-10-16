@@ -53,14 +53,14 @@ export function BottomSheet({
           onFocusCapture={(e) => scrollFieldIntoView(e.target, rootRef.current)}
           style={
             kb > 0
-              ? { bottom: kb, maxHeight: `calc(94dvh - ${kb}px)` }
+              ? { bottom: kb, maxHeight: `calc(98dvh - ${kb}px)` }
               : undefined
           }
           className={cn(
             'animate-sheet-up fixed inset-x-0 bottom-0 z-50 mx-auto flex max-h-[94dvh] w-full max-w-md flex-col overflow-hidden rounded-t-4xl border-x border-t border-(--border) bg-(--card) shadow-2xl transition-[bottom,max-height] duration-200 outline-none',
             className,
           )}>
-          <div className="mx-auto mt-2.5 h-1 w-10 shrink-0 rounded-full bg-(--border)" />
+          <div className="mx-auto my-3 h-1 w-10 shrink-0 rounded-full bg-(--border)" />
           {children}
         </DialogPrimitive.Content>
       </DialogPrimitive.Portal>

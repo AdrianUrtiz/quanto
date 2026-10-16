@@ -2,7 +2,8 @@
 
 import { useMemo, useState } from 'react'
 
-import { ArrowUpRight, Check, HandCoins } from 'lucide-react'
+import { ArrowUpRight, Check, HandCoins, Users } from 'lucide-react'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 
@@ -24,7 +25,6 @@ import {
 import { FilterOptions, FilterPill } from '@/components/filter-dialog'
 import { PartnerPayReminders } from '@/components/partner-pay-reminders'
 import { PaymentSheet } from '@/components/payment-sheet'
-import { SubscriptionSummaryRow } from '@/components/subscription-swipe-row'
 import { type SubRow, SubscriptionTab } from '@/components/subscription-tab'
 import { SwipeRow } from '@/components/swipe-row'
 import { Button } from '@/components/ui/button'
@@ -39,6 +39,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import type { CardPayCandidate } from '@/lib/card-pay'
 import type { CatalogRow } from '@/lib/catalog'
 import { useCuentasFilters } from '@/lib/cuentas-filters'
+import type { GroupSummary } from '@/lib/group-actions'
 import { toCents } from '@/lib/money'
 import { isPendingId } from '@/lib/offline/pending'
 import { syncForce } from '@/lib/offline/useSnapshotSync'
@@ -102,6 +103,7 @@ export function CuentasClient({
   toConfirmSource = [],
   editAccountId = null,
   cardPayItems = [],
+  groups = [],
 }: {
   accounts: AccountRow[]
   hiddenAccounts?: AccountRow[]
@@ -120,6 +122,8 @@ export function CuentasClient({
   editAccountId?: string | null
   /** Cierre de MIS tarjetas (propietario): pago para no generar intereses. */
   cardPayItems?: CardPayCandidate[]
+  /** Resúmenes de mis grupos (sección Grupos de Compartidos). */
+  groups?: GroupSummary[]
 }) {
   const router = useRouter()
   const tab = useCuentasFilters((s) => s.tab)
@@ -169,7 +173,7 @@ export function CuentasClient({
     [hiddenAccounts, meId],
   )
 
-  // Recordatorio de renovación (tabs Todas y Cuentas): abre la edición directo.
+  // Recordatorio de renovación: abre la edición de la cuenta directamente.
   const expiryAccounts: ExpiryAccount[] = useMemo(
     () =>
       mine.map((a) => ({
@@ -215,11 +219,10 @@ export function CuentasClient({
     () => buildDebts(owedItems, partnerMonth, sumsMap),
     [owedItems, partnerMonth, sumsMap],
   )
-  // Recordatorio de pago a la pareja (tabs Todas y Cuentas): abre Pareja
-  // en el mes exigible del vencimiento.
+  // Recordatorio de pago a la pareja: abre Compartidos en el mes exigible.
   const openPartnerPay = (it: { dueKey: string }) => {
     setPartnerMonth(it.dueKey)
-    setTab('pareja')
+    setTab('compartidos')
   }
   // Recordatorio de pago de mis tarjetas (propietario): abre el corte
   // en Resumen > Estados de cuenta.
@@ -281,11 +284,6 @@ export function CuentasClient({
   const accType = useCuentasFilters((s) => s.accType)
   const setAccType = useCuentasFilters((s) => s.setAccType)
   const [accSheet, setAccSheet] = useState<null | 'sort' | 'type'>(null)
-  const allSection = useCuentasFilters((s) => s.allSection)
-  const setAllSection = useCuentasFilters((s) => s.setAllSection)
-  const allSort = useCuentasFilters((s) => s.allSort)
-  const setAllSort = useCuentasFilters((s) => s.setAllSort)
-  const [allSheet, setAllSheet] = useState<null | 'section' | 'sort'>(null)
   const [partnerSheet, setPartnerSheet] = useState<null | 'month'>(null)
 
   // Monto representativo: saldo en débito, disponible en crédito.
@@ -346,48 +344,6 @@ export function CuentasClient({
     { value: 'low', label: 'Menor monto' },
     { value: 'az', label: 'Nombre A–Z' },
   ]
-  const SECTION_OPTS = [
-    { value: 'all', label: 'Todo' },
-    { value: 'accounts', label: 'Cuentas' },
-    { value: 'debts', label: 'Pareja' },
-    { value: 'subs', label: 'Suscripciones' },
-  ]
-
-  function sortAccounts(list: AccountRow[]) {
-    const sorted = [...list]
-    if (allSort === 'high') sorted.sort((a, b) => effValue(b) - effValue(a))
-    else if (allSort === 'low') sorted.sort((a, b) => effValue(a) - effValue(b))
-    return sorted
-  }
-
-  const allMine = sortAccounts(mine)
-  const allDebts = useMemo(() => {
-    const sorted = [...debts]
-    if (allSort === 'high') sorted.sort((a, b) => b.remaining - a.remaining)
-    else if (allSort === 'low') sorted.sort((a, b) => a.remaining - b.remaining)
-    return sorted
-  }, [debts, allSort])
-  const allOwed = useMemo(() => {
-    const sorted = [...owed]
-    if (allSort === 'high') sorted.sort((a, b) => b.remaining - a.remaining)
-    else if (allSort === 'low') sorted.sort((a, b) => a.remaining - b.remaining)
-    return sorted
-  }, [owed, allSort])
-  const allSubs = useMemo(() => {
-    const list = subs.filter((s) => s.isActive)
-    const sorted = [...list]
-    if (allSort === 'high') sorted.sort((a, b) => b.amount - a.amount)
-    else if (allSort === 'low') sorted.sort((a, b) => a.amount - b.amount)
-    return sorted
-  }, [subs, allSort])
-
-  const showAccounts = allSection === 'all' || allSection === 'accounts'
-  const showDebts = allSection === 'all' || allSection === 'debts'
-  const showSubs = allSection === 'all' || allSection === 'subs'
-  const allEmpty =
-    (!showAccounts || allMine.length === 0) &&
-    (!showDebts || (allDebts.length === 0 && allOwed.length === 0)) &&
-    (!showSubs || allSubs.length === 0)
   const TYPE_OPTS = [
     { value: 'all', label: 'Todas' },
     { value: 'debit', label: 'Débito' },
@@ -407,7 +363,7 @@ export function CuentasClient({
         }
       : tab === 'subs'
         ? { label: 'Comprometido/mes', value: monthly }
-        : tab === 'pareja'
+        : tab === 'compartidos'
           ? {
               label: isCurrentMonth
                 ? 'Le debes este mes'
@@ -429,71 +385,10 @@ export function CuentasClient({
 
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList>
-          <TabsTrigger value="todas">Todas</TabsTrigger>
           <TabsTrigger value="mias">Cuentas</TabsTrigger>
           <TabsTrigger value="subs">Suscripciones</TabsTrigger>
-          <TabsTrigger value="pareja">Pareja</TabsTrigger>
+          <TabsTrigger value="compartidos">Compartidos</TabsTrigger>
         </TabsList>
-        <TabsContent value="todas" className="space-y-2">
-          <ExpiryReminders accounts={expiryAccounts} onRenew={openRenew} />
-          <PartnerPayReminders
-            debtItems={debtItems}
-            sums={sumsMap}
-            onPay={openPartnerPay}
-          />
-          <CardPayReminders items={cardPayItems ?? []} onPay={openCardPay} />
-          <div className="no-scrollbar -mx-5 flex gap-2 overflow-x-auto px-5 pb-1">
-            <FilterPill
-              label={SECTION_OPTS.find((o) => o.value === allSection)!.label}
-              active={allSection !== 'all'}
-              onClick={() => setAllSheet('section')}
-            />
-            <FilterPill
-              label={SORT_OPTS.find((o) => o.value === allSort)!.label}
-              active={allSort !== 'default'}
-              onClick={() => setAllSheet('sort')}
-            />
-          </div>
-          {showAccounts && allMine.map(swipe)}
-          {showDebts &&
-            allDebts.map((d) => (
-              <DebtSummaryRow
-                key={`${d.accountId}:${d.debtorId}`}
-                d={d}
-                meId={meId}
-                onOpen={() => setTab('pareja')}
-              />
-            ))}
-          {showDebts &&
-            allOwed.map((d) => (
-              <DebtSummaryRow
-                key={`${d.accountId}:${d.debtorId}`}
-                d={d}
-                meId={meId}
-                onOpen={() => setTab('pareja')}
-              />
-            ))}
-          {showSubs &&
-            allSubs.map((s) => (
-              <SubscriptionSummaryRow
-                key={s.id}
-                s={s}
-                onOpen={() => setTab('subs')}
-              />
-            ))}
-          {allEmpty && (
-            <Empty
-              text={
-                mine.length === 0 &&
-                debts.length === 0 &&
-                owed.length === 0 &&
-                subs.filter((s) => s.isActive).length === 0
-                  ? 'Sin cuentas aquí todavía.'
-                  : 'Sin resultados para ese filtro.'
-              }
-            />
-          )}
-        </TabsContent>
         <TabsContent value="mias" className="space-y-2">
           <ExpiryReminders accounts={expiryAccounts} onRenew={openRenew} />
           <PartnerPayReminders
@@ -567,7 +462,7 @@ export function CuentasClient({
             </>
           )}
         </TabsContent>
-        <TabsContent value="pareja" className="space-y-4">
+        <TabsContent value="compartidos" className="space-y-4">
           <div className="flex items-center justify-center">
             <button
               onClick={() => setPartnerSheet('month')}
@@ -579,15 +474,12 @@ export function CuentasClient({
             owed.length === 0 &&
             toConfirm.length === 0 &&
             myPending.length === 0 &&
-            toConfirmSource.length === 0 && (
-              <Empty
-                text={
-                  isCurrentMonth
-                    ? 'No hay cuentas pendientes con tu pareja este mes. 🎉'
-                    : `No hay cuentas pendientes con tu pareja en ${partnerLabel}. 🎉`
-                }
-              />
-            )}
+            toConfirmSource.length === 0 &&
+            (groups.length === 0 ? (
+              <Empty text="Sin compartidos todavía. Usa + para crear o unirte a un grupo, o vincula tu pareja en Ajustes." />
+            ) : (
+              <Empty text="Sin pendientes con tu pareja. Tus grupos están abajo. 🎉" />
+            ))}
           {toConfirmSource.length > 0 && (
             <section className="space-y-2">
               <p className="text-xs font-semibold text-(--muted-foreground)">
@@ -638,13 +530,11 @@ export function CuentasClient({
               </p>
               {debts.map((d) => (
                 <DebtSwipeRow
-                  key={`${d.accountId}:${d.debtorId}`}
+                  key={debtKey(d)}
                   d={d}
                   meId={meId}
-                  open={openRow === `${d.accountId}:${d.debtorId}`}
-                  onOpenChange={(o) =>
-                    setOpenRow(o ? `${d.accountId}:${d.debtorId}` : null)
-                  }
+                  open={openRow === debtKey(d)}
+                  onOpenChange={(o) => setOpenRow(o ? debtKey(d) : null)}
                   onPay={(mode) => setPaySheet({ d, mode })}
                 />
               ))}
@@ -660,15 +550,23 @@ export function CuentasClient({
               </p>
               {owed.map((d) => (
                 <DebtSwipeRow
-                  key={`${d.accountId}:${d.debtorId}`}
+                  key={debtKey(d)}
                   d={d}
                   meId={meId}
-                  open={openRow === `${d.accountId}:${d.debtorId}`}
-                  onOpenChange={(o) =>
-                    setOpenRow(o ? `${d.accountId}:${d.debtorId}` : null)
-                  }
+                  open={openRow === debtKey(d)}
+                  onOpenChange={(o) => setOpenRow(o ? debtKey(d) : null)}
                   onPay={(mode) => setPaySheet({ d, mode })}
                 />
+              ))}
+            </section>
+          )}
+          {groups.length > 0 && (
+            <section className="space-y-2">
+              <p className="text-xs font-semibold text-(--muted-foreground)">
+                Grupos · {groups.length}
+              </p>
+              {groups.map((g) => (
+                <GroupCard key={g.id} g={g} />
               ))}
             </section>
           )}
@@ -688,7 +586,7 @@ export function CuentasClient({
         onOpenChange={(o) => !o && setPaySheet(null)}>
         {paySheet && (
           <PaymentSheet
-            key={`${paySheet.d.accountId}:${paySheet.d.debtorId}:${paySheet.mode}`}
+            key={`${debtKey(paySheet.d)}:${paySheet.mode}`}
             mode={paySheet.mode}
             lines={paySheet.d.lines.flatMap((l) =>
               l.shareId
@@ -799,37 +697,6 @@ export function CuentasClient({
       </Dialog>
 
       <Dialog
-        open={allSheet !== null}
-        onOpenChange={(o) => !o && setAllSheet(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>
-              {allSheet === 'sort' ? 'Ordenar todo' : 'Secciones visibles'}
-            </DialogTitle>
-          </DialogHeader>
-          {allSheet === 'sort' ? (
-            <FilterOptions
-              items={SORT_OPTS.filter((o) => o.value !== 'az')}
-              value={allSort}
-              onPick={(v) => {
-                setAllSort(v)
-                setAllSheet(null)
-              }}
-            />
-          ) : (
-            <FilterOptions
-              items={SECTION_OPTS}
-              value={allSection}
-              onPick={(v) => {
-                setAllSection(v)
-                setAllSheet(null)
-              }}
-            />
-          )}
-        </DialogContent>
-      </Dialog>
-
-      <Dialog
         open={partnerSheet !== null}
         onOpenChange={(o) => !o && setPartnerSheet(null)}>
         <DialogContent>
@@ -855,45 +722,9 @@ export function CuentasClient({
   )
 }
 
-function DebtSummaryRow({
-  d,
-  meId,
-  onOpen,
-}: {
-  d: PartnerDebt
-  meId: string
-  onOpen: () => void
-}) {
-  const n = d.lines.length
-  const owe = d.debtorId === meId
-  return (
-    <button
-      onClick={onOpen}
-      className={`flex w-full items-center gap-3 rounded-3xl border p-4 text-left transition active:scale-[.99] ${owe ? 'debt-owe' : 'debt-owed'}`}>
-      <span
-        className={`flex size-11 shrink-0 items-center justify-center rounded-2xl ${owe ? 'debt-owe-solid' : 'debt-owed-solid'}`}>
-        <HandCoins className="size-5" />
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm font-semibold">
-          {d.accountName}
-        </span>
-        <span className="block truncate text-xs text-(--muted-foreground)">
-          {owe ? `Le debes a ${d.creditorName}` : `${d.debtorName} te debe`} ·{' '}
-          {n} {n === 1 ? 'movimiento' : 'movimientos'}
-        </span>
-      </span>
-      <span className="shrink-0 text-right">
-        <span className="block text-base font-extrabold">
-          {formatMoney(d.remaining)}
-        </span>
-        <span
-          className={`block text-[11px] font-semibold ${owe ? 'debt-owe-text' : 'debt-owed-text'}`}>
-          Ver detalle ›
-        </span>
-      </span>
-    </button>
-  )
+/** Identidad de una deuda: cuenta + deudor (el nombre normalizado desempata a externos). */
+function debtKey(d: PartnerDebt) {
+  return `${d.accountId}:${d.debtorId ?? `ext:${d.debtorName.trim().toLowerCase()}`}`
 }
 
 function DebtCard({ d, meId }: { d: PartnerDebt; meId: string }) {
@@ -941,7 +772,7 @@ function DebtCard({ d, meId }: { d: PartnerDebt; meId: string }) {
                     (
                     {l.installments > 1
                       ? `${l.installment}/${l.installments}`
-                      : 'pago único'}
+                      : 'único'}
                     )
                   </span>
                 </span>
@@ -1203,6 +1034,56 @@ function MyPendingRow({ p, onDone }: { p: MyPendingItem; onDone: () => void }) {
         </button>
       </span>
     </div>
+  )
+}
+
+function GroupCard({ g }: { g: GroupSummary }) {
+  const net = g.myOwed - g.myOwe
+  return (
+    <Link
+      href={`/cuentas/grupos/${g.id}`}
+      className="flex w-full items-center gap-3 rounded-3xl border border-(--border) p-4 text-left transition active:scale-[.99]">
+      <span className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-sky-500/15">
+        <Users className="size-5 text-sky-500" />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="flex items-center gap-1.5">
+          <span className="block truncate text-sm font-semibold">{g.name}</span>
+          {g.status === 'CLOSED' && (
+            <span className="shrink-0 rounded-full bg-(--muted) px-2 py-0.5 text-[10px] font-bold text-(--muted-foreground) uppercase">
+              Cerrado
+            </span>
+          )}
+        </span>
+        <span className="block truncate text-xs text-(--muted-foreground)">
+          {g.memberCount} {g.memberCount === 1 ? 'integrante' : 'integrantes'} ·{' '}
+          {g.expenseCount} {g.expenseCount === 1 ? 'gasto' : 'gastos'}
+        </span>
+      </span>
+      <span className="shrink-0 text-right">
+        {net === 0 ? (
+          <span className="block text-base font-extrabold">A mano</span>
+        ) : net > 0 ? (
+          <>
+            <span className="block text-base font-extrabold text-emerald-500">
+              {formatMoney(net)}
+            </span>
+            <span className="block text-[11px] font-semibold text-(--muted-foreground)">
+              a tu favor
+            </span>
+          </>
+        ) : (
+          <>
+            <span className="block text-base font-extrabold text-amber-500">
+              {formatMoney(-net)}
+            </span>
+            <span className="block text-[11px] font-semibold text-(--muted-foreground)">
+              debes
+            </span>
+          </>
+        )}
+      </span>
+    </Link>
   )
 }
 

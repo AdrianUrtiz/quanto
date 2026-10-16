@@ -6,12 +6,13 @@ import { z } from 'zod'
 
 import { debtorMonthlyAmount } from '@/lib/calculations'
 import { checkCategory } from '@/lib/catalog'
-import { fromCents, moneySchema, optionalMoneySchema, toCents } from '@/lib/money'
-import { prisma } from '@/lib/prisma'
 import {
-  startOfWallDay,
-  wallNow,
-} from '@/lib/walltime'
+  fromCents,
+  moneySchema,
+  optionalMoneySchema,
+  toCents,
+} from '@/lib/money'
+import { prisma } from '@/lib/prisma'
 import {
   type ChargeRow,
   type DueCharge,
@@ -20,6 +21,7 @@ import {
   computeDues,
   monthHistory,
 } from '@/lib/subscriptions'
+import { startOfWallDay, wallNow } from '@/lib/walltime'
 
 import { auth } from '@/auth'
 
@@ -34,6 +36,8 @@ const SubSchema = z.object({
   isShared: z.coerce.boolean().default(false),
   sharePct: z.coerce.number().min(1).max(100).default(50),
   shareAmount: optionalMoneySchema,
+  // Compartida con alguien sin cuenta ("Mamá"): solo se guarda su nombre.
+  externalName: z.string().trim().min(1).max(40).optional(),
 })
 
 function authedUser(session: Session | null) {
@@ -80,6 +84,12 @@ export async function createSubscription(formData: FormData) {
     where: { id: v.accountId, userId },
   })
   if (!account) return { error: 'Cuenta no encontrada' }
+  // Compartir con mi pareja exige vínculo; con alguien sin cuenta, solo nombre.
+  if (v.isShared && !v.externalName) {
+    const { getPartnerId } = await import('@/lib/households')
+    if (!(await getPartnerId(userId)))
+      return { error: 'Escribe con quién compartes la suscripción' }
+  }
   const parts = partsOf(v)
   if ('error' in parts) return { error: parts.error }
 
@@ -95,6 +105,7 @@ export async function createSubscription(formData: FormData) {
       isShared: v.isShared,
       sharePct: parts.sharePct,
       shareAmount: parts.shareAmount,
+      externalName: v.isShared ? (v.externalName ?? null) : null,
       startMonth: `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`,
     },
   })
@@ -127,6 +138,11 @@ export async function updateSubscription(formData: FormData) {
     where: { id: v.accountId, userId },
   })
   if (!account) return { error: 'Cuenta no encontrada' }
+  if (v.isShared && !v.externalName) {
+    const { getPartnerId } = await import('@/lib/households')
+    if (!(await getPartnerId(userId)))
+      return { error: 'Escribe con quién compartes la suscripción' }
+  }
   const parts = partsOf(v)
   if ('error' in parts) return { error: parts.error }
 
@@ -142,6 +158,7 @@ export async function updateSubscription(formData: FormData) {
       isShared: v.isShared,
       sharePct: parts.sharePct,
       shareAmount: parts.shareAmount,
+      externalName: v.isShared ? (v.externalName ?? null) : null,
     },
   })
 
@@ -241,19 +258,25 @@ export async function confirmSubscriptionCharge(
       })
 
       if (sub.isShared) {
-        const other = await db.user.findFirst({
-          where: { id: { not: userId } },
-          select: { id: true },
-        })
-        const debtorId = other?.id
-        if (!debtorId || debtorId === userId)
-          throw new Error('No se pudo determinar quién debe aportar')
-        const fixed = sub.shareAmount ? fromCents(toCents(sub.shareAmount)) : null
+        // Externo (sin cuenta): solo el nombre. Si no, la pareja vinculada.
+        let debtorId: string | null = null
+        if (!sub.externalName) {
+          const { getPartnerId } = await import('@/lib/households')
+          debtorId = await getPartnerId(userId)
+          if (!debtorId || debtorId === userId)
+            throw new Error('Vincula una pareja en Ajustes para compartir')
+        }
+        const fixed = sub.shareAmount
+          ? fromCents(toCents(sub.shareAmount))
+          : null
         await db.transactionShare.create({
           data: {
             transactionId: tx.id,
             debtorId,
-            sharePct: fixed ? (toCents(fixed) / toCents(amount)) * 100 : sub.sharePct,
+            externalName: sub.externalName ?? null,
+            sharePct: fixed
+              ? (toCents(fixed) / toCents(amount)) * 100
+              : sub.sharePct,
             monthlyAmount:
               fixed ?? debtorMonthlyAmount(amount, 1, sub.sharePct),
             isFixedAmount: Boolean(fixed),
@@ -374,6 +397,8 @@ export type SubFull = {
   ownerName: string
   isMine: boolean
   partnerName: string | null
+  /** Compartida con alguien sin cuenta (ej. "Mamá"). null = pareja o no compartida. */
+  externalName: string | null
   history: {
     monthKey: string
     short: string
@@ -393,25 +418,31 @@ export async function getSubscriptionData(
 ): Promise<{ subs: SubFull[]; dues: DueCharge[] }> {
   if (!process.env.DATABASE_URL || !userId) return { subs: [], dues: [] }
   try {
+    const { getPartnerId } = await import('@/lib/households')
+    const partnerId = await getPartnerId(userId)
     const [me, partner, mySubs, partnerSubs] = await Promise.all([
       prisma.user.findUnique({ where: { id: userId }, select: { name: true } }),
-      prisma.user.findFirst({
-        where: { id: { not: userId } },
-        select: { id: true, name: true },
-      }),
+      partnerId
+        ? prisma.user.findUnique({
+            where: { id: partnerId },
+            select: { id: true, name: true },
+          })
+        : Promise.resolve(null),
       prisma.subscription.findMany({
         where: { userId },
         include: { account: true, user: { select: { name: true } } },
         orderBy: { createdAt: 'asc' },
       }),
-      prisma.subscription.findMany({
-        where: { userId: { not: userId }, isShared: true },
-        include: {
-          account: { select: { id: true, type: true } },
-          user: { select: { name: true } },
-        },
-        orderBy: { createdAt: 'asc' },
-      }),
+      partnerId
+        ? prisma.subscription.findMany({
+            where: { userId: partnerId, isShared: true },
+            include: {
+              account: { select: { id: true, type: true } },
+              user: { select: { name: true } },
+            },
+            orderBy: { createdAt: 'asc' },
+          })
+        : Promise.resolve([]),
     ])
     if (!me) return { subs: [], dues: [] }
     // Nombre del otro miembro (para "¿Te pagó X?"). En las suyas es la dueña.
@@ -435,7 +466,9 @@ export async function getSubscriptionData(
         ownerId: userId,
         ownerName: me.name,
         isMine: true,
-        partnerName,
+        // El label de "quién aporta" usa el nombre externo si existe.
+        partnerName: s.externalName ?? partnerName,
+        externalName: s.externalName ?? null,
       })),
       ...partnerSubs.map((s) => ({
         id: s.id,
@@ -455,6 +488,7 @@ export async function getSubscriptionData(
         ownerName: s.user.name,
         isMine: false,
         partnerName: s.user.name,
+        externalName: null,
       })),
     ]
 

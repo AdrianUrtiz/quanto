@@ -5,12 +5,7 @@ import { auth } from '@/auth'
 const PUBLIC = [
   '/login',
   '/manifest.webmanifest',
-  '/icon.svg',
-  '/icon-192.png',
-  '/icon-512.png',
-  '/maskable-512.png',
-  '/apple-touch-icon.png',
-  '/favicon.svg',
+  '/favicon.ico',
   '/sw.js',
 ]
 
@@ -18,6 +13,7 @@ export default auth((req) => {
   const { pathname } = req.nextUrl
   const isPublic =
     PUBLIC.some((p) => pathname === p || pathname.startsWith(p + '/')) ||
+    pathname.startsWith('/icons/') ||
     pathname.startsWith('/api/auth') ||
     pathname.startsWith('/_next') ||
     pathname === '/favicon.ico'
