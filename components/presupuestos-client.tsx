@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 
 import {
   ArrowDownRight,
@@ -38,6 +38,12 @@ import {
 } from '@/lib/budget-actions'
 import type { BudgetPageData } from '@/lib/budgets'
 import { lookupCategory } from '@/lib/categories'
+import {
+  type BudgetLocalSnapshot,
+  deriveBudgetPageData,
+} from '@/lib/offline/derive-presupuestos'
+import { useOnlineStatus } from '@/lib/offline/useOnlineStatus'
+import { syncForce } from '@/lib/offline/useSnapshotSync'
 import { formatMoney } from '@/lib/utils'
 
 type MonthOpt = { key: string; label: string }
@@ -74,13 +80,17 @@ export function PresupuestosClient({
   months,
   cats,
   accountOpts,
+  local,
 }: {
   initialMonth: string
   initialData: BudgetPageData
   months: MonthOpt[]
   cats: CatOpt[]
   accountOpts: { id: string; name: string }[]
+  /** Copia Dexie (del shell). Non-null = Dexie-first: lectura sin red. */
+  local: BudgetLocalSnapshot | null
 }) {
+  const online = useOnlineStatus()
   const [sheet, setSheet] = useState<Sheet>(null)
   const [pending, setPending] = useState(false)
   const [fixedAccount, setFixedAccount] = useState('')
@@ -91,7 +101,13 @@ export function PresupuestosClient({
   const [data, setData] = useState<BudgetPageData>(initialData)
   const [loadingMonth, setLoadingMonth] = useState(false)
 
-  const { view, items, limits } = data
+  // Dexie-first: con copia local la vista del mes se deriva en el
+  // dispositivo (online u offline); sin copia vale el estado del servidor.
+  const localData = useMemo(
+    () => (local ? deriveBudgetPageData({ ...local, month }) : null),
+    [local, month],
+  )
+  const { view, items, limits } = localData ?? data
   const monthLabel = months.find((m) => m.key === month)?.label ?? month
   const isEmpty =
     view.baseIncome === 0 &&
@@ -136,9 +152,18 @@ export function PresupuestosClient({
     close()
     if (key === month || loadingMonth) return
     setMonth(key)
+    // Con copia local no hay que pedir nada: el derive repinta solo.
+    if (local) return
     setLoadingMonth(true)
     await refresh(key)
     setLoadingMonth(false)
+  }
+
+  /** Las mutaciones son online (solo lectura offline): sin red se avisa. */
+  function needOnline(): boolean {
+    if (online) return true
+    toast.error('Sin conexión · conéctate para editar el presupuesto')
+    return false
   }
 
   async function submit(
@@ -146,6 +171,7 @@ export function PresupuestosClient({
     fn: (fd: FormData) => Promise<{ ok?: boolean; error?: string }>,
   ) {
     e.preventDefault()
+    if (!needOnline()) return
     setPending(true)
     const res = await fn(new FormData(e.currentTarget))
     setPending(false)
@@ -155,35 +181,44 @@ export function PresupuestosClient({
     }
     toast.success('Guardado')
     close()
-    await refresh(month)
+    // Online el Server Action ya guardó: forzar la descarga para que
+    // Dexie-first muestre el cambio. Con copia local el live query repinta.
+    await syncForce()
+    if (!local) await refresh(month)
   }
 
   async function onDeleteItem(id: string) {
+    if (!needOnline()) return
     if (!confirm('¿Eliminar este fijo?')) return
     const res = await deleteBudgetItem(id)
     if ('error' in res && res.error) toast.error(res.error)
     else {
       toast.success('Eliminado')
-      await refresh(month)
+      await syncForce()
+      if (!local) await refresh(month)
     }
   }
 
   async function onDeleteLimit(category: string) {
+    if (!needOnline()) return
     if (!confirm('¿Quitar este límite?')) return
     const res = await deleteCategoryLimit(month, category)
     if ('error' in res && res.error) toast.error(res.error)
     else {
       toast.success('Eliminado')
-      await refresh(month)
+      await syncForce()
+      if (!local) await refresh(month)
     }
   }
 
   async function onCopy() {
+    if (!needOnline()) return
     const res = await copyPreviousMonth(month)
     if ('error' in res && res.error) toast.error(res.error)
     else {
       toast.success('Mes copiado')
-      await refresh(month)
+      await syncForce()
+      if (!local) await refresh(month)
     }
   }
 

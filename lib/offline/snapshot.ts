@@ -6,6 +6,9 @@
 import type { CardPayCandidate } from '@/lib/card-pay'
 import type {
   OfflineAccount,
+  OfflineBudget,
+  OfflineBudgetItem,
+  OfflineBudgetLimit,
   OfflineCategory,
   OfflineCharge,
   OfflineDebtPayment,
@@ -47,6 +50,12 @@ export type SnapshotPayload = {
   partnerShared: OfflinePartnerShared[]
   /** Resúmenes de mis grupos (tab Compartidos). Detalle online. */
   groups: OfflineGroup[]
+  /** Presupuestos manuales (ingreso base por mes; tabla pequeña: todos). */
+  budgets: OfflineBudget[]
+  /** Fijos manuales del mes (con mes desnormalizado). */
+  budgetItems: OfflineBudgetItem[]
+  /** Límites por categoría del mes (con mes desnormalizado). */
+  budgetLimits: OfflineBudgetLimit[]
   /** Mes actual "YYYY-MM" (hora-muro) con el que se tomó el snapshot. */
   currentMonth: string
   /** Pareja vinculada (solo nombre) o null: permite ofrecer "compartir". */

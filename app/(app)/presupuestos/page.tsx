@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation'
 
-import { PresupuestosClient } from '@/components/presupuestos-client'
+import { PresupuestosShell } from '@/components/presupuestos-shell'
 
 import { MONTH_RE, getBudgetPageData } from '@/lib/budgets'
 import { getCatalog } from '@/lib/catalog'
@@ -63,7 +63,7 @@ export default async function PresupuestosPage({
     })
 
   return (
-    <PresupuestosClient
+    <PresupuestosShell
       initialMonth={initialMonth}
       initialData={data}
       months={months}

@@ -69,6 +69,15 @@ export async function buildSnapshot(userId: string): Promise<SnapshotPayload> {
       }),
       import('@/lib/households').then((m) => m.getPartnerId(userId)),
     ])
+  // Presupuestos manuales: tabla pequeña, viajan todos los meses
+  // (el selector pide 6 pasados + 6 futuros + cualquiera con dato).
+  const budgetRows = await prisma.budget.findMany({
+    where: { userId },
+    include: {
+      items: { orderBy: { createdAt: 'asc' } },
+      limits: true,
+    },
+  })
   const meName = me?.name ?? 'Tú'
   const partnerRow = partnerId
     ? await prisma.user.findUnique({
@@ -485,6 +494,31 @@ export async function buildSnapshot(userId: string): Promise<SnapshotPayload> {
     }),
   )
 
+  // Presupuestos manuales (solo lectura offline: las mutaciones son online).
+  const budgets: SnapshotPayload['budgets'] = budgetRows.map((b) => ({
+    month: b.month,
+    baseIncome: normalizeMoney(b.baseIncome),
+    updatedAt: b.updatedAt.toISOString(),
+  }))
+  const budgetItems: SnapshotPayload['budgetItems'] = budgetRows.flatMap((b) =>
+    b.items.map((i) => ({
+      id: i.id,
+      month: b.month,
+      label: i.label,
+      amount: normalizeMoney(i.amount),
+      accountId: i.accountId,
+      createdAt: i.createdAt.toISOString(),
+    })),
+  )
+  const budgetLimits: SnapshotPayload['budgetLimits'] = budgetRows.flatMap(
+    (b) =>
+      b.limits.map((l) => ({
+        month: b.month,
+        category: l.category,
+        limit: normalizeMoney(l.limit),
+      })),
+  )
+
   return {
     v: SNAPSHOT_VERSION,
     userId,
@@ -545,6 +579,9 @@ export async function buildSnapshot(userId: string): Promise<SnapshotPayload> {
     cardPayItems,
     partnerDebts,
     groups,
+    budgets,
+    budgetItems,
+    budgetLimits,
     currentMonth,
     partner,
   }
