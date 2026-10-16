@@ -195,11 +195,12 @@ export default async function CuentasPage({
   // para poder cambiar de periodo. `sums` cubre todos los meses (sin filtro).
   const debtItems: DebtItemInput[] = sharedRows.map((t) => ({
     shareId: t.shares[0]?.id ?? '',
-    accountId: t.account.id,
-    accountName: t.account.name,
-    accountType: t.account.type as 'DEBIT' | 'CREDIT',
-    dueDay: t.account.dueDay ?? undefined,
-    statementDay: t.account.statementDay ?? undefined,
+    // Compartidos de pareja: siempre con cuenta (los de grupo van aparte).
+    accountId: t.account?.id ?? '',
+    accountName: t.account?.name ?? '',
+    accountType: (t.account?.type ?? 'DEBIT') as 'DEBIT' | 'CREDIT',
+    dueDay: t.account?.dueDay ?? undefined,
+    statementDay: t.account?.statementDay ?? undefined,
     debtorId: meId,
     debtorName: me,
     creditorName: t.createdBy.name,
@@ -216,11 +217,11 @@ export default async function CuentasPage({
       )
       .map((s) => ({
         shareId: s.id,
-        accountId: t.account.id,
-        accountName: t.account.name,
-        accountType: t.account.type as 'DEBIT' | 'CREDIT',
-        dueDay: t.account.dueDay ?? undefined,
-        statementDay: t.account.statementDay ?? undefined,
+        accountId: t.account?.id ?? '',
+        accountName: t.account?.name ?? '',
+        accountType: (t.account?.type ?? 'DEBIT') as 'DEBIT' | 'CREDIT',
+        dueDay: t.account?.dueDay ?? undefined,
+        statementDay: t.account?.statementDay ?? undefined,
         debtorId: s.debtorId,
         debtorName:
           s.externalName ?? s.debtor?.name ?? s.seat?.displayName ?? 'Pareja',

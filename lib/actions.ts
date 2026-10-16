@@ -279,7 +279,8 @@ const UpdateTxSchema = z.object({
   concept: z.string().min(2, 'Agrega un concepto'),
   category: z.string().default('OTRO'),
   date: z.string(),
-  accountId: z.string().min(1, 'Elige una cuenta'),
+  // Opcional: los gastos grupales sin cuenta indicada no la tienen.
+  accountId: z.string().optional(),
   transferToAccountId: z.string().optional(),
   // Compartido (solo gastos): permite activar/editar el reparto o el nombre
   // de la persona sin cuenta. El tipo y los MSI siguen fijos.
@@ -310,10 +311,23 @@ export async function updateTransaction(formData: FormData) {
   const v = parsed.data
 
   const tx = await prisma.transaction.findFirst({
-    where: { id: v.id, createdById: userId },
-    include: { account: true, shares: true },
+    where: { id: v.id },
+    include: {
+      account: true,
+      shares: true,
+      paidBySeat: { select: { userId: true } },
+      household: { select: { kind: true, status: true } },
+    },
   })
   if (!tx) return { error: 'Movimiento no encontrado' }
+  // Permiso: el creador siempre; en gastos grupales también el pagador
+  // (aunque otro lo haya registrado a su nombre).
+  const groupTxPerm = tx.householdId != null
+  const isCreator = tx.createdById === userId
+  const isPayer = groupTxPerm && (tx.paidBySeat?.userId ?? null) === userId
+  if (!isCreator && !isPayer) return { error: 'Movimiento no encontrado' }
+  if (groupTxPerm && tx.household?.status === 'CLOSED')
+    return { error: 'Este grupo está cerrado' }
 
   // Pagos de pareja ligados: CONFIRMED bloquea (historia acordada);
   // PENDING se sincroniza al nuevo monto (validado contra el restante).
@@ -357,13 +371,18 @@ export async function updateTransaction(formData: FormData) {
   )
   if (catError) return { error: catError }
 
-  const newAcc = await prisma.account.findFirst({
-    where: { id: v.accountId, userId },
-  })
-  if (!newAcc) return { error: 'Cuenta no encontrada' }
+  const newAcc = v.accountId
+    ? await prisma.account.findFirst({
+        where: { id: v.accountId, userId },
+      })
+    : null
+  // La cuenta de un gasto grupal se indica desde el grupo, no aquí.
+  const groupTxEarly = tx.householdId != null
+  if (!groupTxEarly && !newAcc) return { error: 'Cuenta no encontrada' }
 
   // Traspaso: solo se reescribe la fila (el saldo se deriva por suma).
   if (tx.type === 'TRANSFER') {
+    if (groupTxEarly || !newAcc) return { error: 'Movimiento no editable aquí' }
     const newDestId = v.transferToAccountId
     if (!newDestId || newDestId === v.accountId)
       return { error: 'Elige una cuenta destino distinta' }
@@ -382,7 +401,7 @@ export async function updateTransaction(formData: FormData) {
         amount: v.amount,
         concept: v.concept,
         date: parseWallInput(v.date),
-        accountId: v.accountId,
+        accountId: v.accountId as string,
         transferToAccountId: newDestId,
       },
     })
@@ -438,7 +457,8 @@ export async function updateTransaction(formData: FormData) {
       concept: v.concept,
       category: v.category,
       date: parseWallInput(v.date),
-      accountId: v.accountId,
+      // La cuenta de un gasto grupal se indica desde el grupo, no aquí.
+      ...(groupTx ? {} : { accountId: v.accountId as string }),
       ...(tx.type === 'EXPENSE' && !groupTx ? { isShared: wantsShare } : {}),
     },
   })
@@ -453,6 +473,8 @@ export async function updateTransaction(formData: FormData) {
 
   // Aplica el compartido: quitar, crear o repartir de nuevo. Los montos
   // fijos pactados se recalculan igual al editar (ahora es editable).
+  // En gastos grupales el reparto (seats) es fijo, pero si cambia el monto
+  // se reescalan las partes proporcionalmente (se conserva cada sharePct).
   if (tx.type === 'EXPENSE' && !groupTx) {
     const n = Math.max(1, Math.round(tx.installments))
     if (!wantsShare) {
@@ -487,18 +509,59 @@ export async function updateTransaction(formData: FormData) {
     }
   }
 
+  if (groupTx && tx.type === 'EXPENSE') {
+    // El reparto (seats) es fijo, pero si cambió el monto se reescalan las
+    // partes proporcionalmente (se conserva cada sharePct; el último absorbe
+    // el redondeo para que la suma cuadre exacta).
+    const newTotalC = toCents(v.amount)
+    if (newTotalC !== toCents(tx.amount) && tx.shares.length > 0) {
+      const ordered = [...tx.shares].sort(
+        (a, b) => a.createdAt.getTime() - b.createdAt.getTime(),
+      )
+      let assigned = 0
+      for (let i = 0; i < ordered.length; i++) {
+        const last = i === ordered.length - 1
+        const monthlyC = last
+          ? newTotalC - assigned
+          : Math.round((newTotalC * ordered[i].sharePct) / 100)
+        assigned += monthlyC
+        await prisma.transactionShare.update({
+          where: { id: ordered[i].id },
+          data: { monthlyAmount: fromCents(monthlyC) },
+        })
+      }
+    }
+    // El espejo personal del pagador sigue al gasto (mismo monto/datos).
+    if (tx.payerTransactionId) {
+      await prisma.transaction.updateMany({
+        where: { id: tx.payerTransactionId },
+        data: {
+          amount: v.amount,
+          concept: v.concept,
+          category: v.category,
+          date: parseWallInput(v.date),
+        },
+      })
+    }
+  }
+
   revalidatePath('/actividad')
   revalidatePath('/resumen')
   revalidatePath('/cuentas')
+  revalidatePath('/grupos')
   return { ok: true }
 }
 
 // Borrado físico. El saldo se deriva por suma, así que basta borrar la fila.
+// Permiso: el creador siempre; en gastos grupales también el pagador (aunque
+// otro lo haya registrado a su nombre). Si el gasto tiene espejo personal
+// del pagador, se borra con él (solo existe por este gasto).
 // Solo el creador. Si el movimiento es parte de un pago de pareja:
 // - PENDING (la contraparte aún no confirma) → se puede borrar; el reclamo
 //   pendiente se elimina con él.
 // - CONFIRMED (ya confirmado) → bloqueado, primero cancélalo en Pareja.
 // Los cargos de suscripción siguen bloqueados (tienen su propio flujo).
+// Los grupos cerrados no se tocan (consistencia con el resto de flujos).
 export async function deleteTransaction(id: string) {
   const session = await auth()
   const userId = (session?.user as { id?: string } | undefined)?.id
@@ -507,15 +570,23 @@ export async function deleteTransaction(id: string) {
     return { error: 'Configura DATABASE_URL para eliminar movimientos' }
 
   const tx = await prisma.transaction.findFirst({
-    where: { id, createdById: userId },
+    where: { id },
     include: {
       account: true,
       debtPayment: true,
       debtorSourcePayment: true,
       charges: { select: { id: true } },
+      paidBySeat: { select: { userId: true } },
+      household: { select: { kind: true, status: true } },
     },
   })
   if (!tx) return { error: 'Movimiento no encontrado' }
+  const groupTx = tx.householdId != null
+  const isCreator = tx.createdById === userId
+  const isPayer = groupTx && (tx.paidBySeat?.userId ?? null) === userId
+  if (!isCreator && !isPayer) return { error: 'Movimiento no encontrado' }
+  if (groupTx && tx.household?.status === 'CLOSED')
+    return { error: 'Este grupo está cerrado' }
 
   const linkedPayments = [tx.debtPayment, tx.debtorSourcePayment].filter(
     (p): p is NonNullable<typeof p> => p != null,
@@ -539,10 +610,17 @@ export async function deleteTransaction(id: string) {
   }
 
   await prisma.transaction.delete({ where: { id } })
+  // Espejo personal del pagador: solo existe por este gasto grupal.
+  if (tx.payerTransactionId) {
+    await prisma.transaction.deleteMany({
+      where: { id: tx.payerTransactionId },
+    })
+  }
 
   revalidatePath('/actividad')
   revalidatePath('/resumen')
   revalidatePath('/cuentas')
+  revalidatePath('/grupos')
   return { ok: true }
 }
 

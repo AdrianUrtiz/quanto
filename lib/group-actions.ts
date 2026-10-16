@@ -449,16 +449,123 @@ const GroupExpenseSchema = z.object({
   seatIds: z.array(z.string().min(1)).default([]),
   // Modo custom: reparto libre en JSON [{seatId, amount}].
   splitsJson: z.string().optional(),
+  // Meses sin intereses: 1 = contado. Igual que en movimientos personales.
+  installments: z.coerce.number().min(1).max(24).default(1),
 })
 
-type ExpensePart = { seatId: string; amount: number }
+type ExpensePart = { seatId: string; total: number; monthly: number }
+
+type ResolvedExpenseParts = {
+  payerSeat: { id: string; userId: string | null; displayName: string }
+  debtorParts: ExpensePart[]
+  seats: { id: string; userId: string | null }[]
+  totalC: number
+}
 
 /**
- * Gasto grupal (pago único, sin MSI).
- * - Si pago YO: nace el movimiento directo con mi cuenta.
- * - Si pagó OTRO integrante: se guarda un reclamo pendiente; cuando ese
- *   usuario entra lo confirma eligiendo de qué cuenta suya salió (ahí nace
- *   el movimiento). Sin confirmar no mueve saldos.
+ * Valida pagador + reparto de un gasto grupal (igual o por importes) y
+ * devuelve las partes deudoras listas para guardar. Compartido por crear
+ * y editar para no duplicar la lógica.
+ * `monthlyAmount` es la cuota MENSUAL por deudor (parte total / meses),
+ * igual que en movimientos personales; `sharePct` sigue siendo % del total.
+ */
+async function resolveGroupExpenseParts(input: {
+  householdId: string
+  payerSeatId: string
+  splitMode: 'equal' | 'custom'
+  seatIds: string[]
+  splitsJson?: string
+  amount: number
+  installments: number
+}): Promise<{ error: string } | ResolvedExpenseParts> {
+  const payerSeat = await prisma.householdMember.findFirst({
+    where: { householdId: input.householdId, id: input.payerSeatId },
+    select: { id: true, userId: true, displayName: true },
+  })
+  if (!payerSeat) return { error: 'Quien pagó ya no está en el grupo' }
+
+  // seatIds = participantes marcados (puede incluir al pagador si consume).
+  // - equal: se divide entre los marcados; cada deudor recibe su parte y
+  //   los centavos sueltos van a los primeros deudores.
+  // - custom: importes de TODOS los marcados (incluido el pagador) y deben
+  //   sumar el total exacto.
+  const totalC = toCents(input.amount)
+  const payerInSplit = input.seatIds.includes(payerSeat.id)
+  const debtorIds = input.seatIds.filter((id) => id !== payerSeat.id)
+  if (debtorIds.length === 0)
+    return { error: 'Elige quiénes participan en el reparto' }
+  let parts: ExpensePart[] = []
+  if (input.splitMode === 'custom') {
+    let raw: unknown = null
+    try {
+      raw = JSON.parse(input.splitsJson ?? 'null')
+    } catch {
+      raw = null
+    }
+    if (!Array.isArray(raw) || raw.length === 0)
+      return { error: 'Reparte el monto entre integrantes' }
+    const seen = new Set<string>()
+    let sumC = 0
+    for (const r of raw) {
+      const seatId = typeof r?.seatId === 'string' ? r.seatId : ''
+      const amount = typeof r?.amount === 'number' ? r.amount : NaN
+      if (!seatId || !(amount > 0) || seen.has(seatId))
+        return { error: 'Reparto inválido' }
+      seen.add(seatId)
+      sumC += toCents(amount)
+      parts.push({ seatId, total: fromCents(toCents(amount)), monthly: 0 })
+    }
+    if (sumC !== totalC)
+      return { error: 'El reparto debe sumar el total del gasto' }
+    if (
+      parts.length !== input.seatIds.length ||
+      !parts.every((p) => input.seatIds.includes(p.seatId))
+    )
+      return { error: 'El reparto no coincide con los participantes' }
+    // Sin la parte del pagador en las deudas: los shares son solo deudores
+    // (la parte del pagador se deriva como total − deudores).
+    // La mensualidad de cada share es su parte total / meses (redondeo por
+    // share; la diferencia de centavos la absorbe la parte del pagador).
+  } else {
+    const divisor = debtorIds.length + (payerInSplit ? 1 : 0)
+    const perC = Math.floor(totalC / divisor)
+    let restC = totalC - perC * divisor
+    parts = debtorIds.map((seatId) => {
+      const extra = restC > 0 ? 1 : 0
+      restC -= extra
+      return { seatId, total: fromCents(perC + extra), monthly: 0 }
+    })
+  }
+  const n = Math.max(1, Math.round(input.installments))
+  const debtorParts = parts
+    .filter((p) => p.seatId !== payerSeat.id)
+    .map((p) => ({
+      seatId: p.seatId,
+      total: p.total,
+      monthly: fromCents(Math.round(toCents(p.total) / n)),
+    }))
+  if (debtorParts.length === 0)
+    return { error: 'Elige quiénes participan en el reparto' }
+
+  const seats = await prisma.householdMember.findMany({
+    where: {
+      householdId: input.householdId,
+      id: { in: debtorParts.map((p) => p.seatId) },
+    },
+    select: { id: true, userId: true },
+  })
+  if (seats.length !== debtorParts.length)
+    return { error: 'Algún integrante ya no está en el grupo' }
+
+  return { payerSeat, debtorParts, seats, totalC }
+}
+
+/**
+ * Gasto grupal: se registra SIEMPRE de inmediato (a 1 mes o a MSI).
+ * - Si pago YO: el movimiento nace con mi cuenta.
+ * - Si pagó OTRO integrante (reclamado o no): el movimiento nace sin cuenta
+ *   (no mueve saldos personales); el pagador la indica después desde el
+ *   detalle del grupo y ahí se crea su movimiento personal vinculado.
  */
 export async function createGroupExpense(formData: FormData) {
   const userId = meIdOf(await auth())
@@ -477,6 +584,7 @@ export async function createGroupExpense(formData: FormData) {
     splitMode: String(formData.get('splitMode') ?? 'equal'),
     seatIds,
     splitsJson: String(formData.get('splitsJson') ?? '') || undefined,
+    installments: Number(formData.get('installments') ?? 1),
   })
   if (!parsed.success)
     return { error: parsed.error.issues[0]?.message ?? 'Datos inválidos' }
@@ -495,225 +603,49 @@ export async function createGroupExpense(formData: FormData) {
   if (group.household.status !== 'ACTIVE')
     return { error: 'Este grupo está cerrado' }
 
-  const payerSeat = await prisma.householdMember.findFirst({
-    where: { householdId: v.householdId, id: v.payerSeatId },
-    select: { id: true, userId: true, displayName: true },
+  const n = Math.max(1, Math.round(v.installments))
+
+  const resolved = await resolveGroupExpenseParts({
+    householdId: v.householdId,
+    payerSeatId: v.payerSeatId,
+    splitMode: v.splitMode,
+    seatIds,
+    splitsJson: v.splitsJson,
+    amount: v.amount,
+    installments: n,
   })
-  if (!payerSeat) return { error: 'Quien pagó ya no está en el grupo' }
+  if ('error' in resolved) return { error: resolved.error }
+  const { payerSeat, debtorParts, seats, totalC } = resolved
   const payerIsMe = payerSeat.userId === userId
 
-  // Reparto: partes iguales o importes libres.
-  // seatIds = participantes marcados (puede incluir al pagador si consume).
-  // - equal: se divide entre los marcados; cada deudor recibe su parte y
-  //   los centavos sueltos van a los primeros deudores.
-  // - custom: importes de los deudores; si el pagador no está marcado, deben
-  //   sumar el total; si sí, la diferencia es su parte consumida.
-  const totalC = toCents(v.amount)
-  const payerInSplit = seatIds.includes(payerSeat.id)
-  const debtorIds = seatIds.filter((id) => id !== payerSeat.id)
-  if (debtorIds.length === 0)
-    return { error: 'Elige quiénes participan en el reparto' }
-  // En importes, el pagador también pone su parte: las entries cubren a
-  // TODOS los marcados y deben sumar el total exacto.
-  let parts: ExpensePart[] = []
-  if (v.splitMode === 'custom') {
-    let raw: unknown = null
-    try {
-      raw = JSON.parse(v.splitsJson ?? 'null')
-    } catch {
-      raw = null
-    }
-    if (!Array.isArray(raw) || raw.length === 0)
-      return { error: 'Reparte el monto entre integrantes' }
-    const seen = new Set<string>()
-    let sumC = 0
-    for (const r of raw) {
-      const seatId = typeof r?.seatId === 'string' ? r.seatId : ''
-      const amount = typeof r?.amount === 'number' ? r.amount : NaN
-      if (!seatId || !(amount > 0) || seen.has(seatId))
-        return { error: 'Reparto inválido' }
-      seen.add(seatId)
-      sumC += toCents(amount)
-      parts.push({ seatId, amount: fromCents(toCents(amount)) })
-    }
-    if (sumC !== totalC)
-      return { error: 'El reparto debe sumar el total del gasto' }
-    if (
-      parts.length !== seatIds.length ||
-      !parts.every((p) => seatIds.includes(p.seatId))
-    )
-      return { error: 'El reparto no coincide con los participantes' }
-    // Sin la parte del pagador en las deudas: los shares son solo deudores
-    // (la parte del pagador se deriva como total − deudores).
-  } else {
-    const divisor = debtorIds.length + (payerInSplit ? 1 : 0)
-    const perC = Math.floor(totalC / divisor)
-    let restC = totalC - perC * divisor
-    parts = debtorIds.map((seatId) => {
-      const extra = restC > 0 ? 1 : 0
-      restC -= extra
-      return { seatId, amount: fromCents(perC + extra) }
-    })
-  }
-  const debtorParts = parts.filter((p) => p.seatId !== payerSeat.id)
-  if (debtorParts.length === 0)
-    return { error: 'Elige quiénes participan en el reparto' }
-
-  const seats = await prisma.householdMember.findMany({
-    where: {
-      householdId: v.householdId,
-      id: { in: debtorParts.map((p) => p.seatId) },
-    },
-    select: { id: true, userId: true },
-  })
-  if (seats.length !== debtorParts.length)
-    return { error: 'Algún integrante ya no está en el grupo' }
-
-  // Yo pagué: movimiento directo con mi cuenta.
+  // Solo puedo atar MI cuenta al movimiento (es mi dinero).
+  // Si pago yo, la cuenta es obligatoria; si pagó otro, nace sin cuenta y
+  // el pagador la indica después desde el detalle del grupo.
+  let accountId: string | null = null
   if (payerIsMe) {
     if (!v.accountId) return { error: 'Elige de qué cuenta salió' }
     const account = await prisma.account.findFirst({
       where: { id: v.accountId, userId },
+      select: { id: true },
     })
     if (!account) return { error: 'Cuenta no encontrada' }
-
-    await prisma.$transaction(async (db) => {
-      const tx = await db.transaction.create({
-        data: {
-          type: 'EXPENSE',
-          amount: v.amount,
-          concept: v.concept.trim(),
-          category: v.category,
-          date: parseWallInput(v.date),
-          accountId: v.accountId as string,
-          createdById: userId,
-          installments: 1,
-          isShared: true,
-          householdId: v.householdId,
-        },
-      })
-      for (const part of debtorParts) {
-        const seat = seats.find((s) => s.id === part.seatId)!
-        await db.transactionShare.create({
-          data: {
-            transactionId: tx.id,
-            debtorId: seat.userId,
-            seatId: seat.id,
-            sharePct: (toCents(part.amount) / totalC) * 100,
-            monthlyAmount: part.amount,
-            isFixedAmount: v.splitMode === 'custom',
-          },
-        })
-      }
-    })
-    revalidateAll()
-    return { ok: true as const }
+    accountId = account.id
   }
 
-  // Pagó otro: reclamo pendiente hasta que confirme con su cuenta.
-  await prisma.groupExpenseClaim.create({
-    data: {
-      householdId: v.householdId,
-      concept: v.concept.trim(),
-      amount: v.amount,
-      category: v.category,
-      date: parseWallInput(v.date),
-      payerSeatId: payerSeat.id,
-      registeredById: userId,
-      splits: parts.map((p) => ({ seatId: p.seatId, amount: p.amount })),
-      payerInSplit,
-    },
-  })
-  revalidateAll()
-  return { ok: true as const, pending: true as const }
-}
-
-/**
- * El pagador confirma un reclamo: elige de qué cuenta suya salió y nace el
- * movimiento real con su reparto. Solo el ocupante del seat pagador.
- */
-export async function confirmGroupExpenseClaim(
-  claimId: string,
-  accountId: string,
-) {
-  const userId = meIdOf(await auth())
-  if (!userId) return { error: 'No autenticado' }
-  if (!process.env.DATABASE_URL) return { error: 'Configura DATABASE_URL' }
-
-  const claim = await prisma.groupExpenseClaim.findUnique({
-    where: { id: claimId },
-    include: {
-      household: { select: { kind: true, status: true } },
-      payerSeat: { select: { id: true, userId: true, householdId: true } },
-    },
-  })
-  if (!claim || claim.household.kind !== 'GROUP')
-    return { error: 'Reclamo no encontrado' }
-  if (claim.household.status !== 'ACTIVE')
-    return { error: 'Este grupo está cerrado' }
-  if (claim.payerSeat.userId !== userId)
-    return { error: 'Solo quien pagó confirma desde qué cuenta fue' }
-
-  const account = await prisma.account.findFirst({
-    where: { id: accountId, userId },
-    select: { id: true },
-  })
-  if (!account) return { error: 'Cuenta no encontrada' }
-  const catError = await checkCategory(userId, claim.category, 'EXPENSE')
-  if (catError) return { error: catError }
-
-  const rawSplits = (Array.isArray(claim.splits) ? claim.splits : []) as {
-    seatId?: unknown
-    amount?: unknown
-  }[]
-  const parts: ExpensePart[] = []
-  const seen = new Set<string>()
-  for (const r of rawSplits) {
-    const seatId = typeof r.seatId === 'string' ? r.seatId : ''
-    const amount = typeof r.amount === 'number' ? r.amount : NaN
-    if (!seatId || !(amount > 0) || seen.has(seatId))
-      return { error: 'El reparto guardado es inválido' }
-    seen.add(seatId)
-    parts.push({ seatId, amount: fromCents(toCents(amount)) })
-  }
-  if (parts.length === 0) return { error: 'El reparto guardado es inválido' }
-  // Reclamos nuevos: las entries cubren a todos y suman el total.
-  // Reclamos viejos: solo deudores y la diferencia era del pagador.
-  const storedSumC = parts.reduce((a, p) => a + toCents(p.amount), 0)
-  const totalClaimC = toCents(Number(claim.amount))
-  if (storedSumC > totalClaimC)
-    return { error: 'El reparto guardado es inválido' }
-  if (!claim.payerInSplit && storedSumC !== totalClaimC)
-    return { error: 'El reparto guardado es inválido' }
-  // Reclamos nuevos traen la parte del pagador: no genera deuda.
-  const debtorParts = parts.filter((p) => p.seatId !== claim.payerSeatId)
-  if (debtorParts.length === 0)
-    return { error: 'El reparto guardado es inválido' }
-
-  const seats = await prisma.householdMember.findMany({
-    where: {
-      householdId: claim.householdId,
-      id: { in: debtorParts.map((p) => p.seatId) },
-    },
-    select: { id: true, userId: true },
-  })
-  if (seats.length !== debtorParts.length)
-    return { error: 'Algún integrante ya no está en el grupo' }
-
-  const totalC = toCents(Number(claim.amount))
   await prisma.$transaction(async (db) => {
     const tx = await db.transaction.create({
       data: {
         type: 'EXPENSE',
-        amount: claim.amount,
-        concept: claim.concept,
-        category: claim.category,
-        date: claim.date,
-        accountId: account.id,
+        amount: v.amount,
+        concept: v.concept.trim(),
+        category: v.category,
+        date: parseWallInput(v.date),
+        accountId,
         createdById: userId,
-        installments: 1,
+        installments: n,
         isShared: true,
-        householdId: claim.householdId,
+        householdId: v.householdId,
+        paidBySeatId: payerSeat.id,
       },
     })
     for (const part of debtorParts) {
@@ -723,36 +655,224 @@ export async function confirmGroupExpenseClaim(
           transactionId: tx.id,
           debtorId: seat.userId,
           seatId: seat.id,
-          sharePct: (toCents(part.amount) / totalC) * 100,
-          monthlyAmount: part.amount,
-          isFixedAmount: true,
+          sharePct: (toCents(part.total) / totalC) * 100,
+          monthlyAmount: part.monthly,
+          isFixedAmount: v.splitMode === 'custom',
         },
       })
     }
-    await db.groupExpenseClaim.delete({ where: { id: claim.id } })
+  })
+  revalidateAll()
+  return { ok: true as const, pending: payerIsMe ? undefined : (true as const) }
+}
+
+const UpdateGroupExpenseSchema = GroupExpenseSchema.extend({
+  id: z.string().min(1),
+})
+
+/**
+ * Edita un gasto grupal con el mismo formulario de registro (concepto,
+ * monto, categoría, fecha, pagador y reparto). Lo puede hacer quien lo
+ * registró o quien pagó. La cuenta no se toca aquí: pertenece al
+ * movimiento personal del pagador (se indica desde el detalle).
+ * Si ya tiene pagos registrados, el reparto queda fijo.
+ */
+export async function updateGroupExpense(formData: FormData) {
+  const userId = meIdOf(await auth())
+  if (!userId) return { error: 'No autenticado' }
+  if (!process.env.DATABASE_URL) return { error: 'Configura DATABASE_URL' }
+
+  const seatIds = formData.getAll('seatIds').map(String).filter(Boolean)
+  const parsed = UpdateGroupExpenseSchema.safeParse({
+    id: String(formData.get('id') ?? ''),
+    householdId: String(formData.get('householdId') ?? ''),
+    payerSeatId: String(formData.get('payerSeatId') ?? ''),
+    amount: Number(formData.get('amount')),
+    concept: String(formData.get('concept') ?? ''),
+    category: String(formData.get('category') ?? 'OTRO'),
+    date: String(formData.get('date') ?? ''),
+    splitMode: String(formData.get('splitMode') ?? 'equal'),
+    seatIds,
+    splitsJson: String(formData.get('splitsJson') ?? '') || undefined,
+  })
+  if (!parsed.success)
+    return { error: parsed.error.issues[0]?.message ?? 'Datos inválidos' }
+  const v = parsed.data
+
+  const tx = await prisma.transaction.findUnique({
+    where: { id: v.id },
+    include: {
+      household: { select: { kind: true, status: true } },
+      paidBySeat: { select: { id: true, userId: true } },
+      shares: { select: { id: true } },
+    },
+  })
+  if (!tx || !tx.householdId || tx.household?.kind !== 'GROUP')
+    return { error: 'Gasto no encontrado' }
+  if (tx.householdId !== v.householdId)
+    return { error: 'El gasto no es de este grupo' }
+  const isCreator = tx.createdById === userId
+  const isPayer = (tx.paidBySeat?.userId ?? null) === userId
+  if (!isCreator && !isPayer) return { error: 'Gasto no encontrado' }
+  if (tx.household.status !== 'ACTIVE')
+    return { error: 'Este grupo está cerrado' }
+
+  // Con pagos registrados, el reparto queda fijo: solo cabecera.
+  // Los meses tampoco cambian nunca al editar (igual que en movimientos
+  // personales): las parcialidades ya registradas usan las claves de mes
+  // originales y los shares se recrean por mes.
+  const rawInstallments = formData.get('installments')
+  if (
+    rawInstallments != null &&
+    String(rawInstallments) !== '' &&
+    Math.max(1, Math.round(Number(rawInstallments))) !==
+      Math.max(1, Math.round(tx.installments))
+  ) {
+    return { error: 'Los meses no se pueden cambiar al editar' }
+  }
+  const hasPayments =
+    tx.shares.length > 0 &&
+    (await prisma.debtPayment.count({
+      where: { share: { transactionId: tx.id } },
+    })) > 0
+
+  const catError = await checkCategory(userId, v.category, 'EXPENSE')
+  if (catError) return { error: catError }
+
+  const header = {
+    amount: v.amount,
+    concept: v.concept.trim(),
+    category: v.category,
+    date: parseWallInput(v.date),
+  }
+  if (hasPayments) {
+    await prisma.$transaction(async (db) => {
+      await db.transaction.update({ where: { id: tx.id }, data: header })
+      if (tx.payerTransactionId) {
+        await db.transaction.updateMany({
+          where: { id: tx.payerTransactionId },
+          data: header,
+        })
+      }
+    })
+    revalidateAll()
+    return { ok: true as const }
+  }
+
+  const resolved = await resolveGroupExpenseParts({
+    householdId: v.householdId,
+    payerSeatId: v.payerSeatId,
+    splitMode: v.splitMode,
+    seatIds,
+    splitsJson: v.splitsJson,
+    amount: v.amount,
+    installments: tx.installments,
+  })
+  if ('error' in resolved) return { error: resolved.error }
+  const { payerSeat, debtorParts, seats, totalC } = resolved
+
+  const payerChanged = (tx.paidBySeatId ?? null) !== payerSeat.id
+
+  await prisma.$transaction(async (db) => {
+    if (tx.payerTransactionId) {
+      if (payerChanged) {
+        // El espejo era del pagador anterior: su premisa queda sin efecto.
+        await db.transaction.deleteMany({
+          where: { id: tx.payerTransactionId },
+        })
+      } else {
+        await db.transaction.updateMany({
+          where: { id: tx.payerTransactionId },
+          data: header,
+        })
+      }
+    }
+    await db.transaction.update({
+      where: { id: tx.id },
+      data: {
+        ...header,
+        paidBySeatId: payerSeat.id,
+        payerTransactionId: payerChanged ? null : tx.payerTransactionId,
+      },
+    })
+    await db.transactionShare.deleteMany({
+      where: { transactionId: tx.id },
+    })
+    for (const part of debtorParts) {
+      const seat = seats.find((s) => s.id === part.seatId)!
+      await db.transactionShare.create({
+        data: {
+          transactionId: tx.id,
+          debtorId: seat.userId,
+          seatId: seat.id,
+          sharePct: (toCents(part.total) / totalC) * 100,
+          monthlyAmount: part.monthly,
+          isFixedAmount: v.splitMode === 'custom',
+        },
+      })
+    }
   })
   revalidateAll()
   return { ok: true as const }
 }
 
-/** Cancelar un reclamo pendiente (quien lo registró o el creador). */
-export async function cancelGroupExpenseClaim(claimId: string) {
+/**
+ * El pagador indica de qué cuenta suya salió un gasto grupal que otro
+ * registró a su nombre: se crea su movimiento personal (no compartido)
+ * y se vincula al gasto del grupo. Solo el ocupante del seat pagador,
+ * solo si el gasto aún no tiene cuenta indicada.
+ */
+export async function setGroupExpenseAccount(
+  transactionId: string,
+  accountId: string,
+) {
   const userId = meIdOf(await auth())
   if (!userId) return { error: 'No autenticado' }
   if (!process.env.DATABASE_URL) return { error: 'Configura DATABASE_URL' }
 
-  const claim = await prisma.groupExpenseClaim.findUnique({
-    where: { id: claimId },
+  const tx = await prisma.transaction.findUnique({
+    where: { id: transactionId },
     include: {
-      household: { select: { kind: true, createdById: true } },
+      household: { select: { kind: true, status: true, name: true } },
+      paidBySeat: { select: { id: true, userId: true } },
     },
   })
-  if (!claim || claim.household.kind !== 'GROUP')
-    return { error: 'Reclamo no encontrado' }
-  if (claim.registeredById !== userId && claim.household.createdById !== userId)
-    return { error: 'Solo quien lo registró puede cancelarlo' }
+  if (!tx || !tx.householdId || tx.household?.kind !== 'GROUP')
+    return { error: 'Gasto no encontrado' }
+  if (tx.household.status !== 'ACTIVE')
+    return { error: 'Este grupo está cerrado' }
+  if (tx.paidBySeat?.userId !== userId)
+    return { error: 'Solo quien pagó indica desde qué cuenta fue' }
+  if (tx.accountId != null || tx.payerTransactionId != null)
+    return { error: 'Este gasto ya tiene cuenta indicada' }
 
-  await prisma.groupExpenseClaim.delete({ where: { id: claim.id } })
+  const account = await prisma.account.findFirst({
+    where: { id: accountId, userId },
+    select: { id: true },
+  })
+  if (!account) return { error: 'Cuenta no encontrada' }
+  const catError = await checkCategory(userId, tx.category, 'EXPENSE')
+  if (catError) return { error: catError }
+
+  await prisma.$transaction(async (db) => {
+    const personal = await db.transaction.create({
+      data: {
+        type: 'EXPENSE',
+        amount: tx.amount,
+        concept: tx.concept,
+        category: tx.category,
+        date: tx.date,
+        accountId: account.id,
+        createdById: userId,
+        installments: tx.installments,
+        isShared: false,
+      },
+    })
+    await db.transaction.update({
+      where: { id: tx.id },
+      data: { payerTransactionId: personal.id },
+    })
+  })
   revalidateAll()
   return { ok: true as const }
 }
@@ -779,19 +899,34 @@ export type GroupDetail = {
     id: string
     concept: string
     amount: number
+    category: string
     date: string
     /** Mes de la parcialidad (pago único): clave de registro del abono. */
     payKey: string
+    /** Meses del gasto (1 = contado). */
+    installments: number
     creatorName: string
     isMine: boolean
+    /** Seat que pagó (null en datos viejos sin atribución). */
+    payerSeatId: string | null
+    /** Quién pagó (atribución por paidBySeat, no por quien registró). */
+    payerName: string
+    isPayerMe: boolean
+    /** El gasto ya tiene cuenta indicada (personal del pagador). */
+    hasAccount: boolean
     accountName: string | null
     /** Lo consumido por quien pagó (total − partes de deudores). */
     payerPortion: number
     shares: {
       id: string
+      /** Seat deudor (null en datos viejos sin atribución). */
+      seatId: string | null
       seatName: string
       debtorName: string | null
+      /** Cuota mensual de este deudor (= parte total / meses). */
       monthly: number
+      /** Meses con su abono confirmado/pendiente (uno por parcialidad). */
+      months: { payKey: string; monthLabel: string; paid: number; pending: number }[]
       paid: number
       pending: number
       isMine: boolean
@@ -822,26 +957,13 @@ export type GroupDetail = {
     toConfirm: SettlementRow[]
     myPending: SettlementRow[]
   }
-  /** Gastos que alguien dice que otro pagó: esperan su confirmación. */
-  claims: {
+  /** Gastos sin cuenta donde YO soy el pagador: debo indicar mi cuenta. */
+  awaitingAccount: {
     id: string
     concept: string
     amount: number
     date: string
-    category: string
-    payerSeatId: string
-    payerName: string
     registeredByName: string
-    /** Yo soy quien supuestamente pagó: elijo la cuenta para confirmar. */
-    isPayerMe: boolean
-    canCancel: boolean
-    /** Parte explícita de quien pagó (0 si no consume). */
-    payerAmount: number
-    splits: {
-      seatId: string
-      seatName: string
-      amount: number
-    }[]
   }[]
 }
 
@@ -877,6 +999,7 @@ export async function getGroupDetail(
           seat: { select: { id: true, displayName: true, userId: true } },
         },
       },
+      paidBySeat: { select: { id: true, displayName: true, userId: true } },
     },
     orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
   })
@@ -933,8 +1056,11 @@ export async function getGroupDetail(
   const paidByMember = new Map<string, number>()
   const owedBySeat = new Map<string, number>()
   const expenses: GroupDetail['expenses'] = txs.map((t) => {
-    const payerSeat = h.members.find((m) => m.userId === t.createdById)
+    const payerSeat =
+      h.members.find((m) => m.id === t.paidBySeatId) ??
+      h.members.find((m) => m.userId === t.createdById)
     const txTotalC = toCents(Number(t.amount))
+    const n = Math.max(1, Math.round(t.installments))
     if (payerSeat) {
       paidByMember.set(
         payerSeat.id,
@@ -944,7 +1070,7 @@ export async function getGroupDetail(
     // Lo consumido por quien pagó = total − partes de los deudores.
     // (En gastos viejos puede ser 0: antes se dividía solo entre deudores.)
     const debtorSumC = t.shares.reduce(
-      (a, s) => a + toCents(Number(s.monthlyAmount)),
+      (a, s) => a + toCents(Number(s.monthlyAmount)) * n,
       0,
     )
     const payerPortionC = Math.max(0, txTotalC - debtorSumC)
@@ -954,100 +1080,86 @@ export async function getGroupDetail(
         (owedBySeat.get(payerSeat.id) ?? 0) + fromCents(payerPortionC),
       )
     }
-    // Pago único: la parcialidad cae en el mes de compra (o de vencimiento
-    // si la cuenta es crédito con corte), igual que en pareja.
-    const payKey =
-      payableInstallments(
-        new Date(t.date),
-        1,
-        t.account?.statementDay ?? null,
-        t.account?.dueDay ?? null,
-      )[0]?.payKey ?? t.date.toISOString().slice(0, 7)
+    // Una fila por parcialidad (mes de compra o vencimiento si la cuenta
+    // es crédito con corte), igual que en pareja.
+    const payKeys = payableInstallments(
+      new Date(t.date),
+      t.installments,
+      t.account?.statementDay ?? null,
+      t.account?.dueDay ?? null,
+    )
+    const payKey = payKeys[0]?.payKey ?? t.date.toISOString().slice(0, 7)
     return {
       id: t.id,
       concept: t.concept,
       amount: Number(t.amount),
+      category: t.category,
       date: t.date.toISOString(),
       payKey,
+      installments: Math.max(1, Math.round(t.installments)),
       creatorName: t.createdBy.name,
       isMine: t.createdById === userId,
+      payerSeatId: t.paidBySeatId,
+      payerName: payerSeat?.displayName ?? t.createdBy.name,
+      isPayerMe: payerSeat?.userId === userId,
+      hasAccount: t.accountId != null,
       accountName: t.account?.name ?? null,
       payerPortion: fromCents(payerPortionC),
       shares: t.shares.map((s) => {
-        const sum = sums.get(`${s.id}:${payKey}`) ?? {
-          confirmed: 0,
-          pending: 0,
-        }
+        const months = payKeys.map((p) => {
+          const sum = sums.get(`${s.id}:${p.payKey}`) ?? {
+            confirmed: 0,
+            pending: 0,
+          }
+          return {
+            payKey: p.payKey,
+            monthLabel: monthLabelOf(p.payKey),
+            paid: sum.confirmed,
+            pending: sum.pending,
+          }
+        })
+        const paid = months.reduce((a, m) => a + m.paid, 0)
+        const pending = months.reduce((a, m) => a + m.pending, 0)
         if (s.seatId) {
           owedBySeat.set(
             s.seatId,
-            (owedBySeat.get(s.seatId) ?? 0) + Number(s.monthlyAmount),
+            (owedBySeat.get(s.seatId) ?? 0) +
+              Number(s.monthlyAmount) * n,
           )
         }
         const seatName = s.seat?.displayName ?? s.debtor?.name ?? 'Lugar'
         return {
           id: s.id,
+          seatId: s.seatId,
           seatName,
           debtorName: s.debtor?.name ?? null,
           monthly: Number(s.monthlyAmount),
-          paid: sum.confirmed,
-          pending: sum.pending,
+          months,
+          paid,
+          pending,
           isMine: (s.debtor?.id ?? s.seat?.userId) === userId,
         }
       }),
     }
   })
 
-  const claimRows = await prisma.groupExpenseClaim.findMany({
-    where: { householdId },
-    include: {
-      payerSeat: {
-        select: { id: true, displayName: true, userId: true },
-      },
-      registeredBy: { select: { id: true, name: true } },
-    },
-    orderBy: { createdAt: 'desc' },
-  })
-  const memberById = new Map(h.members.map((m) => [m.id, m]))
-  const claims: GroupDetail['claims'] = claimRows.map((c) => {
-    const rawSplits = (Array.isArray(c.splits) ? c.splits : []) as {
-      seatId?: unknown
-      amount?: unknown
-    }[]
-    const seat = c.payerSeat
-    return {
-      id: c.id,
-      concept: c.concept,
-      amount: Number(c.amount),
-      date: c.date.toISOString(),
-      category: c.category,
-      payerSeatId: c.payerSeatId,
-      payerName: seat.displayName,
-      registeredByName: c.registeredBy.name,
-      isPayerMe: seat.userId === userId,
-      canCancel: c.registeredById === userId || h.createdById === userId,
-      splits: rawSplits
-        .filter(
-          (r): r is { seatId: string; amount: number } =>
-            typeof r.seatId === 'string' &&
-            typeof r.amount === 'number' &&
-            r.seatId !== c.payerSeatId,
-        )
-        .map((r) => ({
-          seatId: r.seatId,
-          seatName: memberById.get(r.seatId)?.displayName ?? 'Integrante',
-          amount: r.amount,
-        })),
-      payerAmount: rawSplits
-        .filter(
-          (r): r is { seatId: string; amount: number } =>
-            typeof r.seatId === 'string' &&
-            typeof r.amount === 'number' &&
-            r.seatId === c.payerSeatId,
-        )
-        .reduce((a, r) => a + r.amount, 0),
-    }
-  })
+  // Gastos sin cuenta donde YO soy el pagador: debo indicar de qué
+  // cuenta mía salió (ahí nace mi movimiento personal vinculado).
+  const awaitingAccount: GroupDetail['awaitingAccount'] = txs
+    .filter(
+      (t) =>
+        t.accountId == null &&
+        t.payerTransactionId == null &&
+        (t.paidBySeat?.userId ?? null) === userId,
+    )
+    .map((t) => ({
+      id: t.id,
+      concept: t.concept,
+      amount: Number(t.amount),
+      date: t.date.toISOString(),
+      registeredByName:
+        t.createdById === userId ? 'Registrado por ti' : t.createdBy.name,
+    }))
 
   // Balance NETO por seat (pagado − consumido ± liquidaciones confirmadas).
   const nets = await getGroupNets(householdId)
@@ -1076,7 +1188,7 @@ export async function getGroupDetail(
     }),
     expenses,
     pending: { toConfirm, myPending },
-    claims,
+    awaitingAccount,
     settlements,
   }
 }
@@ -1221,6 +1333,9 @@ export async function deleteGroup(householdId: string) {
   const shareIds = shares.map((s) => s.id)
 
   await prisma.$transaction(async (db) => {
+    // Las liquidaciones neteadas se borran; sus movimientos personales
+    // (ingresos/egresos de cada quien) se conservan como historial.
+    await db.groupSettlement.deleteMany({ where: { householdId } })
     // Los pagos ligados se borran; sus movimientos de dinero quedan como
     // movimientos personales normales (ya eran tuyos).
     if (shareIds.length > 0) {

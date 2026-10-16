@@ -80,7 +80,9 @@ export function TransactionRow({ t, cats }: { t: TxRow; cats: CatalogRow[] }) {
             ? `Compartido por ${t.creatorName}`
             : transfer && t.transferToAccountName
               ? `${t.accountName} → ${t.transferToAccountName}`
-              : `${t.accountName} · ${t.creatorName}`}
+              : t.isGroup && !t.accountName
+                ? `Gasto grupal · ${t.creatorName}`
+                : `${t.accountName} · ${t.creatorName}`}
         </p>
         <div className="mt-1 flex flex-wrap gap-1">
           {t.pendingSync && <Badge variant="warning">Pendiente</Badge>}

@@ -204,9 +204,10 @@ export async function buildSnapshot(userId: string): Promise<SnapshotPayload> {
         amount: normalizeMoney(t.amount),
         date: t.date.toISOString(),
         type: t.type,
-        accountId: t.accountId,
-        accountName: t.account.name,
-        accountType: t.account.type,
+        // Gastos grupales registrados por otro pueden no tener cuenta aún.
+        accountId: t.accountId ?? '',
+        accountName: t.account?.name ?? '',
+        accountType: t.account?.type ?? 'DEBIT',
         transferToAccountId: t.transferToAccountId ?? null,
         transferToAccountName: t.transferToAccountId
           ? (accById.get(t.transferToAccountId)?.name ?? null)
@@ -426,11 +427,12 @@ export async function buildSnapshot(userId: string): Promise<SnapshotPayload> {
   const partnerDebts: SnapshotPayload['partnerDebts'] = [
     ...partnerAll.map((t) => ({
       shareId: t.shares[0]?.id ?? '',
-      accountId: t.account.id,
-      accountName: t.account.name,
-      accountType: t.account.type as 'DEBIT' | 'CREDIT',
-      dueDay: t.account.dueDay ?? null,
-      statementDay: t.account.statementDay ?? null,
+      // Compartidos de pareja: siempre con cuenta (los de grupo van aparte).
+      accountId: t.account?.id ?? '',
+      accountName: t.account?.name ?? '',
+      accountType: (t.account?.type ?? 'DEBIT') as 'DEBIT' | 'CREDIT',
+      dueDay: t.account?.dueDay ?? null,
+      statementDay: t.account?.statementDay ?? null,
       debtorId: userId,
       debtorName: meName,
       creditorName: t.createdBy.name,
@@ -449,11 +451,12 @@ export async function buildSnapshot(userId: string): Promise<SnapshotPayload> {
         )
         .map((s) => ({
           shareId: s.id,
-          accountId: t.account.id,
-          accountName: t.account.name,
-          accountType: t.account.type as 'DEBIT' | 'CREDIT',
-          dueDay: t.account.dueDay ?? null,
-          statementDay: t.account.statementDay ?? null,
+          // Compartidos de pareja: siempre con cuenta (los de grupo van aparte).
+          accountId: t.account?.id ?? '',
+          accountName: t.account?.name ?? '',
+          accountType: (t.account?.type ?? 'DEBIT') as 'DEBIT' | 'CREDIT',
+          dueDay: t.account?.dueDay ?? null,
+          statementDay: t.account?.statementDay ?? null,
           debtorId: s.debtorId,
           debtorName:
             s.externalName ?? s.debtor?.name ?? s.seat?.displayName ?? 'Pareja',
@@ -477,8 +480,8 @@ export async function buildSnapshot(userId: string): Promise<SnapshotPayload> {
       date: t.date.toISOString(),
       createdById: t.createdById,
       creatorName: t.createdBy.name,
-      statementDay: t.account.statementDay ?? null,
-      dueDay: t.account.dueDay ?? null,
+      statementDay: t.account?.statementDay ?? null,
+      dueDay: t.account?.dueDay ?? null,
     }),
   )
 

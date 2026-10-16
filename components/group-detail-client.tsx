@@ -9,6 +9,7 @@ import {
   Lock,
   LockOpen,
   MoreVertical,
+  Pencil,
   Plus,
   Share2,
   Trash2,
@@ -23,6 +24,7 @@ import { toast } from 'sonner'
 import { BottomSheet } from '@/components/bottom-sheet'
 import {
   type GroupAccountOpt,
+  type GroupExpenseEntry,
   GroupExpenseForm,
   type GroupSeatOpt,
 } from '@/components/group-expense-form'
@@ -37,15 +39,16 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
+import { deleteTransaction } from '@/lib/actions'
 import type { CatalogRow } from '@/lib/catalog'
 import {
   type GroupDetail,
-  cancelGroupExpenseClaim,
   closeGroup,
-  confirmGroupExpenseClaim,
   deleteGroup,
   reopenGroup,
+  setGroupExpenseAccount,
 } from '@/lib/group-actions'
 import { suggestSettlements } from '@/lib/group-settle'
 import {
@@ -55,7 +58,7 @@ import {
 } from '@/lib/group-settlements'
 import { syncForce } from '@/lib/offline/useSnapshotSync'
 import { cancelPayment } from '@/lib/payment-actions'
-import { cn, formatMoney } from '@/lib/utils'
+import { cn, formatMoney, monthLabelEs } from '@/lib/utils'
 
 const MEMBER_COLORS = [
   '#ef4444',
@@ -89,7 +92,64 @@ export function GroupDetailClient({
   const [claimAccountId, setClaimAccountId] = useState('')
   const [claimBusy, setClaimBusy] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
+  const [tab, setTab] = useState<'gastos' | 'integrantes'>('gastos')
   const [suggestOpen, setSuggestOpen] = useState(false)
+  // Editar/eliminar gasto: lo puede hacer quien lo registró o quien pagó.
+  const [editTx, setEditTx] = useState<GroupDetail['expenses'][number] | null>(
+    null,
+  )
+  const [delTx, setDelTx] = useState<GroupDetail['expenses'][number] | null>(
+    null,
+  )
+  const [deleting, setDeleting] = useState(false)
+
+  async function doDeleteExpense() {
+    if (!delTx) return
+    setDeleting(true)
+    const res = await deleteTransaction(delTx.id)
+    setDeleting(false)
+    if ('error' in res && res.error) {
+      toast.error(res.error)
+    } else {
+      toast.success('Gasto eliminado')
+      setDelTx(null)
+      refresh()
+    }
+  }
+
+  function groupEntry(t: GroupDetail['expenses'][number]): GroupExpenseEntry {
+    // El formulario trabaja con TOTALES por seat; la mensualidad guardada
+    // se multiplica por los meses (la diferencia de centavos por redondeo
+    // se ajusta en la última parte para que cuadre exacto con el total).
+    const n = Math.max(1, t.installments)
+    const debtorSplits = t.shares.flatMap((s) =>
+      s.seatId ? [{ seatId: s.seatId, amount: s.monthly * n }] : [],
+    )
+    const payerConsumes = t.payerSeatId != null && t.payerPortion > 0.005
+    const amounts = [
+      ...debtorSplits,
+      ...(payerConsumes && t.payerSeatId
+        ? [{ seatId: t.payerSeatId, amount: t.payerPortion }]
+        : []),
+    ]
+    const sum = amounts.reduce((a, s) => a + s.amount, 0)
+    const drift = Math.round((t.amount - sum) * 100) / 100
+    if (amounts.length > 0 && Math.abs(drift) > 0.0001) {
+      amounts[amounts.length - 1].amount =
+        Math.round((amounts[amounts.length - 1].amount + drift) * 100) / 100
+    }
+    return {
+      id: t.id,
+      amount: t.amount,
+      concept: t.concept,
+      category: t.category,
+      date: t.date,
+      payerSeatId: t.payerSeatId,
+      installments: n,
+      participantIds: amounts.map((s) => s.seatId),
+      amounts,
+    }
+  }
   const [menuConfirm, setMenuConfirm] = useState<null | 'close' | 'delete'>(
     null,
   )
@@ -97,7 +157,6 @@ export function GroupDetailClient({
 
   const confirmTarget =
     detail.pending.toConfirm.find((p) => p.id === confirmId) ?? null
-  const claimTarget = detail.claims.find((c) => c.id === claimId) ?? null
 
   // Sugerencia neteada: quién le paga a quién para dejar todo a mano.
   const suggestions = useMemo(
@@ -213,6 +272,9 @@ export function GroupDetailClient({
     }
   }
 
+  const claimTarget =
+    detail.awaitingAccount.find((c) => c.id === claimId) ?? null
+
   async function confirmClaim() {
     if (!claimTarget || !claimAccountId) {
       toast.error('Elige de qué cuenta salió')
@@ -220,24 +282,15 @@ export function GroupDetailClient({
     }
     setClaimBusy(true)
     try {
-      const res = await confirmGroupExpenseClaim(claimTarget.id, claimAccountId)
+      const res = await setGroupExpenseAccount(claimTarget.id, claimAccountId)
       if ('error' in res && res.error) toast.error(res.error)
       else {
-        toast.success('Gasto confirmado')
+        toast.success('Cuenta indicada')
         setClaimId(null)
         refresh()
       }
     } finally {
       setClaimBusy(false)
-    }
-  }
-
-  async function cancelClaim(id: string) {
-    const res = await cancelGroupExpenseClaim(id)
-    if ('error' in res && res.error) toast.error(res.error)
-    else {
-      toast.success('Reclamo cancelado')
-      refresh()
     }
   }
 
@@ -320,290 +373,321 @@ export function GroupDetailClient({
         </p>
       )}
 
-      {/* Miembros y saldos */}
-      <section className="space-y-2">
-        <p className="text-xs font-semibold text-(--muted-foreground)">
-          Integrantes
-        </p>
-        {detail.members.map((m) => {
-          const color = memberColors.get(m.id) ?? MEMBER_COLORS[0]
-          return (
-            <div
-              key={m.id}
-              className="flex items-center gap-3 rounded-3xl border border-(--border) p-3">
-              <span
-                className="flex size-10 shrink-0 items-center justify-center rounded-2xl"
-                style={{
-                  backgroundColor: `${color}26`,
-                  color,
-                }}>
-                <User className="size-4" />
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-sm font-semibold">
-                  {m.displayName}
-                  {m.isMe && ' (tú)'}
-                </span>
-                <span className="block truncate text-xs text-(--muted-foreground)">
-                  {m.occupied
-                    ? (m.occupantName ?? 'Ocupado')
-                    : 'Sin reclamar · pagó ' + formatMoney(m.paid)}
-                  {m.occupied && ` · pagó ${formatMoney(m.paid)}`}
-                </span>
-              </span>
-              <span className="shrink-0 text-right text-sm font-extrabold">
-                {m.balance === 0 ? (
-                  'A mano'
-                ) : m.balance > 0 ? (
-                  <span className="text-emerald-500">
-                    +{formatMoney(m.balance)}
-                  </span>
-                ) : (
-                  <span className="text-amber-500">
-                    {formatMoney(m.balance)}
-                  </span>
-                )}
-              </span>
-            </div>
-          )
-        })}
-      </section>
-
-      {/* Pagos sugeridos: neteo + registro por línea original */}
-      <section className="space-y-2">
-        <button
-          type="button"
-          onClick={() => setSuggestOpen(true)}
-          className="flex w-full items-center gap-3 rounded-3xl border border-(--border) p-4 text-left transition active:scale-[.99]">
-          <span className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-emerald-500/15">
-            <HandCoins className="size-5 text-emerald-500" />
-          </span>
-          <span className="min-w-0 flex-1">
-            <span className="block truncate text-sm font-semibold">
-              Pagos sugeridos
-            </span>
-            <span className="block truncate text-xs text-(--muted-foreground)">
-              {suggestions.length === 0
-                ? 'Todo a mano 🎉'
-                : `${suggestions.length} ${suggestions.length === 1 ? 'pago pendiente' : 'pagos pendientes'}`}
-            </span>
-          </span>
-          <span className="shrink-0 text-[11px] font-semibold text-emerald-500">
-            Ver ›
-          </span>
-        </button>
-      </section>
-
-      {/* Reclamos: alguien dice que otro pagó (confirma el pagador) */}
-      {detail.claims.length > 0 && (
-        <section className="space-y-2">
-          <p className="text-xs font-semibold text-(--muted-foreground)">
-            Por confirmar quién pagó
-          </p>
-          {detail.claims.map((c) => (
-            <div
-              key={c.id}
-              className="space-y-1 rounded-3xl border border-amber-500/40 p-4">
-              <p className="text-sm font-semibold">
-                {c.registeredByName} dice que {c.payerName} pagó{' '}
-                {formatMoney(c.amount)}
+      <Tabs value={tab} onValueChange={(v) => setTab(v as typeof tab)}>
+        <TabsList>
+          <TabsTrigger value="gastos">Gastos</TabsTrigger>
+          <TabsTrigger value="integrantes">Integrantes</TabsTrigger>
+        </TabsList>
+        <TabsContent value="gastos" className="space-y-4">
+          {/* Sin cuenta: gastos que pagué y debo indicar de qué cuenta salieron */}
+          {detail.awaitingAccount.length > 0 && (
+            <section className="space-y-2">
+              <p className="text-xs font-semibold text-(--muted-foreground)">
+                Indica de qué cuenta salió
               </p>
-              <p className="text-xs text-(--muted-foreground)">
-                {c.concept} ·{' '}
-                {new Date(c.date).toLocaleDateString('es-MX', {
-                  day: 'numeric',
-                  month: 'short',
-                })}
-              </p>
-              <ul className="space-y-0.5 border-t border-(--border) pt-2 text-xs text-(--muted-foreground)">
-                {c.splits.map((s) => (
-                  <li key={s.seatId} className="flex justify-between gap-2">
-                    <span className="truncate">{s.seatName}</span>
-                    <span className="shrink-0 font-bold text-(--foreground)">
-                      {formatMoney(s.amount)}
-                    </span>
-                  </li>
-                ))}
-                {(() => {
-                  const splitSum = c.splits.reduce((a, s) => a + s.amount, 0)
-                  // Reclamos nuevos traen la parte explícita; en viejos se
-                  // deriva como total − deudores.
-                  const portion =
-                    c.payerAmount > 0
-                      ? c.payerAmount
-                      : Math.max(
-                          0,
-                          Math.round((c.amount - splitSum) * 100) / 100,
-                        )
-                  return portion > 0 ? (
-                    <li className="flex justify-between gap-2">
-                      <span className="truncate">Parte de {c.payerName}</span>
-                      <span className="shrink-0 font-bold text-(--foreground)">
-                        {formatMoney(portion)}
-                      </span>
-                    </li>
-                  ) : null
-                })()}
-              </ul>
-              <div className="flex gap-2 pt-1">
-                {c.isPayerMe && !isClosed && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setClaimAccountId(accountOptions[0]?.id ?? '')
-                      setClaimId(c.id)
-                    }}
-                    className="flex-1 rounded-2xl bg-amber-500 px-3 py-2 text-xs font-bold text-white transition active:scale-95">
-                    ¿Desde qué cuenta fue?
-                  </button>
-                )}
-                {c.canCancel && (
-                  <button
-                    type="button"
-                    onClick={() => void cancelClaim(c.id)}
-                    className="rounded-2xl bg-(--muted) px-3 py-2 text-xs font-semibold text-red-500 transition active:scale-95">
-                    Cancelar
-                  </button>
-                )}
-              </div>
-            </div>
-          ))}
-        </section>
-      )}
-
-      {/* Por confirmar (me pagaron, yo confirmo) */}
-      {detail.pending.toConfirm.length > 0 && (
-        <section className="space-y-2">
-          <p className="text-xs font-semibold text-(--muted-foreground)">
-            Por confirmar ·{' '}
-            {formatMoney(
-              detail.pending.toConfirm.reduce((a, p) => a + p.amount, 0),
-            )}
-          </p>
-          {detail.pending.toConfirm.map((p) => (
-            <button
-              key={p.id}
-              onClick={() => setConfirmId(p.id)}
-              className="flex w-full items-center gap-3 rounded-3xl border border-emerald-500/40 p-4 text-left transition active:scale-[.99]">
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-sm font-semibold">
-                  {p.concept} · {p.monthLabel}
-                </span>
-                <span className="block truncate text-xs text-(--muted-foreground)">
-                  {p.registeredByName} dice que te pagó
-                </span>
-              </span>
-              <span className="text-base font-extrabold">
-                {formatMoney(p.amount)}
-              </span>
-            </button>
-          ))}
-        </section>
-      )}
-
-      {/* Mis pendientes */}
-      {detail.pending.myPending.length > 0 && (
-        <section className="space-y-2">
-          <p className="text-xs font-semibold text-(--muted-foreground)">
-            En espera de confirmación
-          </p>
-          {detail.pending.myPending.map((p) => (
-            <MyPendingRow key={p.id} p={p} onDone={refresh} />
-          ))}
-        </section>
-      )}
-
-      {/* Gastos */}
-      <section className="space-y-2">
-        <div className="flex items-center justify-between">
-          <p className="text-xs font-semibold text-(--muted-foreground)">
-            Gastos
-          </p>
-          {!isClosed && (
-            <button
-              type="button"
-              onClick={() => setExpenseOpen(true)}
-              className="flex items-center gap-1 rounded-full bg-(--primary) px-3 py-1.5 text-xs font-bold text-(--primary-foreground) transition active:scale-95">
-              <Plus className="size-3.5" /> Gasto grupal
-            </button>
+              {detail.awaitingAccount.map((c) => (
+                <div
+                  key={c.id}
+                  className="space-y-1 rounded-3xl border border-amber-500/40 p-4">
+                  <p className="text-sm font-semibold">
+                    {c.registeredByName} dice que pagaste{' '}
+                    {formatMoney(c.amount)}
+                  </p>
+                  <p className="text-xs text-(--muted-foreground)">
+                    {c.concept} ·{' '}
+                    {new Date(c.date).toLocaleDateString('es-MX', {
+                      day: 'numeric',
+                      month: 'short',
+                    })}
+                  </p>
+                  {!isClosed && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setClaimAccountId(accountOptions[0]?.id ?? '')
+                        setClaimId(c.id)
+                      }}
+                      className="w-full rounded-2xl bg-amber-500 px-3 py-2 text-xs font-bold text-white transition active:scale-95">
+                      ¿Desde qué cuenta fue?
+                    </button>
+                  )}
+                </div>
+              ))}
+            </section>
           )}
-        </div>
-        {detail.expenses.length === 0 && (
-          <p className="rounded-3xl border border-dashed border-(--border) p-8 text-center text-sm text-(--muted-foreground)">
-            Aún no hay gastos. Registra el primero con + Gasto grupal.
-          </p>
-        )}
-        {detail.expenses.map((t) => (
-          <div
-            key={t.id}
-            className="space-y-1 rounded-3xl border border-(--border) p-4">
-            <p className="flex items-center justify-between gap-2">
-              <span className="truncate text-sm font-bold">{t.concept}</span>
-              <span className="shrink-0 text-base font-extrabold">
-                {formatMoney(t.amount)}
-              </span>
-            </p>
-            <p className="text-xs text-(--muted-foreground)">
-              Lo pagó {t.creatorName}
-              {t.accountName && ` · ${t.accountName}`} ·{' '}
-              {new Date(t.date).toLocaleDateString('es-MX', {
-                day: 'numeric',
-                month: 'short',
-              })}
-            </p>
-            <ul className="space-y-1 border-t border-(--border) pt-2">
-              {t.shares.map((s) => {
-                const rest = Math.max(0, s.monthly - s.paid)
-                const settled = rest <= 0
-                return (
-                  <li
-                    key={s.id}
-                    className="flex items-center justify-between gap-2 text-xs">
-                    <span className="min-w-0 flex-1 truncate">
-                      {s.seatName}
-                      {s.debtorName &&
-                        s.debtorName !== s.seatName &&
-                        ` (${s.debtorName})`}
-                      {s.paid > 0 && (
-                        <span className="text-(--muted-foreground)">
-                          {' '}
-                          · abonó {formatMoney(s.paid)}
-                        </span>
-                      )}
-                      {s.pending > 0 && (
-                        <span className="text-amber-500">
-                          {' '}
-                          · por confirmar {formatMoney(s.pending)}
-                        </span>
-                      )}
+
+          {/* Por confirmar (me pagaron, yo confirmo) */}
+          {detail.pending.toConfirm.length > 0 && (
+            <section className="space-y-2">
+              <p className="text-xs font-semibold text-(--muted-foreground)">
+                Por confirmar ·{' '}
+                {formatMoney(
+                  detail.pending.toConfirm.reduce((a, p) => a + p.amount, 0),
+                )}
+              </p>
+              {detail.pending.toConfirm.map((p) => (
+                <button
+                  key={p.id}
+                  onClick={() => setConfirmId(p.id)}
+                  className="flex w-full items-center gap-3 rounded-3xl border border-emerald-500/40 p-4 text-left transition active:scale-[.99]">
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-semibold">
+                      {p.concept} · {p.monthLabel}
                     </span>
-                    {settled ? (
-                      <span className="flex shrink-0 items-center gap-1 font-semibold text-emerald-500">
-                        <Check className="size-3" /> Listo
-                      </span>
-                    ) : (
-                      <span className="flex shrink-0 items-center gap-2">
-                        <b>{formatMoney(rest)}</b>
+                    <span className="block truncate text-xs text-(--muted-foreground)">
+                      {p.registeredByName} dice que te pagó
+                    </span>
+                  </span>
+                  <span className="text-base font-extrabold">
+                    {formatMoney(p.amount)}
+                  </span>
+                </button>
+              ))}
+            </section>
+          )}
+
+          {/* Mis pendientes */}
+          {detail.pending.myPending.length > 0 && (
+            <section className="space-y-2">
+              <p className="text-xs font-semibold text-(--muted-foreground)">
+                En espera de confirmación
+              </p>
+              {detail.pending.myPending.map((p) => (
+                <MyPendingRow key={p.id} p={p} onDone={refresh} />
+              ))}
+            </section>
+          )}
+
+          {/* Gastos */}
+          <section className="space-y-2">
+            <p className="text-xs font-semibold text-(--muted-foreground)">
+              Gastos
+            </p>
+            {detail.expenses.length === 0 && (
+              <p className="rounded-3xl border border-dashed border-(--border) p-8 text-center text-sm text-(--muted-foreground)">
+                {isClosed
+                  ? 'Aún no hay gastos en este grupo.'
+                  : 'Aún no hay gastos. Registra el primero con el botón +.'}
+              </p>
+            )}
+            {detail.expenses.map((t) => (
+              <div
+                key={t.id}
+                className="space-y-1 rounded-3xl border border-(--border) p-4">
+                <p className="flex items-center justify-between gap-2">
+                  <span className="truncate text-sm font-bold">
+                    {t.concept}
+                  </span>
+                  <span className="flex shrink-0 items-center gap-1">
+                    {t.installments > 1 && (
+                      <span className="rounded-full bg-(--muted) px-2 py-0.5 text-[10px] font-bold text-(--muted-foreground)">
+                        {t.installments} MSI
                       </span>
                     )}
-                  </li>
-                )
-              })}
-            </ul>
-            {t.payerPortion > 0 && (
-              <p className="flex justify-between gap-2 border-t border-(--border) pt-1.5 text-xs text-(--muted-foreground)">
-                <span className="truncate">
-                  {t.isMine ? 'Tu parte' : `Parte de ${t.creatorName}`}
+                    {(t.isMine || t.isPayerMe) && !isClosed && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => setEditTx(t)}
+                          aria-label={`Editar ${t.concept}`}
+                          className="flex size-7 items-center justify-center rounded-full bg-(--muted) transition active:scale-95">
+                          <Pencil className="size-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setDelTx(t)}
+                          aria-label={`Eliminar ${t.concept}`}
+                          className="flex size-7 items-center justify-center rounded-full bg-(--muted) text-red-500 transition active:scale-95">
+                          <Trash2 className="size-3.5" />
+                        </button>
+                      </>
+                    )}
+                    <span className="text-base font-extrabold">
+                      {formatMoney(t.amount)}
+                    </span>
+                  </span>
+                </p>
+                <p className="text-xs text-(--muted-foreground)">
+                  Lo pagó {t.payerName}
+                  {t.accountName
+                    ? ` · ${t.accountName}`
+                    : ' · Sin cuenta'} ·{' '}
+                  {new Date(t.date).toLocaleDateString('es-MX', {
+                    day: 'numeric',
+                    month: 'short',
+                  })}
+                </p>
+                <ul className="space-y-1 border-t border-(--border) pt-2">
+                  {t.shares.map((s) => {
+                    const total = s.monthly * t.installments
+                    const paidTotal = s.months.reduce((a, m) => a + m.paid, 0)
+                    const rest = Math.max(0, total - paidTotal)
+                    const settled = rest <= 0
+                    return (
+                      <li key={s.id} className="space-y-0.5 text-xs">
+                        <span className="flex items-center justify-between gap-2">
+                          <span className="min-w-0 flex-1 truncate font-semibold">
+                            {s.seatName}
+                            {s.debtorName &&
+                              s.debtorName !== s.seatName &&
+                              ` (${s.debtorName})`}
+                          </span>
+                          {settled ? (
+                            <span className="flex shrink-0 items-center gap-1 font-semibold text-emerald-500">
+                              <Check className="size-3" /> Listo
+                            </span>
+                          ) : (
+                            <b className="shrink-0">{formatMoney(rest)}</b>
+                          )}
+                        </span>
+                        {t.installments > 1 ? (
+                          <span className="block space-y-0.5 pl-1">
+                            {s.months.map((m, i) => {
+                              const monthRest = Math.max(0, s.monthly - m.paid)
+                              if (
+                                monthRest <= 0 &&
+                                m.paid <= 0 &&
+                                m.pending <= 0
+                              )
+                                return null
+                              return (
+                                <span
+                                  key={m.payKey}
+                                  className="flex items-center justify-between gap-2 text-(--muted-foreground)">
+                                  <span>
+                                    {i + 1}/{t.installments} ·{' '}
+                                    {monthLabelEs(
+                                      new Date(
+                                        Number(m.payKey.slice(0, 4)),
+                                        Number(m.payKey.slice(5, 7)) - 1,
+                                        1,
+                                      ),
+                                    )}{' '}
+                                    · {formatMoney(s.monthly)}/mes
+                                    {m.paid > 0 && (
+                                      <> · abonó {formatMoney(m.paid)}</>
+                                    )}
+                                    {m.pending > 0 && (
+                                      <span className="text-amber-500">
+                                        {' '}
+                                        · por confirmar {formatMoney(m.pending)}
+                                      </span>
+                                    )}
+                                  </span>
+                                  <b className="shrink-0 text-(--foreground)">
+                                    {formatMoney(monthRest)}
+                                  </b>
+                                </span>
+                              )
+                            })}
+                          </span>
+                        ) : (
+                          (s.paid > 0 || s.pending > 0) && (
+                            <span className="block pl-1 text-(--muted-foreground)">
+                              {s.paid > 0 && <>abonó {formatMoney(s.paid)}</>}
+                              {s.paid > 0 && s.pending > 0 && ' · '}
+                              {s.pending > 0 && (
+                                <span className="text-amber-500">
+                                  por confirmar {formatMoney(s.pending)}
+                                </span>
+                              )}
+                            </span>
+                          )
+                        )}
+                      </li>
+                    )
+                  })}
+                </ul>
+                {t.payerPortion > 0 && (
+                  <p className="flex justify-between gap-2 border-t border-(--border) pt-1.5 text-xs text-(--muted-foreground)">
+                    <span className="truncate">
+                      {t.isMine ? 'Tu parte' : `Parte de ${t.creatorName}`}
+                    </span>
+                    <span className="shrink-0 font-bold text-(--foreground)">
+                      {formatMoney(t.payerPortion)}
+                    </span>
+                  </p>
+                )}
+              </div>
+            ))}
+          </section>
+        </TabsContent>
+        <TabsContent value="integrantes" className="space-y-4">
+          {/* Pagos sugeridos: neteo + registro por línea original */}
+          <section className="space-y-2">
+            <button
+              type="button"
+              onClick={() => setSuggestOpen(true)}
+              className="flex w-full items-center gap-3 rounded-3xl border border-(--border) p-4 text-left transition active:scale-[.99]">
+              <span className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-emerald-500/15">
+                <HandCoins className="size-5 text-emerald-500" />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm font-semibold">
+                  Reembolsos sugeridos
                 </span>
-                <span className="shrink-0 font-bold text-(--foreground)">
-                  {formatMoney(t.payerPortion)}
+                <span className="block truncate text-xs text-(--muted-foreground)">
+                  {suggestions.length === 0
+                    ? 'Todo a mano 🎉'
+                    : `${suggestions.length} ${suggestions.length === 1 ? 'pago pendiente' : 'pagos pendientes'}`}
                 </span>
-              </p>
-            )}
-          </div>
-        ))}
-      </section>
+              </span>
+              <span className="shrink-0 text-[11px] font-semibold text-emerald-500">
+                Ver ›
+              </span>
+            </button>
+          </section>
 
+          {/* Miembros y saldos */}
+          <section className="space-y-2">
+            <p className="text-xs font-semibold text-(--muted-foreground)">
+              Integrantes
+            </p>
+            {detail.members.map((m) => {
+              const color = memberColors.get(m.id) ?? MEMBER_COLORS[0]
+              return (
+                <div
+                  key={m.id}
+                  className="flex items-center gap-3 rounded-3xl border border-(--border) p-3">
+                  <span
+                    className="flex size-10 shrink-0 items-center justify-center rounded-2xl"
+                    style={{
+                      backgroundColor: `${color}26`,
+                      color,
+                    }}>
+                    <User className="size-4" />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-semibold">
+                      {m.displayName}
+                      {m.isMe && ' (tú)'}
+                    </span>
+                    <span className="block truncate text-xs text-(--muted-foreground)">
+                      {m.occupied
+                        ? (m.occupantName ?? 'Ocupado')
+                        : 'Sin reclamar · pagó ' + formatMoney(m.paid)}
+                      {m.occupied && ` · pagó ${formatMoney(m.paid)}`}
+                    </span>
+                  </span>
+                  <span className="shrink-0 text-right text-sm font-extrabold">
+                    {m.balance === 0 ? (
+                      'A mano'
+                    ) : m.balance > 0 ? (
+                      <span className="text-emerald-500">
+                        +{formatMoney(m.balance)}
+                      </span>
+                    ) : (
+                      <span className="text-amber-500">
+                        {formatMoney(m.balance)}
+                      </span>
+                    )}
+                  </span>
+                </div>
+              )
+            })}
+          </section>
+        </TabsContent>
+      </Tabs>
       <Dialog
         open={menuOpen}
         onOpenChange={(o) => {
@@ -767,6 +851,16 @@ export function GroupDetailClient({
         </DialogContent>
       </Dialog>
 
+      {!isClosed && tab === 'gastos' && (
+        <button
+          type="button"
+          onClick={() => setExpenseOpen(true)}
+          aria-label="Agregar gasto grupal"
+          className="fixed right-5 bottom-24 z-40 flex size-14 items-center justify-center rounded-full bg-(--primary) text-(--primary-foreground) shadow-2xl transition active:scale-95">
+          <Plus className="size-7" />
+        </button>
+      )}
+
       <BottomSheet open={expenseOpen} onOpenChange={setExpenseOpen}>
         <GroupExpenseForm
           householdId={detail.id}
@@ -785,7 +879,7 @@ export function GroupDetailClient({
         onOpenChange={(o) => !o && setSuggestOpen(false)}>
         <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-5 pb-6">
           <div className="space-y-1 text-center">
-            <p className="text-base font-extrabold">Pagos sugeridos</p>
+            <p className="text-base font-extrabold">Reembolsos sugeridos</p>
             <p className="text-xs text-(--muted-foreground)">
               Quién le paga a quién para dejar todo a mano
             </p>
@@ -910,6 +1004,52 @@ export function GroupDetailClient({
       </BottomSheet>
 
       <BottomSheet
+        open={editTx != null}
+        onOpenChange={(o) => !o && setEditTx(null)}>
+        {editTx && (
+          <GroupExpenseForm
+            key={editTx.id}
+            householdId={detail.id}
+            accountOptions={expenseAccountOpts}
+            seats={seatOpts}
+            cats={cats}
+            entry={groupEntry(editTx)}
+            onDone={() => {
+              setEditTx(null)
+              refresh()
+            }}
+          />
+        )}
+      </BottomSheet>
+
+      <Dialog open={delTx != null} onOpenChange={(o) => !o && setDelTx(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>¿Eliminar {delTx?.concept}?</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-(--muted-foreground)">
+            Se borra el gasto del grupo ({delTx && formatMoney(delTx.amount)}) y
+            las deudas que generó. Esta acción no se puede deshacer.
+          </p>
+          <div className="flex gap-2">
+            <Button
+              variant="secondary"
+              className="flex-1"
+              onClick={() => setDelTx(null)}>
+              Cancelar
+            </Button>
+            <Button
+              variant="destructive"
+              className="flex-1"
+              disabled={deleting}
+              onClick={() => void doDeleteExpense()}>
+              {deleting ? 'Eliminando…' : 'Sí, eliminar'}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <BottomSheet
         open={claimTarget != null}
         onOpenChange={(o) => !o && setClaimId(null)}>
         {claimTarget && (
@@ -920,7 +1060,7 @@ export function GroupDetailClient({
               </p>
               <p className="text-xs text-(--muted-foreground)">
                 {claimTarget.registeredByName} dice que pagaste tú. Elige de qué
-                cuenta salió para registrar el gasto.
+                cuenta salió: se creará tu movimiento personal.
               </p>
             </div>
             <ul className="max-h-56 space-y-1 overflow-y-auto">

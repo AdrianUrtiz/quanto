@@ -32,7 +32,7 @@ export function Fab({ accountOptions, cats, userName }: FabProps) {
   const pathname = usePathname()
 
   // Resumen, Ajustes, Categorías y Grupos: sin botón flotante
-  // (el detalle del grupo trae su propio + Gasto grupal).
+  // (el detalle del grupo trae su propio FAB de gasto grupal).
   if (
     pathname.startsWith('/resumen') ||
     pathname.startsWith('/ajustes') ||

@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react'
 
 import {
   ArrowLeftRight,
+  CalendarClock,
   CalendarDays,
   Check,
   NotebookPen,
@@ -27,7 +28,7 @@ import { Input } from '@/components/ui/input'
 
 import type { CatalogRow } from '@/lib/catalog'
 import { ICONS } from '@/lib/categories'
-import { createGroupExpense } from '@/lib/group-actions'
+import { createGroupExpense, updateGroupExpense } from '@/lib/group-actions'
 import { toCents } from '@/lib/money'
 import { cn, formatMoney } from '@/lib/utils'
 import { addWallDays, todayMexicoYMD, wallNow, ymdOfWall } from '@/lib/walltime'
@@ -40,7 +41,27 @@ export type GroupSeatOpt = {
   isMe: boolean
 }
 
-type Sheet = null | 'date' | 'payer' | 'account' | 'cats'
+/** Gasto existente para editar en el mismo formulario de registro. */
+export type GroupExpenseEntry = {
+  id: string
+  amount: number
+  concept: string
+  category: string
+  /** ISO. */
+  date: string
+  payerSeatId: string | null
+  /** Meses del gasto (1 = contado). No editable (igual que en lo personal). */
+  installments: number
+  /** Participantes marcados (incluye al pagador si consume). */
+  participantIds: string[]
+  /** Importes por seat (deudores + parte del pagador si consume). */
+  amounts: { seatId: string; amount: number }[]
+}
+
+type Sheet = null | 'date' | 'payer' | 'account' | 'cats' | 'msi'
+
+const MSI_OPTS = [1, 3, 6, 9, 12, 15, 24]
+const msiLabel = (m: number) => (m === 1 ? 'Contado' : `${m} MSI`)
 
 function sanitizeAmount(v: string): string | null {
   const clean = v.replace(/[^0-9.]/g, '')
@@ -75,28 +96,70 @@ export function GroupExpenseForm({
   accountOptions,
   seats,
   cats,
+  entry,
   onDone,
 }: {
   householdId: string
   accountOptions: GroupAccountOpt[]
   seats: GroupSeatOpt[]
   cats: CatalogRow[]
+  /** Si se pasa, el formulario edita ese gasto en vez de crear uno. */
+  entry?: GroupExpenseEntry | null
   onDone: () => void
 }) {
   const router = useRouter()
-  const [amount, setAmount] = useState('')
-  const [concept, setConcept] = useState('')
+  const editing = entry != null
+  // En edición las cantidades vienen del gasto guardado; si todas las
+  // partes son iguales se muestra como "iguales", si no como "importes".
+  const entryAmounts = useMemo(() => {
+    const map = new Map<string, number>()
+    for (const a of entry?.amounts ?? []) map.set(a.seatId, a.amount)
+    return map
+  }, [entry])
+  const entryMode: 'equal' | 'custom' = useMemo(() => {
+    if (!entry || entry.participantIds.length === 0) return 'equal'
+    const first = entryAmounts.get(entry.participantIds[0])
+    if (first == null) return 'custom'
+    return entry.participantIds.every(
+      (id) => Math.abs((entryAmounts.get(id) ?? NaN) - first) < 0.005,
+    )
+      ? 'equal'
+      : 'custom'
+  }, [entry, entryAmounts])
+  const [amount, setAmount] = useState(entry ? String(entry.amount) : '')
+  const [concept, setConcept] = useState(entry?.concept ?? '')
   const [editingConcept, setEditingConcept] = useState(false)
-  const [category, setCategory] = useState('COMIDA')
-  const [dateYMD, setDateYMD] = useState(todayMexicoYMD())
+  const [category, setCategory] = useState(entry?.category ?? 'COMIDA')
+  const [dateYMD, setDateYMD] = useState(
+    entry ? ymdOfWall(new Date(entry.date)) : todayMexicoYMD(),
+  )
   const [sheet, setSheet] = useState<Sheet>(null)
   const [payerId, setPayerId] = useState(
-    () => seats.find((s) => s.isMe)?.id ?? seats[0]?.id ?? '',
+    () =>
+      entry?.payerSeatId ??
+      seats.find((s) => s.isMe)?.id ??
+      seats[0]?.id ??
+      '',
   )
   const [accountId, setAccountId] = useState(accountOptions[0]?.id ?? '')
-  const [splitMode, setSplitMode] = useState<'equal' | 'custom'>('equal')
-  const [picked, setPicked] = useState<string[]>(() => seats.map((s) => s.id))
-  const [custom, setCustom] = useState<Record<string, string>>({})
+  // Meses sin intereses (solo al crear; al editar quedan fijos, igual que
+  // en movimientos personales: las parcialidades ya registradas no se mueven).
+  const [msi, setMsi] = useState(editing ? (entry!.installments || 1) : 1)
+  const [splitMode, setSplitMode] = useState<'equal' | 'custom'>(entryMode)
+  const [picked, setPicked] = useState<string[]>(() =>
+    editing
+      ? entry!.participantIds.filter((id) => seats.some((s) => s.id === id))
+      : seats.map((s) => s.id),
+  )
+  const [custom, setCustom] = useState<Record<string, string>>(() => {
+    if (!editing || entryMode !== 'custom') return {}
+    const out: Record<string, string> = {}
+    for (const id of entry!.participantIds) {
+      const v = entryAmounts.get(id)
+      if (v != null) out[id] = String(v)
+    }
+    return out
+  })
   const [pending, setPending] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
 
@@ -185,7 +248,7 @@ export function GroupExpenseForm({
         picked.map((id) => ({ seatId: id, amount: Number(custom[id]) })),
       )
     }
-    if (payerIsMe && !accountId) {
+    if (payerIsMe && !accountId && !editing) {
       setMsg('Elige de qué cuenta salió')
       return
     }
@@ -195,9 +258,10 @@ export function GroupExpenseForm({
       const hh = String(now.getUTCHours()).padStart(2, '0')
       const mm = String(now.getUTCMinutes()).padStart(2, '0')
       const fd = new FormData()
+      if (editing) fd.set('id', entry!.id)
       fd.set('householdId', householdId)
       fd.set('payerSeatId', payer.id)
-      if (payerIsMe) fd.set('accountId', accountId)
+      if (payerIsMe && !editing) fd.set('accountId', accountId)
       fd.set('amount', amount)
       fd.set('concept', concept.trim())
       fd.set('category', category)
@@ -206,17 +270,23 @@ export function GroupExpenseForm({
       if (splitMode === 'custom' && splitsJson) {
         fd.set('splitsJson', splitsJson)
       }
+      // Los meses solo se eligen al crear; al editar quedan fijos.
+      if (!editing) fd.set('installments', String(msi))
       // Participantes (incluye al pagador si también consume).
       for (const id of picked) fd.append('seatIds', id)
-      const res = await createGroupExpense(fd)
+      const res = editing
+        ? await updateGroupExpense(fd)
+        : await createGroupExpense(fd)
       if ('error' in res && res.error) {
         setMsg(res.error)
         toast.error(res.error)
       } else {
         toast.success(
-          'pending' in res
-            ? `${payer.displayName} lo confirma al entrar`
-            : 'Gasto grupal registrado',
+          editing
+            ? 'Gasto actualizado'
+            : 'pending' in res
+              ? `${payer.displayName} lo confirma al entrar`
+              : 'Gasto grupal registrado',
         )
         onDone()
         router.refresh()
@@ -298,13 +368,26 @@ export function GroupExpenseForm({
               Pagó {payer ? payer.displayName : '…'}
             </span>
           </button>
-          {payerIsMe && (
+          {payerIsMe && !editing && (
             <button
               type="button"
               onClick={() => setSheet('account')}
               className="flex max-w-[200px] shrink-0 items-center gap-1.5 rounded-full border border-(--border) bg-(--muted)/60 px-4 py-2 text-xs font-semibold">
               <Wallet className="size-3.5" />
               <span className="truncate">{accountLabel}</span>
+            </button>
+          )}
+          {!editing && (
+            <button
+              type="button"
+              onClick={() => setSheet('msi')}
+              className={cn(
+                'flex shrink-0 items-center gap-1.5 rounded-full border px-4 py-2 text-xs font-semibold',
+                msi !== 1
+                  ? 'border-transparent bg-(--foreground) text-(--background)'
+                  : 'border-(--border) bg-(--muted)/60',
+              )}>
+              <CalendarClock className="size-3.5" /> {msiLabel(msi)}
             </button>
           )}
           <button
@@ -494,7 +577,7 @@ export function GroupExpenseForm({
             </p>
           )
         )}
-        {!payerIsMe && (
+        {!payerIsMe && !editing && (
           <p className="rounded-2xl bg-amber-500/10 p-3 text-center text-xs font-medium text-amber-500">
             {payer?.displayName} lo confirma al entrar: elegirá de qué cuenta
             suya salió.
@@ -512,7 +595,7 @@ export function GroupExpenseForm({
         disabled={pending}
         onClick={() => void submit()}
         className="mt-3 h-12 w-full text-base">
-        {pending ? 'Guardando…' : 'Registrar gasto'}
+        {pending ? 'Guardando…' : editing ? 'Guardar cambios' : 'Registrar gasto'}
       </Button>
 
       {/* Sheet: fecha */}
@@ -625,6 +708,36 @@ export function GroupExpenseForm({
           </ul>
         </div>
       </BottomSheet>
+
+      {/* Diálogo: meses sin intereses (solo al crear) */}
+      <Dialog open={sheet === 'msi'} onOpenChange={(o) => !o && setSheet(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Meses sin intereses</DialogTitle>
+          </DialogHeader>
+          <ul className="max-h-[50dvh] space-y-1 overflow-y-auto">
+            {MSI_OPTS.map((m) => (
+              <li key={m}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMsi(m)
+                    setSheet(null)
+                  }}
+                  className={cn(
+                    'flex w-full items-center gap-2 rounded-2xl px-4 py-3 text-left transition hover:bg-(--muted)',
+                    msi === m && 'bg-(--muted)',
+                  )}>
+                  <span className="flex-1 text-sm font-semibold">
+                    {msiLabel(m)}
+                  </span>
+                  {msi === m && <Check className="size-4 text-(--primary)" />}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </DialogContent>
+      </Dialog>
 
       {/* Diálogo: categoría */}
       <Dialog

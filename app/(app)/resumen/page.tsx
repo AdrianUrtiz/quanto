@@ -64,7 +64,7 @@ export default async function ResumenPage() {
     category: t.category,
     amount: normalizeMoney(t.amount),
     date: t.date.toISOString(),
-    accountName: t.account.name,
+    accountName: t.account?.name ?? '',
   }))
   const involved = sharedRows.map((t) => ({
     id: t.id,
@@ -75,8 +75,9 @@ export default async function ResumenPage() {
     isShared: t.isShared,
     createdById: t.createdById,
     creatorName: t.createdBy.name,
-    statementDay: t.account.statementDay ?? undefined,
-    dueDay: t.account.dueDay ?? undefined,
+    // Compartidos de pareja: siempre con cuenta (los de grupo van aparte).
+    statementDay: t.account?.statementDay ?? undefined,
+    dueDay: t.account?.dueDay ?? undefined,
     shares: t.shares
       .filter((s) => s.debtorId != null)
       .map((s) => ({
@@ -161,6 +162,7 @@ export default async function ResumenPage() {
 
   const statements: CreditStatementView[] = cards.map((c) => {
     const txs: StatementTx[] = cardTxs
+      // El filtro por cuenta garantiza accountId no nulo.
       .filter((t) => t.accountId === c.id || t.transferToAccountId === c.id)
       .map((t) => ({
         id: t.id,
@@ -168,7 +170,7 @@ export default async function ResumenPage() {
         amount: normalizeMoney(t.amount),
         concept: t.concept,
         date: t.date,
-        accountId: t.accountId,
+        accountId: t.accountId ?? c.id,
         transferToAccountId: t.transferToAccountId,
         installments: t.installments,
         statementKey: t.statementKey ?? null,

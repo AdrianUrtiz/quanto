@@ -43,6 +43,7 @@ export async function getCardPayCandidates(
   const out: CardPayCandidate[] = []
   for (const c of cards) {
     const txs: StatementTx[] = rows
+      // El filtro por cuenta garantiza accountId no nulo.
       .filter((t) => t.accountId === c.id || t.transferToAccountId === c.id)
       .map((t) => ({
         id: t.id,
@@ -50,7 +51,7 @@ export async function getCardPayCandidates(
         amount: normalizeMoney(t.amount),
         concept: t.concept,
         date: t.date,
-        accountId: t.accountId,
+        accountId: t.accountId ?? c.id,
         transferToAccountId: t.transferToAccountId,
         installments: t.installments,
         statementKey: t.statementKey ?? null,

@@ -407,18 +407,23 @@ export async function getGroupNets(
     })
   }
   for (const t of txs) {
-    const payer = members.find((m) => m.userId === t.createdById)
+    const payer =
+      members.find((m) => m.id === t.paidBySeatId) ??
+      members.find((m) => m.userId === t.createdById)
     if (payer) {
       const row = nets.get(payer.id)!
       row.paid = round2(row.paid + Number(t.amount))
     }
+    // Las mensualidades se multiplican por los meses: lo consumido y los
+    // nets son totales (igual que el monto pagado).
+    const n = Math.max(1, Math.round(t.installments))
     let debtorSumC = 0
     for (const s of t.shares) {
       if (!s.seatId) continue
       const row = nets.get(s.seatId)
       if (row) {
-        row.consumed = round2(row.consumed + Number(s.monthlyAmount))
-        debtorSumC += toCents(Number(s.monthlyAmount))
+        row.consumed = round2(row.consumed + Number(s.monthlyAmount) * n)
+        debtorSumC += toCents(Number(s.monthlyAmount)) * n
       }
     }
     // Lo consumido por quien pagó (total − partes): sin esto el pagador

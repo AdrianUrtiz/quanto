@@ -77,9 +77,10 @@ export default async function ActividadPage() {
       amount: normalizeMoney(t.amount),
       date: t.date,
       type: t.type,
-      accountId: t.accountId,
-      accountName: t.account.name,
-      accountType: t.account.type,
+      // Gastos grupales registrados por otro pueden no tener cuenta aún.
+      accountId: t.accountId ?? '',
+      accountName: t.account?.name ?? '',
+      accountType: t.account?.type ?? 'DEBIT',
       transferToAccountId: t.transferToAccountId ?? null,
       transferToAccountName: t.transferToAccountId
         ? (accById.get(t.transferToAccountId)?.name ?? null)
@@ -274,11 +275,12 @@ export default async function ActividadPage() {
   })
   const partnerDebtItems = sharedOwed.map((t) => ({
     shareId: t.shares[0]?.id ?? '',
-    accountId: t.account.id,
-    accountName: t.account.name,
-    accountType: t.account.type as 'DEBIT' | 'CREDIT',
-    dueDay: t.account.dueDay ?? undefined,
-    statementDay: t.account.statementDay ?? undefined,
+    // Compartidos de pareja: siempre con cuenta (los de grupo van aparte).
+    accountId: t.account?.id ?? '',
+    accountName: t.account?.name ?? '',
+    accountType: (t.account?.type ?? 'DEBIT') as 'DEBIT' | 'CREDIT',
+    dueDay: t.account?.dueDay ?? undefined,
+    statementDay: t.account?.statementDay ?? undefined,
     debtorId: meId,
     debtorName: meName,
     creditorName: t.createdBy.name,
