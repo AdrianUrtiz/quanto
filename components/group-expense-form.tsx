@@ -16,6 +16,7 @@ import {
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 
+import { AccountIcon } from '@/components/account-icon'
 import { BottomSheet } from '@/components/bottom-sheet'
 import { Button } from '@/components/ui/button'
 import {
@@ -33,7 +34,12 @@ import { toCents } from '@/lib/money'
 import { cn, formatMoney } from '@/lib/utils'
 import { addWallDays, todayMexicoYMD, wallNow, ymdOfWall } from '@/lib/walltime'
 
-export type GroupAccountOpt = { id: string; name: string }
+export type GroupAccountOpt = {
+  id: string
+  name: string
+  type?: string
+  color?: string | null
+}
 export type GroupSeatOpt = {
   id: string
   displayName: string
@@ -676,15 +682,15 @@ export function GroupExpenseForm({
         </div>
       </BottomSheet>
 
-      {/* Sheet: cuenta (solo si pago yo) */}
-      <BottomSheet
+      {/* Diálogo: cuenta (solo si pago yo) */}
+      <Dialog
         open={sheet === 'account'}
         onOpenChange={(o) => !o && setSheet(null)}>
-        <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-5 pb-6">
-          <p className="text-center text-base font-extrabold">
-            ¿De qué cuenta salió?
-          </p>
-          <ul className="max-h-64 space-y-1 overflow-y-auto">
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>¿De qué cuenta salió?</DialogTitle>
+          </DialogHeader>
+          <ul className="max-h-[50dvh] space-y-1 overflow-y-auto">
             {accountOptions.map((a) => (
               <li key={a.id}>
                 <button
@@ -697,7 +703,7 @@ export function GroupExpenseForm({
                     'flex w-full items-center gap-2 rounded-2xl px-4 py-2.5 text-left transition hover:bg-(--muted)',
                     accountId === a.id && 'bg-(--muted)',
                   )}>
-                  <Wallet className="size-4 text-(--muted-foreground)" />
+                  <AccountIcon type={a.type} color={a.color} />
                   <span className="flex-1 text-sm font-semibold">{a.name}</span>
                   {accountId === a.id && (
                     <Check className="size-4 text-(--primary)" />
@@ -706,8 +712,8 @@ export function GroupExpenseForm({
               </li>
             ))}
           </ul>
-        </div>
-      </BottomSheet>
+        </DialogContent>
+      </Dialog>
 
       {/* Diálogo: meses sin intereses (solo al crear) */}
       <Dialog open={sheet === 'msi'} onOpenChange={(o) => !o && setSheet(null)}>

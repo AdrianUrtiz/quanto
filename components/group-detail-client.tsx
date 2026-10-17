@@ -22,6 +22,7 @@ import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 
 import { BottomSheet } from '@/components/bottom-sheet'
+import { AccountIcon } from '@/components/account-icon'
 import {
   type GroupAccountOpt,
   type GroupExpenseEntry,
@@ -307,6 +308,8 @@ export function GroupDetailClient({
   const expenseAccountOpts: GroupAccountOpt[] = accountOptions.map((a) => ({
     id: a.id,
     name: a.name,
+    type: a.type,
+    color: a.color,
   }))
 
   const memberColors = new Map<string, string>()
@@ -597,17 +600,15 @@ export function GroupDetailClient({
                       </li>
                     )
                   })}
+                  {t.payerPortion > 0 && (
+                    <li className="flex items-center justify-between gap-2 text-xs">
+                      <span className="min-w-0 flex-1 truncate font-semibold">
+                        {t.payerName}
+                      </span>
+                      <b className="shrink-0">{formatMoney(t.payerPortion)}</b>
+                    </li>
+                  )}
                 </ul>
-                {t.payerPortion > 0 && (
-                  <p className="flex justify-between gap-2 border-t border-(--border) pt-1.5 text-xs text-(--muted-foreground)">
-                    <span className="truncate">
-                      {t.isMine ? 'Tu parte' : `Parte de ${t.creatorName}`}
-                    </span>
-                    <span className="shrink-0 font-bold text-(--foreground)">
-                      {formatMoney(t.payerPortion)}
-                    </span>
-                  </p>
-                )}
               </div>
             ))}
           </section>
@@ -1073,6 +1074,7 @@ export function GroupDetailClient({
                       'flex w-full items-center gap-2 rounded-2xl px-4 py-2.5 text-left transition hover:bg-(--muted)',
                       claimAccountId === a.id && 'bg-(--muted)',
                     )}>
+                    <AccountIcon type={a.type} color={a.color} />
                     <span className="flex-1 text-sm font-semibold">
                       {a.name}
                     </span>
@@ -1218,7 +1220,7 @@ function SettlementSheet({
     cap: number
     settlementId?: string
   }
-  accountOptions: { id: string; name: string }[]
+  accountOptions: { id: string; name: string; type?: string; color?: string | null }[]
   onDone: () => void
 }) {
   const router = useRouter()
@@ -1352,6 +1354,7 @@ function SettlementSheet({
                   'flex w-full items-center gap-2 rounded-2xl px-4 py-2.5 text-left transition hover:bg-(--muted)',
                   withMovement && accountId === a.id && 'bg-(--muted)',
                 )}>
+                <AccountIcon type={a.type} color={a.color} />
                 <span className="flex-1 text-sm font-semibold">{a.name}</span>
                 {withMovement && accountId === a.id && (
                   <Check className="size-4 text-(--primary)" />
