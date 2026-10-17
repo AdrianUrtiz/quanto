@@ -8,6 +8,7 @@ import {
   CalendarClock,
   CalendarDays,
   Check,
+  ChevronDown,
   LayoutGrid,
   NotebookPen,
   Plus,
@@ -260,10 +261,25 @@ export function TransactionForm({
     sliderRef.current?.scrollTo({ left: 0, behavior: 'smooth' })
   }, [category])
 
+  const debits = accountOptions.filter((a) => a.type !== 'CREDIT')
+  const hasTypes = accountOptions.some((a) => a.type)
+
   function switchMode(m: Mode) {
     setMode(m)
     if (m === 'pago') {
       setPanel(null)
+      // En pago el origen solo admite débito: si la cuenta actual es la
+      // favorita de crédito, preselecciona el débito más arriba en el orden.
+      if (hasTypes) {
+        const isValidOrigin = debits.some((a) => a.id === accountId)
+        if (!isValidOrigin) {
+          const firstDebit = debits[0]?.id ?? ''
+          setAccountId(firstDebit)
+          if (destId === firstDebit) setDestId('')
+        } else if (destId === accountId) {
+          setDestId('')
+        }
+      }
       return
     }
     const want = m === 'abono' ? 'income' : 'expense'
@@ -272,8 +288,6 @@ export function TransactionForm({
     )
     if (!ok) setCategory(m === 'abono' ? 'NOMINA' : 'COMIDA')
   }
-  const debits = accountOptions.filter((a) => a.type !== 'CREDIT')
-  const hasTypes = accountOptions.some((a) => a.type)
   const originOpts = hasTypes ? debits : accountOptions
   // Destino: cualquier cuenta propia distinta del origen (crédito o débito).
   const destOpts = accountOptions.filter((a) => a.id !== accountId)
@@ -544,8 +558,14 @@ export function TransactionForm({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-5 pt-1 pb-6">
+      {/* Tipo de movimiento: dropdown arriba a la derecha */}
+      {!editing && (
+        <div className="flex justify-end pt-2">
+          <ModeDropdown mode={mode} onPick={switchMode} />
+        </div>
+      )}
       {/* Monto con teclado numérico nativo */}
-      <div className="flex items-center justify-center gap-2 py-6">
+      <div className="flex items-center justify-center gap-2 py-14">
         <span className="text-2xl font-bold text-(--muted-foreground)">$</span>
         <input
           value={amount}
@@ -628,13 +648,6 @@ export function TransactionForm({
                 className="flex max-w-[200px] shrink-0 items-center gap-1.5 rounded-full border border-(--border) bg-(--muted)/60 px-4 py-2 text-xs font-semibold">
                 <ArrowDownLeft className="size-3.5 shrink-0 text-emerald-400" />
                 <span className="truncate">A {destLabel}</span>
-              </button>
-              <button
-                type="button"
-                aria-label="Cambiar modo"
-                onClick={() => setPanel('cats')}
-                className="flex size-9 shrink-0 items-center justify-center rounded-full border border-(--border) bg-(--muted)/60">
-                <LayoutGrid className="size-4" />
               </button>
             </>
           ) : (
@@ -743,7 +756,7 @@ export function TransactionForm({
         </p>
       )}
 
-      {/* Panel: grid de categorías */}
+      {/* Panel: grid de categorías (solo del modo actual) */}
       <Dialog
         open={panel === 'cats'}
         onOpenChange={(o) => !o && setPanel(null)}>
@@ -751,24 +764,6 @@ export function TransactionForm({
           <DialogHeader>
             <DialogTitle className="sr-only">Categorías</DialogTitle>
           </DialogHeader>
-          {!editing && (
-            <div className="mx-auto grid w-fit grid-cols-3 gap-2 rounded-full bg-(--muted) p-1">
-              {(['cargo', 'abono', 'pago'] as const).map((m) => (
-                <button
-                  key={m}
-                  type="button"
-                  onClick={() => switchMode(m)}
-                  className={cn(
-                    'rounded-full px-5 py-2 text-sm font-semibold',
-                    mode === m
-                      ? 'bg-(--card) shadow'
-                      : 'text-(--muted-foreground)',
-                  )}>
-                  {m === 'cargo' ? 'Gasto' : m === 'abono' ? 'Ingreso' : 'Pago'}
-                </button>
-              ))}
-            </div>
-          )}
           {mode !== 'pago' && (
             <div className="grid grid-cols-4 gap-2 pb-2">
               {visibleCats.map((c) => (
@@ -1165,6 +1160,82 @@ export function TransactionForm({
           </div>
         </DialogContent>
       </Dialog>
+    </div>
+  )
+}
+
+/** Dropdown de tipo de movimiento (Gasto / Ingreso / Pago). */
+function ModeDropdown({
+  mode,
+  onPick,
+}: {
+  mode: Mode
+  onPick: (m: Mode) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    function onDown(e: PointerEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false)
+      }
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('pointerdown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('pointerdown', onDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [open ])
+
+  const label = mode === 'cargo' ? 'Gasto' : mode === 'abono' ? 'Ingreso' : 'Pago'
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label="Tipo de movimiento"
+        className="flex items-center gap-1.5 rounded-full border border-(--border) bg-(--muted)/60 px-4 py-2 text-xs font-semibold">
+        {label}
+        <ChevronDown
+          className={cn('size-3.5 transition-transform', open && 'rotate-180')}
+        />
+      </button>
+      {open && (
+        <div
+          role="menu"
+          aria-label="Tipo de movimiento"
+          className="absolute right-0 z-30 mt-2 w-40 overflow-hidden rounded-2xl border border-(--border) bg-(--card) p-1 shadow-xl">
+          {(['cargo', 'abono', 'pago'] as const).map((m) => (
+            <button
+              key={m}
+              type="button"
+              role="menuitemradio"
+              aria-checked={mode === m}
+              onClick={() => {
+                onPick(m)
+                setOpen(false)
+              }}
+              className={cn(
+                'flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm font-semibold transition hover:bg-(--muted)',
+                mode === m && 'bg-(--muted)',
+              )}>
+              <span className="flex-1">
+                {m === 'cargo' ? 'Gasto' : m === 'abono' ? 'Ingreso' : 'Pago'}
+              </span>
+              {mode === m && <Check className="size-4 text-(--primary)" />}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
