@@ -14,7 +14,6 @@ import { type AccountOpt, TransactionForm } from '@/components/transaction-form'
 
 import { byAccountOrder, toAccountOpt } from '@/lib/accounts'
 import type { CatalogRow } from '@/lib/catalog'
-import { useCuentasFilters } from '@/lib/cuentas-filters'
 import { db } from '@/lib/offline/db'
 import { toCatalog } from '@/lib/offline/derive-activity'
 import { cn } from '@/lib/utils'
@@ -64,10 +63,8 @@ function CuentasSpeedDial({ accountOptions, cats, userName }: FabProps) {
   const [subOpen, setSubOpen] = useState(false)
   const [groupCreateOpen, setGroupCreateOpen] = useState(false)
   const [groupJoinOpen, setGroupJoinOpen] = useState(false)
-  // Dialer contextual: en Compartidos ofrece Nuevo/Unirse a grupo (oculta
-  // Cuenta/Suscripción); en el resto, Cuenta/Suscripción como siempre.
-  const tab = useCuentasFilters((s) => s.tab)
-  const sharedTab = tab === 'compartidos'
+  // En Cuentas se muestran todas las opciones siempre (cuenta,
+  // suscripción, nuevo grupo y unirse).
   // NOTA: el menú NO usa useBackToClose a propósito. Si empujara su propia
   // entrada al historial, al abrir Cuenta/Suscripción en el mismo tap la
   // limpieza del menú se comería la entrada del modal (race) y el botón
@@ -94,79 +91,67 @@ function CuentasSpeedDial({ accountOptions, cats, userName }: FabProps) {
               ? 'pointer-events-auto visible translate-y-0 opacity-100'
               : 'pointer-events-none invisible translate-y-2 opacity-0',
           )}>
-          {sharedTab ? (
-            <>
-              <button
-                onClick={() => {
-                  setExpanded(false)
-                  setGroupCreateOpen(true)
-                }}
-                aria-label="Crear grupo"
-                className="flex cursor-pointer items-center justify-end gap-2">
-                <span className="rounded-full border border-(--border) bg-(--card) px-2.5 py-1 text-[11px] font-semibold whitespace-nowrap shadow-lg">
-                  Nuevo grupo
-                </span>
-                <span className="mr-1 flex size-12 items-center justify-center rounded-full border border-(--border) bg-(--card) shadow-xl transition active:scale-95">
-                  <Users className="size-5" />
-                </span>
-              </button>
-              <button
-                onClick={() => {
-                  setExpanded(false)
-                  setGroupJoinOpen(true)
-                }}
-                aria-label="Unirse a grupo"
-                className="flex cursor-pointer items-center justify-end gap-2">
-                <span className="rounded-full border border-(--border) bg-(--card) px-2.5 py-1 text-[11px] font-semibold whitespace-nowrap shadow-lg">
-                  Unirse
-                </span>
-                <span className="mr-1 flex size-12 items-center justify-center rounded-full border border-(--border) bg-(--card) shadow-xl transition active:scale-95">
-                  <UserPlus className="size-5" />
-                </span>
-              </button>
-            </>
-          ) : (
-            <>
-              <button
-                onClick={() => {
-                  setExpanded(false)
-                  setAccountOpen(true)
-                }}
-                aria-label="Añadir cuenta"
-                className="flex cursor-pointer items-center justify-end gap-2">
-                <span className="rounded-full border border-(--border) bg-(--card) px-2.5 py-1 text-[11px] font-semibold whitespace-nowrap shadow-lg">
-                  Cuenta
-                </span>
-                <span className="mr-1 flex size-12 items-center justify-center rounded-full border border-(--border) bg-(--card) shadow-xl transition active:scale-95">
-                  <Landmark className="size-5" />
-                </span>
-              </button>
-              <button
-                onClick={() => {
-                  setExpanded(false)
-                  setSubOpen(true)
-                }}
-                aria-label="Añadir suscripción"
-                className="flex cursor-pointer items-center justify-end gap-2">
-                <span className="rounded-full border border-(--border) bg-(--card) px-2.5 py-1 text-[11px] font-semibold whitespace-nowrap shadow-lg">
-                  Suscripción
-                </span>
-                <span className="mr-1 flex size-12 items-center justify-center rounded-full border border-(--border) bg-(--card) shadow-xl transition active:scale-95">
-                  <Repeat className="size-5" />
-                </span>
-              </button>
-            </>
-          )}
+          {/** Todas las opciones siempre visibles dentro de Cuentas. */}
+          <button
+            onClick={() => {
+              setExpanded(false)
+              setGroupJoinOpen(true)
+            }}
+            aria-label="Unirse a grupo"
+            className="flex cursor-pointer items-center justify-end gap-2">
+            <span className="rounded-full border border-(--border) bg-(--card) px-2.5 py-1 text-[11px] font-semibold whitespace-nowrap shadow-lg">
+              Unirse
+            </span>
+            <span className="mr-1 flex size-12 items-center justify-center rounded-full border border-(--border) bg-(--card) shadow-xl transition active:scale-95">
+              <UserPlus className="size-5" />
+            </span>
+          </button>
+          <button
+            onClick={() => {
+              setExpanded(false)
+              setGroupCreateOpen(true)
+            }}
+            aria-label="Crear grupo"
+            className="flex cursor-pointer items-center justify-end gap-2">
+            <span className="rounded-full border border-(--border) bg-(--card) px-2.5 py-1 text-[11px] font-semibold whitespace-nowrap shadow-lg">
+              Nuevo grupo
+            </span>
+            <span className="mr-1 flex size-12 items-center justify-center rounded-full border border-(--border) bg-(--card) shadow-xl transition active:scale-95">
+              <Users className="size-5" />
+            </span>
+          </button>
+          <button
+            onClick={() => {
+              setExpanded(false)
+              setSubOpen(true)
+            }}
+            aria-label="Añadir suscripción"
+            className="flex cursor-pointer items-center justify-end gap-2">
+            <span className="rounded-full border border-(--border) bg-(--card) px-2.5 py-1 text-[11px] font-semibold whitespace-nowrap shadow-lg">
+              Suscripción
+            </span>
+            <span className="mr-1 flex size-12 items-center justify-center rounded-full border border-(--border) bg-(--card) shadow-xl transition active:scale-95">
+              <Repeat className="size-5" />
+            </span>
+          </button>
+          <button
+            onClick={() => {
+              setExpanded(false)
+              setAccountOpen(true)
+            }}
+            aria-label="Añadir cuenta"
+            className="flex cursor-pointer items-center justify-end gap-2">
+            <span className="rounded-full border border-(--border) bg-(--card) px-2.5 py-1 text-[11px] font-semibold whitespace-nowrap shadow-lg">
+              Cuenta
+            </span>
+            <span className="mr-1 flex size-12 items-center justify-center rounded-full border border-(--border) bg-(--card) shadow-xl transition active:scale-95">
+              <Landmark className="size-5" />
+            </span>
+          </button>
         </div>
         <button
           onClick={() => setExpanded((v) => !v)}
-          aria-label={
-            expanded
-              ? 'Cerrar opciones'
-              : sharedTab
-                ? 'Crear o unirte a un grupo'
-                : 'Agregar cuenta o suscripción'
-          }
+          aria-label={expanded ? 'Cerrar opciones' : 'Agregar'}
           aria-expanded={expanded}
           className={cn(
             FAB_CLS,
