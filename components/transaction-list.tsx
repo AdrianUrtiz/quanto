@@ -44,14 +44,29 @@ export type TxRow = {
   pendingSync?: boolean
 }
 
-export function TransactionRow({ t, cats }: { t: TxRow; cats: CatalogRow[] }) {
+export function TransactionRow({
+  t,
+  cats,
+  onSelect,
+}: {
+  t: TxRow
+  cats: CatalogRow[]
+  /** Al clickear la card (detalle). Si no se pasa, no es clicable. */
+  onSelect?: () => void
+}) {
   const income = t.type === 'INCOME'
   const transfer = t.type === 'TRANSFER'
   const cat = lookupCategory(t.category, cats)
   const catColor = cat.color
   const CatIcon = cat.icon
   return (
-    <li className="flex items-center gap-3 rounded-3xl border border-(--border) bg-(--card) p-3.5">
+    <li
+      onClick={onSelect}
+      className={
+        onSelect
+          ? 'flex cursor-pointer items-center gap-3 rounded-3xl border border-(--border) bg-(--card) p-3.5 transition active:scale-[0.99]'
+          : 'flex items-center gap-3 rounded-3xl border border-(--border) bg-(--card) p-3.5'
+      }>
       <span
         className={`relative flex size-11 shrink-0 items-center justify-center rounded-2xl ${transfer ? 'bg-(--muted)' : ''}`}
         style={
@@ -120,9 +135,11 @@ export function TransactionRow({ t, cats }: { t: TxRow; cats: CatalogRow[] }) {
 export function TransactionList({
   txs,
   cats,
+  onSelect,
 }: {
   txs: TxRow[]
   cats: CatalogRow[]
+  onSelect?: (t: TxRow) => void
 }) {
   if (!txs.length) {
     return (
@@ -134,7 +151,12 @@ export function TransactionList({
   return (
     <ul className="space-y-2">
       {txs.map((t) => (
-        <TransactionRow key={t.id} t={t} cats={cats} />
+        <TransactionRow
+          key={t.id}
+          t={t}
+          cats={cats}
+          onSelect={onSelect ? () => onSelect(t) : undefined}
+        />
       ))}
     </ul>
   )

@@ -34,12 +34,15 @@ export function TransactionSwipeRow({
   cats,
   open,
   onOpenChange,
+  onSelect,
 }: {
   t: TxRow
   accountOptions: AccountOpt[]
   cats: CatalogRow[]
   open: boolean
   onOpenChange: (open: boolean) => void
+  /** Tap sin arrastrar: abre el detalle del movimiento. */
+  onSelect?: () => void
 }) {
   const [x, setX] = useState(0)
   const [dragging, setDragging] = useState(false)
@@ -110,7 +113,12 @@ export function TransactionSwipeRow({
       moved.current = false
       return
     }
-    if (open) close()
+    if (open) {
+      close()
+      return
+    }
+    // Tap limpio (sin arrastre ni acciones abiertas): detalle.
+    onSelect?.()
   }
 
   async function doDelete() {
@@ -181,7 +189,7 @@ export function TransactionSwipeRow({
             !dragging && 'transition-transform duration-200 ease-out',
           )}
           style={{ transform: `translateX(${x}px)`, touchAction: 'pan-y' }}>
-          <TransactionRow t={t} cats={cats} />
+          <TransactionRow t={t} cats={cats} onSelect={onSelect} />
         </div>
       </div>
 

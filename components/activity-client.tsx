@@ -7,12 +7,14 @@ import { useRouter } from 'next/navigation'
 
 import { ActivityChart } from '@/components/activity-chart'
 import { AccountIcon } from '@/components/account-icon'
+import { BottomSheet } from '@/components/bottom-sheet'
 import { CardPayReminders } from '@/components/card-pay-reminders'
 import {
   type ExpiryAccount,
   ExpiryReminders,
 } from '@/components/expiry-reminders'
 import { PartnerPayReminders } from '@/components/partner-pay-reminders'
+import { TransactionDetail } from '@/components/transaction-detail'
 import { TransactionRow, type TxRow } from '@/components/transaction-list'
 import { TransactionSwipeRow } from '@/components/transaction-swipe-row'
 import type { AccountOpt } from '@/components/transaction-form'
@@ -122,6 +124,7 @@ export function ActivityClient({
   const router = useRouter()
   const [sheet, setSheet] = useState<Sheet>(null)
   const [openRow, setOpenRow] = useState<string | null>(null)
+  const [selected, setSelected] = useState<TxRow | null>(null)
   const storedMonth = useActivityFilters((s) => s.month)
   const kind = useActivityFilters((s) => s.kind)
   const range = useActivityFilters((s) => s.range)
@@ -446,7 +449,12 @@ export function ActivityClient({
         <ul className="space-y-2">
           {filtered.map((t) =>
             t.locked ? (
-              <TransactionRow key={t.id} t={t} cats={cats} />
+              <TransactionRow
+                key={t.id}
+                t={t}
+                cats={cats}
+                onSelect={() => setSelected(t)}
+              />
             ) : (
               <TransactionSwipeRow
                 key={t.id}
@@ -455,11 +463,16 @@ export function ActivityClient({
                 cats={cats}
                 open={openRow === t.id}
                 onOpenChange={(o) => setOpenRow(o ? t.id : null)}
+                onSelect={() => setSelected(t)}
               />
             ),
           )}
         </ul>
       )}
+
+      <BottomSheet open={selected !== null} onOpenChange={(o) => !o && setSelected(null)}>
+        {selected && <TransactionDetail t={selected} cats={cats} />}
+      </BottomSheet>
 
       <Dialog open={sheet !== null} onOpenChange={(o) => !o && close()}>
         <DialogContent>
